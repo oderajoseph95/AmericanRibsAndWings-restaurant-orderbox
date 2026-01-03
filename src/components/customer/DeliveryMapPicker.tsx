@@ -35,7 +35,7 @@ interface DeliveryMapPickerProps {
     city: string;
     address: string;
   }) => void;
-  onFeeCalculated: (fee: number, distance: number) => void;
+  onFeeCalculated: (fee: number, distance: number, eta?: string, travelMinutes?: number) => void;
   onCalculating: (calculating: boolean) => void;
   streetAddress: string;
   onStreetAddressChange: (value: string) => void;
@@ -543,7 +543,7 @@ export function DeliveryMapPicker({
         : `${barangay}, ${selectedCity}`;
       
       setCalculatedAddress(displayAddress);
-      onFeeCalculated(data.deliveryFee, data.distanceKm);
+      onFeeCalculated(data.deliveryFee, data.distanceKm, data.etaRange, data.travelMinutes);
       onLocationSelect({
         lat: customerCoords.lat,
         lng: customerCoords.lng,
@@ -557,7 +557,8 @@ export function DeliveryMapPicker({
         deliveryFee: data.deliveryFee,
       });
 
-      toast.success(`Delivery fee: ₱${data.deliveryFee} (${data.distanceKm} km driving distance)`);
+      // Show billable km in toast for transparency
+      toast.success(`Delivery fee: ₱${data.deliveryFee} (${data.billableKm} km billed) • ETA: ${data.etaRange}`);
     } catch (error) {
       console.error("Error calculating delivery:", error);
       setErrorMessage("Failed to calculate delivery fee. Please try again.");

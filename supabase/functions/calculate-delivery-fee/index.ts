@@ -140,41 +140,59 @@ serve(async (req) => {
     }
 
     const distanceMeters = routesData.routes[0].distanceMeters;
-    const distanceKm = distanceMeters / 1000;
+    const rawDistanceKm = distanceMeters / 1000;
     const encodedPolyline = routesData.routes[0].polyline?.encodedPolyline;
+    
+    // Extract duration from Google Routes API response
+    const durationStr = routesData.routes[0].duration; // e.g., "1512s"
+    const durationSeconds = parseInt(durationStr?.replace('s', '') || '0', 10);
 
     // Check maximum delivery distance
-    if (distanceKm > MAX_DELIVERY_DISTANCE_KM) {
-      console.log('Distance exceeds maximum:', distanceKm);
+    if (rawDistanceKm > MAX_DELIVERY_DISTANCE_KM) {
+      console.log('Distance exceeds maximum:', rawDistanceKm);
       return new Response(
         JSON.stringify({ 
-          error: `Sorry, this location is ${distanceKm.toFixed(1)} km away. We only deliver within ${MAX_DELIVERY_DISTANCE_KM} km of our restaurant.`,
-          distanceKm: parseFloat(distanceKm.toFixed(1)),
+          error: `Sorry, this location is ${rawDistanceKm.toFixed(1)} km away. We only deliver within ${MAX_DELIVERY_DISTANCE_KM} km of our restaurant.`,
+          distanceKm: parseFloat(rawDistanceKm.toFixed(1)),
         }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
     
-    // Calculate fee: ₱39 for first 3km, then ₱15 per additional km (rounded up)
+    // Floor the distance for billing (13.2 km → 13 km billable)
+    const billableKm = Math.floor(rawDistanceKm);
+    
+    // Calculate fee: ₱39 for first 3km, then ₱15 per additional km (no rounding up)
     let deliveryFee: number;
     let additionalKm = 0;
 
-    if (distanceKm <= FREE_KM) {
+    if (billableKm <= FREE_KM) {
       // Within 3km = flat ₱39
       deliveryFee = BASE_FEE;
     } else {
-      // Beyond 3km = ₱39 + ₱15 per additional km (rounded up)
-      additionalKm = Math.ceil(distanceKm - FREE_KM);
+      // Beyond 3km = ₱39 + ₱15 per additional km
+      additionalKm = billableKm - FREE_KM;
       deliveryFee = BASE_FEE + (additionalKm * ADDITIONAL_RATE);
     }
 
+    // Calculate ETA: prep time (30 min) + travel time (ceil to nearest minute)
+    const PREP_TIME_MINUTES = 30;
+    const travelMinutes = Math.ceil(durationSeconds / 60);
+    const etaMinutes = PREP_TIME_MINUTES + travelMinutes;
+    const etaRange = `${etaMinutes}-${etaMinutes + 5} minutes`;
+
     console.log('Delivery fee calculation:', { 
-      distanceKm: distanceKm.toFixed(1),
+      rawDistanceKm: rawDistanceKm.toFixed(1),
+      billableKm,
       baseKm: FREE_KM,
       additionalKm,
       baseFee: BASE_FEE,
       additionalFee: additionalKm * ADDITIONAL_RATE,
       totalFee: deliveryFee,
+      durationSeconds,
+      travelMinutes,
+      etaMinutes,
+      etaRange,
       restaurantCoords: RESTAURANT_COORDS,
       customerCoords: { lat: finalLat, lng: finalLng },
       barangay,
@@ -183,11 +201,15 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify({
-        distanceKm: parseFloat(distanceKm.toFixed(1)),
+        distanceKm: parseFloat(rawDistanceKm.toFixed(1)),
+        billableKm,
         deliveryFee,
+        travelMinutes,
+        etaMinutes,
+        etaRange,
         customerCoords: { lat: finalLat, lng: finalLng },
         restaurantCoords: RESTAURANT_COORDS,
-        encodedPolyline, // Google's encoded polyline (can be decoded on frontend if needed)
+        encodedPolyline,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
