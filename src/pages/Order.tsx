@@ -248,7 +248,7 @@ const Order = () => {
                 )}
               </Button>
             </SheetTrigger>
-            <SheetContent side="right" className="w-full sm:max-w-md p-0">
+            <SheetContent side="right" className="w-full sm:max-w-md p-0" onInteractOutside={(e) => e.preventDefault()}>
               <SheetHeader className="p-4 border-b">
                 <SheetTitle>Your Cart ({cartItemCount})</SheetTitle>
               </SheetHeader>
