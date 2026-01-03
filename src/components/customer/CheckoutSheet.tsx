@@ -15,12 +15,16 @@ import { Separator } from "@/components/ui/separator";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Upload, X, Check, Package, Truck, CalendarIcon, MapPin } from "lucide-react";
+import { Loader2, Upload, X, Check, Package, Truck, CalendarIcon, MapPin, User, CreditCard, ClipboardList, Bike } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { DeliveryMapPicker } from "./DeliveryMapPicker";
+import { AccordionSection } from "./checkout/AccordionSection";
+import { DeliveryHeroCard } from "./checkout/DeliveryHeroCard";
+import { CompactOrderSummary } from "./checkout/CompactOrderSummary";
 import type { CartItem, OrderType } from "@/pages/Order";
+
 const checkoutSchema = z.object({
   orderType: z.enum(["pickup", "delivery"]),
   pickupDate: z.date().optional(),
@@ -76,7 +80,10 @@ const checkoutSchema = z.object({
     }
   }
 });
+
 type CheckoutFormData = z.infer<typeof checkoutSchema>;
+type SectionId = "order-type" | "pickup-schedule" | "delivery-address" | "delivery-fee" | "customer-info" | "payment" | "review";
+
 interface CheckoutSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -85,20 +92,16 @@ interface CheckoutSheetProps {
   onOrderConfirmed: (orderNumber: string, orderId: string, orderType: OrderType, pickupDate?: string, pickupTime?: string) => void;
 }
 
-// Generate time slots from 10 AM to 9 PM in 30-minute intervals
 function generateTimeSlots(selectedDate: Date | undefined): string[] {
   const slots: string[] = [];
   const now = new Date();
   const isSelectedToday = selectedDate && isToday(selectedDate);
   for (let hour = 10; hour <= 21; hour++) {
-    for (let minute of [0, 30]) {
-      // Skip 9:30 PM
+    for (const minute of [0, 30]) {
       if (hour === 21 && minute === 30) continue;
       const slotTime = setMinutes(setHours(new Date(), hour), minute);
-
-      // If today, skip times that have already passed (+ 1 hour buffer)
       if (isSelectedToday) {
-        const bufferTime = new Date(now.getTime() + 60 * 60 * 1000); // 1 hour from now
+        const bufferTime = new Date(now.getTime() + 60 * 60 * 1000);
         if (isBefore(slotTime, bufferTime)) continue;
       }
       const timeStr = format(slotTime, "h:mm a");
@@ -107,6 +110,7 @@ function generateTimeSlots(selectedDate: Date | undefined): string[] {
   }
   return slots;
 }
+
 export function CheckoutSheet({
   open,
   onOpenChange,
@@ -123,6 +127,12 @@ export function CheckoutSheet({
   const [deliveryEta, setDeliveryEta] = useState<string | null>(null);
   const [travelMinutes, setTravelMinutes] = useState<number | null>(null);
   const [barangay, setBarangay] = useState("");
+  const [geocodedAddress, setGeocodedAddress] = useState<string>("");
+  
+  // Accordion state
+  const [activeSection, setActiveSection] = useState<SectionId>("order-type");
+  const [completedSections, setCompletedSections] = useState<Set<SectionId>>(new Set());
+
   const form = useForm<CheckoutFormData>({
     resolver: zodResolver(checkoutSchema),
     defaultValues: {
@@ -137,12 +147,15 @@ export function CheckoutSheet({
       paymentMethod: "cash"
     }
   });
+
   const paymentMethod = form.watch("paymentMethod");
   const orderType = form.watch("orderType");
   const pickupDate = form.watch("pickupDate");
+  const pickupTime = form.watch("pickupTime");
   const streetAddress = form.watch("streetAddress");
   const city = form.watch("city");
-  const [geocodedAddress, setGeocodedAddress] = useState<string>("");
+  const customerName = form.watch("name");
+  const customerPhone = form.watch("phone");
 
   // Reset delivery fee when switching order type
   useEffect(() => {
@@ -152,10 +165,52 @@ export function CheckoutSheet({
       setDeliveryEta(null);
       setTravelMinutes(null);
       setBarangay("");
+      // Auto-advance to pickup schedule
+      setActiveSection("pickup-schedule");
+      setCompletedSections(prev => new Set([...prev, "order-type"]));
+    } else {
+      // Auto-advance to delivery address
+      setActiveSection("delivery-address");
+      setCompletedSections(prev => new Set([...prev, "order-type"]));
     }
   }, [orderType]);
 
-  // Handle location selection from map picker
+  // Auto-advance when delivery fee is calculated
+  useEffect(() => {
+    if (deliveryFee !== null && deliveryFee >= 0) {
+      setCompletedSections(prev => new Set([...prev, "delivery-address"]));
+      setActiveSection("delivery-fee");
+    }
+  }, [deliveryFee]);
+
+  // Auto-advance when pickup schedule is complete
+  useEffect(() => {
+    if (pickupDate && pickupTime) {
+      setCompletedSections(prev => new Set([...prev, "pickup-schedule"]));
+    }
+  }, [pickupDate, pickupTime]);
+
+  // Auto-advance when customer info is complete
+  useEffect(() => {
+    if (customerName && customerName.length >= 2 && customerPhone && customerPhone.length >= 10) {
+      setCompletedSections(prev => new Set([...prev, "customer-info"]));
+    }
+  }, [customerName, customerPhone]);
+
+  // Auto-advance when payment is complete
+  useEffect(() => {
+    const isPaymentComplete = paymentMethod === "cash" || paymentProof !== null;
+    if (isPaymentComplete) {
+      setCompletedSections(prev => new Set([...prev, "payment"]));
+    } else {
+      setCompletedSections(prev => {
+        const newSet = new Set(prev);
+        newSet.delete("payment");
+        return newSet;
+      });
+    }
+  }, [paymentMethod, paymentProof]);
+
   const handleLocationSelect = (data: {
     lat: number;
     lng: number;
@@ -167,15 +222,18 @@ export function CheckoutSheet({
     form.setValue("city", data.city);
     setGeocodedAddress(data.address);
   };
+
   const handleFeeCalculated = (fee: number, distance: number, eta?: string, travel?: number) => {
     setDeliveryFee(fee);
     setDeliveryDistance(distance);
     setDeliveryEta(eta || null);
     setTravelMinutes(travel || null);
   };
+
   const handleCalculating = (calculating: boolean) => {
     setIsCalculatingFee(calculating);
   };
+
   const handlePaymentProofChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -189,12 +247,45 @@ export function CheckoutSheet({
       reader.readAsDataURL(file);
     }
   };
+
   const clearPaymentProof = () => {
     setPaymentProof(null);
     setPaymentProofPreview(null);
   };
+
   const timeSlots = generateTimeSlots(pickupDate);
   const grandTotal = total + (deliveryFee || 0);
+
+  const getSectionSummary = (sectionId: SectionId): string => {
+    switch (sectionId) {
+      case "order-type":
+        return orderType === "delivery" ? "Delivery" : "Pickup";
+      case "pickup-schedule":
+        return pickupDate && pickupTime 
+          ? `${format(pickupDate, "MMM d")} at ${pickupTime}`
+          : "Select date & time";
+      case "delivery-address":
+        return barangay && city 
+          ? `${barangay}, ${city}`
+          : "Enter your address";
+      case "delivery-fee":
+        return deliveryFee !== null
+          ? `₱${deliveryFee} • ETA ${deliveryEta || "calculating..."}`
+          : "Calculate delivery fee";
+      case "customer-info":
+        return customerName && customerPhone
+          ? `${customerName.split(" ")[0]} • ${customerPhone}`
+          : "Enter your details";
+      case "payment":
+        if (paymentMethod === "cash") return "Cash on Delivery";
+        return `${paymentMethod.toUpperCase()}${paymentProof ? " (Uploaded)" : ""}`;
+      case "review":
+        return `₱${grandTotal.toFixed(2)} total`;
+      default:
+        return "";
+    }
+  };
+
   const onSubmit = async (data: CheckoutFormData) => {
     if ((data.paymentMethod === "gcash" || data.paymentMethod === "bank") && !paymentProof) {
       toast.error("Please upload payment proof for this payment method.");
@@ -206,21 +297,17 @@ export function CheckoutSheet({
     }
     setIsSubmitting(true);
     try {
-      // 1. Create or find customer
-      const {
-        data: customer,
-        error: customerError
-      } = await supabase.from("customers").insert({
+      const { data: customer, error: customerError } = await supabase.from("customers").insert({
         name: data.name.trim(),
         phone: data.phone.trim(),
         email: data.email?.trim() || null
       }).select().single();
       if (customerError) throw customerError;
 
-      // Build delivery address string (include barangay)
-      const deliveryAddress = data.orderType === "delivery" ? `${data.streetAddress}, ${barangay}, ${data.city}, Pampanga${data.landmark ? ` (Landmark: ${data.landmark})` : ""} [GPS: ${data.customerLat?.toFixed(5)}, ${data.customerLng?.toFixed(5)}]` : null;
+      const deliveryAddress = data.orderType === "delivery" 
+        ? `${data.streetAddress}, ${barangay}, ${data.city}, Pampanga${data.landmark ? ` (Landmark: ${data.landmark})` : ""} [GPS: ${data.customerLat?.toFixed(5)}, ${data.customerLng?.toFixed(5)}]` 
+        : null;
 
-      // 2. Create order
       const orderData = {
         customer_id: customer.id,
         order_type: data.orderType as OrderType,
@@ -234,13 +321,10 @@ export function CheckoutSheet({
         pickup_time: data.orderType === "pickup" && data.pickupTime ? data.pickupTime : null,
         internal_notes: data.notes || null
       };
-      const {
-        data: order,
-        error: orderError
-      } = await supabase.from("orders").insert(orderData).select().single();
+
+      const { data: order, error: orderError } = await supabase.from("orders").insert(orderData).select().single();
       if (orderError) throw orderError;
 
-      // 3. Create order items
       for (const item of cart) {
         const orderItemData = {
           order_id: order.id,
@@ -253,13 +337,9 @@ export function CheckoutSheet({
           flavor_surcharge_total: item.flavors?.reduce((sum, f) => sum + f.surcharge * f.quantity, 0) || 0,
           line_total: item.lineTotal
         };
-        const {
-          data: orderItem,
-          error: itemError
-        } = await supabase.from("order_items").insert(orderItemData).select().single();
+        const { data: orderItem, error: itemError } = await supabase.from("order_items").insert(orderItemData).select().single();
         if (itemError) throw itemError;
 
-        // 4. Create order item flavors
         if (item.flavors && item.flavors.length > 0) {
           const flavorInserts = item.flavors.map(f => ({
             order_item_id: orderItem.id,
@@ -268,40 +348,38 @@ export function CheckoutSheet({
             quantity: f.quantity,
             surcharge_applied: f.surcharge
           }));
-          const {
-            error: flavorError
-          } = await supabase.from("order_item_flavors").insert(flavorInserts);
+          const { error: flavorError } = await supabase.from("order_item_flavors").insert(flavorInserts);
           if (flavorError) throw flavorError;
         }
       }
 
-      // 5. Upload payment proof if present
       if (paymentProof) {
         const fileExt = paymentProof.name.split(".").pop();
         const fileName = `${order.id}.${fileExt}`;
-        const {
-          error: uploadError
-        } = await supabase.storage.from("payment-proofs").upload(fileName, paymentProof);
+        const { error: uploadError } = await supabase.storage.from("payment-proofs").upload(fileName, paymentProof);
         if (uploadError) throw uploadError;
-        const {
-          data: urlData
-        } = supabase.storage.from("payment-proofs").getPublicUrl(fileName);
+        const { data: urlData } = supabase.storage.from("payment-proofs").getPublicUrl(fileName);
         await supabase.from("payment_proofs").insert({
           order_id: order.id,
           image_url: urlData.publicUrl
         });
-
-        // Update order status to for_verification
-        await supabase.from("orders").update({
-          status: "for_verification"
-        }).eq("id", order.id);
+        await supabase.from("orders").update({ status: "for_verification" }).eq("id", order.id);
       }
+
       toast.success("Order placed successfully!");
-      onOrderConfirmed(order.order_number || order.id, order.id, data.orderType as OrderType, data.pickupDate ? format(data.pickupDate, "MMMM d, yyyy") : undefined, data.pickupTime);
+      onOrderConfirmed(
+        order.order_number || order.id, 
+        order.id, 
+        data.orderType as OrderType, 
+        data.pickupDate ? format(data.pickupDate, "MMMM d, yyyy") : undefined, 
+        data.pickupTime
+      );
       form.reset();
       clearPaymentProof();
       setDeliveryFee(null);
       setDeliveryDistance(null);
+      setActiveSection("order-type");
+      setCompletedSections(new Set());
     } catch (error: any) {
       console.error("Checkout error:", error);
       toast.error(error.message || "Failed to place order. Please try again.");
@@ -309,7 +387,9 @@ export function CheckoutSheet({
       setIsSubmitting(false);
     }
   };
-  return <Sheet open={open} onOpenChange={onOpenChange}>
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full sm:max-w-lg p-0">
         <SheetHeader className="p-4 border-b">
           <SheetTitle>Checkout</SheetTitle>
@@ -317,114 +397,120 @@ export function CheckoutSheet({
 
         <ScrollArea className="h-[calc(100vh-80px)]">
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="p-4 space-y-6">
-              {/* Order summary */}
-              <div className="bg-muted/50 rounded-lg p-4">
-                <h3 className="font-medium mb-2">Order Summary</h3>
-                <div className="space-y-1 text-sm">
-                  {cart.map(item => <div key={item.id} className="flex justify-between">
-                      <span className="text-muted-foreground">
-                        {item.quantity}x {item.product.name}
-                      </span>
-                      <span>₱{item.lineTotal.toFixed(2)}</span>
-                    </div>)}
-                </div>
-                <Separator className="my-2" />
-                <div className="flex justify-between text-sm">
-                  <span>Subtotal</span>
-                  <span>₱{total.toFixed(2)}</span>
-                </div>
-                {orderType === "delivery" && <>
-                  <div className="flex justify-between text-sm">
-                    <span>
-                      Delivery Fee
-                      {deliveryDistance && ` (${deliveryDistance} km)`}
-                    </span>
-                    {isCalculatingFee ? <span className="flex items-center gap-1 text-muted-foreground">
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                        Calculating...
-                      </span> : deliveryFee !== null ? <span>₱{deliveryFee.toFixed(2)}</span> : <span className="text-muted-foreground">--</span>}
-                  </div>
-                  {deliveryEta && (
-                    <div className="flex justify-between text-sm">
-                      <span>Estimated Delivery</span>
-                      <span className="text-muted-foreground">{deliveryEta}</span>
-                    </div>
-                  )}
-                  {travelMinutes !== null && deliveryEta && (
-                    <div className="text-xs text-muted-foreground text-right">
-                      30 min prep + ~{travelMinutes} min travel
-                    </div>
-                  )}
-                </>}
-                <Separator className="my-2" />
-                <div className="flex justify-between font-semibold">
-                  <span>Total</span>
-                  <span className="text-primary">₱{grandTotal.toFixed(2)}</span>
-                </div>
-              </div>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="p-4 space-y-3">
+              {/* Compact Order Summary */}
+              <CompactOrderSummary 
+                cart={cart} 
+                subtotal={total} 
+                deliveryFee={deliveryFee} 
+                grandTotal={grandTotal} 
+              />
 
-              {/* Order type selection */}
-              <div className="space-y-4">
-                <h3 className="font-medium">Order Type</h3>
-                <FormField control={form.control} name="orderType" render={({
-                field
-              }) => <FormItem>
+              {/* Section 1: Order Type */}
+              <AccordionSection
+                id="order-type"
+                title="Order Type"
+                icon={<Package className="h-4 w-4" />}
+                summary={getSectionSummary("order-type")}
+                isActive={activeSection === "order-type"}
+                isCompleted={completedSections.has("order-type")}
+                onToggle={() => setActiveSection("order-type")}
+              >
+                <FormField 
+                  control={form.control} 
+                  name="orderType" 
+                  render={({ field }) => (
+                    <FormItem>
                       <FormControl>
-                        <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
+                        <RadioGroup 
+                          onValueChange={field.onChange} 
+                          value={field.value} 
+                          className="grid grid-cols-2 gap-2"
+                        >
                           <div>
                             <RadioGroupItem value="pickup" id="pickup" className="peer sr-only" />
-                            <Label htmlFor="pickup" className="flex flex-col items-center justify-center rounded-lg border-2 border-muted bg-popover p-3 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer">
+                            <Label 
+                              htmlFor="pickup" 
+                              className="flex flex-col items-center justify-center rounded-lg border-2 border-muted bg-popover p-3 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary cursor-pointer"
+                            >
                               <Package className="h-5 w-5 mb-1" />
                               <span className="text-xs font-medium">Pickup</span>
                             </Label>
                           </div>
                           <div>
                             <RadioGroupItem value="delivery" id="delivery" className="peer sr-only" />
-                            <Label htmlFor="delivery" className="flex flex-col items-center justify-center rounded-lg border-2 border-muted bg-popover p-3 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer">
+                            <Label 
+                              htmlFor="delivery" 
+                              className="flex flex-col items-center justify-center rounded-lg border-2 border-muted bg-popover p-3 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary cursor-pointer"
+                            >
                               <Truck className="h-5 w-5 mb-1" />
                               <span className="text-xs font-medium">Delivery</span>
                             </Label>
                           </div>
                         </RadioGroup>
                       </FormControl>
-                    </FormItem>} />
-              </div>
+                    </FormItem>
+                  )} 
+                />
+              </AccordionSection>
 
-              {/* Pickup date/time selection */}
-              {orderType === "pickup" && <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
-                  <h3 className="font-medium">Pickup Schedule</h3>
-                  <p className="text-sm text-muted-foreground">
-                    You can schedule pickup up to 3 days in advance.
+              {/* Section 2a: Pickup Schedule (only for pickup) */}
+              {orderType === "pickup" && (
+                <AccordionSection
+                  id="pickup-schedule"
+                  title="Pickup Schedule"
+                  icon={<CalendarIcon className="h-4 w-4" />}
+                  summary={getSectionSummary("pickup-schedule")}
+                  isActive={activeSection === "pickup-schedule"}
+                  isCompleted={completedSections.has("pickup-schedule")}
+                  onToggle={() => setActiveSection("pickup-schedule")}
+                >
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Schedule pickup up to 3 days in advance.
                   </p>
 
-                  <FormField control={form.control} name="pickupDate" render={({
-                field
-              }) => <FormItem className="flex flex-col">
+                  <FormField 
+                    control={form.control} 
+                    name="pickupDate" 
+                    render={({ field }) => (
+                      <FormItem className="flex flex-col">
                         <FormLabel>Pickup Date *</FormLabel>
                         <Popover>
                           <PopoverTrigger asChild>
                             <FormControl>
-                              <Button variant="outline" className={cn("w-full pl-3 text-left font-normal", !field.value && "text-muted-foreground")}>
+                              <Button 
+                                variant="outline" 
+                                className={cn("w-full pl-3 text-left font-normal", !field.value && "text-muted-foreground")}
+                              >
                                 {field.value ? format(field.value, "PPP") : <span>Select pickup date</span>}
                                 <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                               </Button>
                             </FormControl>
                           </PopoverTrigger>
                           <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar mode="single" selected={field.value} onSelect={date => {
-                      field.onChange(date);
-                      // Reset time when date changes
-                      form.setValue("pickupTime", undefined);
-                    }} disabled={date => isBefore(date, startOfDay(new Date())) || isBefore(addDays(new Date(), 3), date)} initialFocus className={cn("p-3 pointer-events-auto")} />
+                            <Calendar 
+                              mode="single" 
+                              selected={field.value} 
+                              onSelect={date => {
+                                field.onChange(date);
+                                form.setValue("pickupTime", undefined);
+                              }} 
+                              disabled={date => isBefore(date, startOfDay(new Date())) || isBefore(addDays(new Date(), 3), date)} 
+                              initialFocus 
+                              className={cn("p-3 pointer-events-auto")} 
+                            />
                           </PopoverContent>
                         </Popover>
                         <FormMessage />
-                      </FormItem>} />
+                      </FormItem>
+                    )} 
+                  />
 
-                  <FormField control={form.control} name="pickupTime" render={({
-                field
-              }) => <FormItem>
+                  <FormField 
+                    control={form.control} 
+                    name="pickupTime" 
+                    render={({ field }) => (
+                      <FormItem>
                         <FormLabel>Pickup Time *</FormLabel>
                         <Select onValueChange={field.onChange} value={field.value} disabled={!pickupDate}>
                           <FormControl>
@@ -433,88 +519,192 @@ export function CheckoutSheet({
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {timeSlots.length > 0 ? timeSlots.map(slot => <SelectItem key={slot} value={slot}>
-                                  {slot}
-                                </SelectItem>) : <SelectItem value="none" disabled>
-                                No slots available for today
-                              </SelectItem>}
+                            {timeSlots.length > 0 ? timeSlots.map(slot => (
+                              <SelectItem key={slot} value={slot}>{slot}</SelectItem>
+                            )) : (
+                              <SelectItem value="none" disabled>No slots available for today</SelectItem>
+                            )}
                           </SelectContent>
                         </Select>
                         <FormMessage />
-                      </FormItem>} />
-                </div>}
+                      </FormItem>
+                    )} 
+                  />
 
-              {/* Delivery address with map picker */}
-              {orderType === "delivery" && <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
-                  <h3 className="font-medium">Delivery Address</h3>
+                  {pickupDate && pickupTime && (
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      size="sm" 
+                      className="w-full mt-2"
+                      onClick={() => setActiveSection("customer-info")}
+                    >
+                      Continue
+                    </Button>
+                  )}
+                </AccordionSection>
+              )}
+
+              {/* Section 2b: Delivery Address (only for delivery) */}
+              {orderType === "delivery" && (
+                <AccordionSection
+                  id="delivery-address"
+                  title="Delivery Address"
+                  icon={<MapPin className="h-4 w-4" />}
+                  summary={getSectionSummary("delivery-address")}
+                  isActive={activeSection === "delivery-address"}
+                  isCompleted={completedSections.has("delivery-address")}
+                  onToggle={() => setActiveSection("delivery-address")}
+                >
+                  <DeliveryMapPicker 
+                    onLocationSelect={handleLocationSelect} 
+                    onFeeCalculated={handleFeeCalculated} 
+                    onCalculating={handleCalculating} 
+                    streetAddress={streetAddress || ""} 
+                    onStreetAddressChange={value => form.setValue("streetAddress", value)} 
+                    barangay={barangay} 
+                    onBarangayChange={setBarangay} 
+                    landmark={form.watch("landmark") || ""} 
+                    onLandmarkChange={value => form.setValue("landmark", value)} 
+                  />
+
+                  {isCalculatingFee && (
+                    <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
+                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                      <span className="text-sm">Calculating delivery fee...</span>
+                    </div>
+                  )}
+                </AccordionSection>
+              )}
+
+              {/* Section 3: Delivery Fee & ETA - HERO (only for delivery after calculation) */}
+              {orderType === "delivery" && deliveryFee !== null && deliveryDistance !== null && (
+                <AccordionSection
+                  id="delivery-fee"
+                  title="Delivery Fee & ETA"
+                  icon={<Bike className="h-4 w-4" />}
+                  summary={getSectionSummary("delivery-fee")}
+                  isActive={activeSection === "delivery-fee"}
+                  isCompleted={completedSections.has("delivery-fee")}
+                  onToggle={() => setActiveSection("delivery-fee")}
+                  variant="hero"
+                >
+                  <DeliveryHeroCard 
+                    distance={deliveryDistance} 
+                    fee={deliveryFee} 
+                    eta={deliveryEta || "Calculating..."} 
+                    travelMinutes={travelMinutes || 0} 
+                  />
                   
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    size="sm" 
+                    className="w-full mt-2"
+                    onClick={() => {
+                      setCompletedSections(prev => new Set([...prev, "delivery-fee"]));
+                      setActiveSection("customer-info");
+                    }}
+                  >
+                    Continue
+                  </Button>
+                </AccordionSection>
+              )}
 
-                  <DeliveryMapPicker onLocationSelect={handleLocationSelect} onFeeCalculated={handleFeeCalculated} onCalculating={handleCalculating} streetAddress={streetAddress || ""} onStreetAddressChange={value => form.setValue("streetAddress", value)} barangay={barangay} onBarangayChange={setBarangay} landmark={form.watch("landmark") || ""} onLandmarkChange={value => form.setValue("landmark", value)} />
-
-                  {/* Delivery fee display */}
-                  {(isCalculatingFee || deliveryFee !== null) && <div className="flex items-center gap-2 p-3 bg-primary/10 rounded-lg">
-                      <MapPin className="h-4 w-4 text-primary" />
-                      {isCalculatingFee ? <span className="text-sm flex items-center gap-2">
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                          Calculating delivery fee...
-                        </span> : deliveryFee !== null && <span className="text-sm">
-                          <span className="font-medium">{deliveryDistance} km</span> - Delivery fee: <span className="font-semibold text-primary">₱{deliveryFee.toFixed(2)}</span>
-                        </span>}
-                    </div>}
-                </div>}
-
-              {/* Customer info */}
-              <div className="space-y-4">
-                <h3 className="font-medium">Customer Information</h3>
-
-                <FormField control={form.control} name="name" render={({
-                field
-              }) => <FormItem>
+              {/* Section 4: Customer Information */}
+              <AccordionSection
+                id="customer-info"
+                title="Customer Information"
+                icon={<User className="h-4 w-4" />}
+                summary={getSectionSummary("customer-info")}
+                isActive={activeSection === "customer-info"}
+                isCompleted={completedSections.has("customer-info")}
+                onToggle={() => setActiveSection("customer-info")}
+              >
+                <FormField 
+                  control={form.control} 
+                  name="name" 
+                  render={({ field }) => (
+                    <FormItem>
                       <FormLabel>Name *</FormLabel>
                       <FormControl>
                         <Input placeholder="Your name" {...field} />
                       </FormControl>
                       <FormMessage />
-                    </FormItem>} />
+                    </FormItem>
+                  )} 
+                />
 
-                <FormField control={form.control} name="phone" render={({
-                field
-              }) => <FormItem>
+                <FormField 
+                  control={form.control} 
+                  name="phone" 
+                  render={({ field }) => (
+                    <FormItem>
                       <FormLabel>Phone *</FormLabel>
                       <FormControl>
                         <Input placeholder="09XX XXX XXXX" {...field} />
                       </FormControl>
                       <FormMessage />
-                    </FormItem>} />
+                    </FormItem>
+                  )} 
+                />
 
-                <FormField control={form.control} name="email" render={({
-                field
-              }) => <FormItem>
+                <FormField 
+                  control={form.control} 
+                  name="email" 
+                  render={({ field }) => (
+                    <FormItem>
                       <FormLabel>Email (optional)</FormLabel>
                       <FormControl>
                         <Input type="email" placeholder="your@email.com" {...field} />
                       </FormControl>
                       <FormMessage />
-                    </FormItem>} />
+                    </FormItem>
+                  )} 
+                />
 
-                <FormField control={form.control} name="notes" render={({
-                field
-              }) => <FormItem>
+                <FormField 
+                  control={form.control} 
+                  name="notes" 
+                  render={({ field }) => (
+                    <FormItem>
                       <FormLabel>Order Notes (optional)</FormLabel>
                       <FormControl>
                         <Textarea placeholder="Any special instructions..." {...field} />
                       </FormControl>
                       <FormMessage />
-                    </FormItem>} />
-              </div>
+                    </FormItem>
+                  )} 
+                />
 
-              {/* Payment method */}
-              <div className="space-y-4">
-                <h3 className="font-medium">Payment Method</h3>
+                {customerName && customerName.length >= 2 && customerPhone && customerPhone.length >= 10 && (
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    size="sm" 
+                    className="w-full mt-2"
+                    onClick={() => setActiveSection("payment")}
+                  >
+                    Continue
+                  </Button>
+                )}
+              </AccordionSection>
 
-                <FormField control={form.control} name="paymentMethod" render={({
-                field
-              }) => <FormItem>
+              {/* Section 5: Payment Method */}
+              <AccordionSection
+                id="payment"
+                title="Payment Method"
+                icon={<CreditCard className="h-4 w-4" />}
+                summary={getSectionSummary("payment")}
+                isActive={activeSection === "payment"}
+                isCompleted={completedSections.has("payment")}
+                onToggle={() => setActiveSection("payment")}
+              >
+                <FormField 
+                  control={form.control} 
+                  name="paymentMethod" 
+                  render={({ field }) => (
+                    <FormItem>
                       <FormControl>
                         <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="space-y-2">
                           <div className="flex items-center space-x-3 p-3 border rounded-lg cursor-pointer hover:bg-muted/50">
@@ -530,55 +720,118 @@ export function CheckoutSheet({
                             <RadioGroupItem value="gcash" id="gcash" />
                             <Label htmlFor="gcash" className="flex-1 cursor-pointer">
                               <span className="font-medium">GCash</span>
-                              <p className="text-xs text-muted-foreground">
-                                Upload payment screenshot
-                              </p>
+                              <p className="text-xs text-muted-foreground">Upload payment screenshot</p>
                             </Label>
                           </div>
                           <div className="flex items-center space-x-3 p-3 border rounded-lg cursor-pointer hover:bg-muted/50">
                             <RadioGroupItem value="bank" id="bank" />
                             <Label htmlFor="bank" className="flex-1 cursor-pointer">
                               <span className="font-medium">Bank Transfer</span>
-                              <p className="text-xs text-muted-foreground">
-                                Upload payment screenshot
-                              </p>
+                              <p className="text-xs text-muted-foreground">Upload payment screenshot</p>
                             </Label>
                           </div>
                         </RadioGroup>
                       </FormControl>
-                    </FormItem>} />
+                    </FormItem>
+                  )} 
+                />
 
-                {/* Payment proof upload */}
-                {(paymentMethod === "gcash" || paymentMethod === "bank") && <div className="space-y-2">
+                {(paymentMethod === "gcash" || paymentMethod === "bank") && (
+                  <div className="space-y-2">
                     <Label>Payment Proof *</Label>
-                    {paymentProofPreview ? <div className="relative">
-                        <img src={paymentProofPreview} alt="Payment proof" className="w-full h-48 object-cover rounded-lg border" />
-                        <Button type="button" variant="destructive" size="icon" className="absolute top-2 right-2 h-8 w-8" onClick={clearPaymentProof}>
-                          <X className="h-4 w-4" />
+                    {paymentProofPreview ? (
+                      <div className="relative">
+                        <img 
+                          src={paymentProofPreview} 
+                          alt="Payment proof" 
+                          className="w-full h-40 object-cover rounded-lg border" 
+                        />
+                        <Button 
+                          type="button" 
+                          variant="destructive" 
+                          size="icon" 
+                          className="absolute top-2 right-2 h-7 w-7" 
+                          onClick={clearPaymentProof}
+                        >
+                          <X className="h-3 w-3" />
                         </Button>
-                      </div> : <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
-                        <Upload className="h-8 w-8 text-muted-foreground mb-2" />
-                        <span className="text-sm text-muted-foreground">
-                          Click to upload screenshot
-                        </span>
+                      </div>
+                    ) : (
+                      <label className="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
+                        <Upload className="h-6 w-6 text-muted-foreground mb-1" />
+                        <span className="text-xs text-muted-foreground">Click to upload screenshot</span>
                         <input type="file" accept="image/*" className="hidden" onChange={handlePaymentProofChange} />
-                      </label>}
-                  </div>}
-              </div>
+                      </label>
+                    )}
+                  </div>
+                )}
 
-              {/* Submit */}
-              <Button type="submit" className="w-full" size="lg" disabled={isSubmitting || orderType === "delivery" && (isCalculatingFee || deliveryFee === null)}>
-                {isSubmitting ? <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Placing Order...
-                  </> : <>
-                    <Check className="h-4 w-4 mr-2" />
-                    Place Order · ₱{grandTotal.toFixed(2)}
-                  </>}
-              </Button>
+                {(paymentMethod === "cash" || paymentProof) && (
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    size="sm" 
+                    className="w-full mt-2"
+                    onClick={() => setActiveSection("review")}
+                  >
+                    Continue to Review
+                  </Button>
+                )}
+              </AccordionSection>
+
+              {/* Section 6: Review & Place Order */}
+              <AccordionSection
+                id="review"
+                title="Review & Place Order"
+                icon={<ClipboardList className="h-4 w-4" />}
+                summary={getSectionSummary("review")}
+                isActive={activeSection === "review"}
+                isCompleted={false}
+                onToggle={() => setActiveSection("review")}
+              >
+                <div className="space-y-3">
+                  <div className="bg-muted/50 rounded-lg p-3 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Subtotal</span>
+                      <span>₱{total.toFixed(2)}</span>
+                    </div>
+                    {deliveryFee !== null && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Delivery Fee ({deliveryDistance} km)</span>
+                        <span>₱{deliveryFee.toFixed(2)}</span>
+                      </div>
+                    )}
+                    <Separator />
+                    <div className="flex justify-between font-semibold">
+                      <span>Grand Total</span>
+                      <span className="text-primary text-lg">₱{grandTotal.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <Button 
+                    type="submit" 
+                    className="w-full" 
+                    size="lg" 
+                    disabled={isSubmitting || (orderType === "delivery" && (isCalculatingFee || deliveryFee === null))}
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Placing Order...
+                      </>
+                    ) : (
+                      <>
+                        <Check className="h-4 w-4 mr-2" />
+                        Place Order · ₱{grandTotal.toFixed(2)}
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </AccordionSection>
             </form>
           </Form>
         </ScrollArea>
       </SheetContent>
-    </Sheet>;
+    </Sheet>
+  );
 }
