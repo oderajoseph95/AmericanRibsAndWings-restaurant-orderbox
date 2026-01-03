@@ -732,6 +732,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_checkout_customer: {
+        Args: { p_email?: string; p_name: string; p_phone?: string }
+        Returns: string
+      }
       get_user_role: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]

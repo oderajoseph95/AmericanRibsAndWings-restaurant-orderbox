@@ -335,11 +335,12 @@ export function CheckoutSheet({
     }
     setIsSubmitting(true);
     try {
-      const { data: customer, error: customerError } = await supabase.from("customers").insert({
-        name: data.name.trim(),
-        phone: data.phone.trim(),
-        email: data.email?.trim() || null
-      }).select().single();
+      // Use secure RPC function for customer creation
+      const { data: customerId, error: customerError } = await supabase.rpc('create_checkout_customer', {
+        p_name: data.name.trim(),
+        p_email: data.email?.trim() || null,
+        p_phone: data.phone.trim()
+      });
       if (customerError) throw customerError;
 
       const deliveryAddress = data.orderType === "delivery" 
@@ -347,7 +348,7 @@ export function CheckoutSheet({
         : null;
 
       const orderData = {
-        customer_id: customer.id,
+        customer_id: customerId,
         order_type: data.orderType as OrderType,
         status: "pending" as const,
         subtotal: total,
