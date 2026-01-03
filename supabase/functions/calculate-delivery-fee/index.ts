@@ -19,22 +19,18 @@ const MAX_DELIVERY_DISTANCE_KM = 25; // Maximum delivery radius
 // Allowed delivery cities
 const ALLOWED_CITIES = ['Floridablanca', 'Lubao', 'Guagua', 'Porac'];
 
-// Note: We no longer validate Pampanga bounds here
-// The MAX_DELIVERY_DISTANCE check will catch locations that are too far
-// Frontend handles GPS validation before sending
-
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const MAPBOX_TOKEN = Deno.env.get('MAPBOX_ACCESS_TOKEN');
+    const GOOGLE_MAPS_API_KEY = Deno.env.get('GOOGLE_MAPS_API_KEY');
     
-    if (!MAPBOX_TOKEN) {
-      console.error('MAPBOX_ACCESS_TOKEN not configured');
+    if (!GOOGLE_MAPS_API_KEY) {
+      console.error('GOOGLE_MAPS_API_KEY not configured');
       return new Response(
-        JSON.stringify({ error: 'Mapbox API not configured' }),
+        JSON.stringify({ error: 'Google Maps API not configured' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -82,33 +78,56 @@ serve(async (req) => {
     let finalLng: number;
 
     if (customerLat && customerLng) {
-      // Direct coordinates provided - skip geocoding!
       finalLat = customerLat;
       finalLng = customerLng;
       console.log('Using direct coordinates:', { lat: finalLat, lng: finalLng });
     } else {
-      // Fallback: No coordinates provided - return error
-      // (In the new flow, coordinates should always be provided)
       return new Response(
         JSON.stringify({ error: 'Please select your location on the map' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Note: We skip strict Pampanga validation here
-    // The MAX_DELIVERY_DISTANCE check (25km) will catch locations that are too far
-    // Frontend handles GPS validation before sending coords
-    console.log('Coordinates received:', { lat: finalLat, lng: finalLng });
-
-    // Get driving distance using Mapbox Directions API
-    const directionsUrl = `https://api.mapbox.com/directions/v5/mapbox/driving/${RESTAURANT_COORDS.lng},${RESTAURANT_COORDS.lat};${finalLng},${finalLat}?access_token=${MAPBOX_TOKEN}&overview=full&geometries=geojson`;
+    // Get driving distance using Google Routes API
+    console.log('Getting driving distance from Google Routes API...');
     
-    console.log('Getting driving distance...');
-    const directionsResponse = await fetch(directionsUrl);
-    const directionsData = await directionsResponse.json();
+    const routesResponse = await fetch(
+      'https://routes.googleapis.com/directions/v2:computeRoutes',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
+          'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline',
+        },
+        body: JSON.stringify({
+          origin: {
+            location: {
+              latLng: {
+                latitude: RESTAURANT_COORDS.lat,
+                longitude: RESTAURANT_COORDS.lng,
+              },
+            },
+          },
+          destination: {
+            location: {
+              latLng: {
+                latitude: finalLat,
+                longitude: finalLng,
+              },
+            },
+          },
+          travelMode: 'DRIVE',
+          routingPreference: 'TRAFFIC_AWARE',
+        }),
+      }
+    );
 
-    if (!directionsData.routes || directionsData.routes.length === 0) {
-      console.error('No route found');
+    const routesData = await routesResponse.json();
+    console.log('Google Routes API response:', JSON.stringify(routesData));
+
+    if (!routesData.routes || routesData.routes.length === 0) {
+      console.error('No route found from Google Routes API:', routesData);
       return new Response(
         JSON.stringify({ 
           error: 'Unable to calculate route to your location. Please try adjusting the pin.',
@@ -118,9 +137,9 @@ serve(async (req) => {
       );
     }
 
-    const distanceMeters = directionsData.routes[0].distance;
+    const distanceMeters = routesData.routes[0].distanceMeters;
     const distanceKm = distanceMeters / 1000;
-    const routeGeometry = directionsData.routes[0].geometry;
+    const encodedPolyline = routesData.routes[0].polyline?.encodedPolyline;
 
     // Check maximum delivery distance
     if (distanceKm > MAX_DELIVERY_DISTANCE_KM) {
@@ -153,7 +172,7 @@ serve(async (req) => {
         deliveryFee,
         customerCoords: { lat: finalLat, lng: finalLng },
         restaurantCoords: RESTAURANT_COORDS,
-        routeGeometry,
+        encodedPolyline, // Google's encoded polyline (can be decoded on frontend if needed)
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
