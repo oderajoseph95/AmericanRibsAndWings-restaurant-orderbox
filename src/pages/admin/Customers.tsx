@@ -32,7 +32,25 @@ export default function Customers() {
         .select('*')
         .order('name');
       if (error) throw error;
-      return data;
+      
+      // Deduplicate customers by email (combine stats for duplicates)
+      const deduped = data.reduce((acc: Record<string, typeof data[0]>, customer) => {
+        const key = customer.email || customer.phone || customer.id;
+        if (!acc[key]) {
+          acc[key] = { ...customer };
+        } else {
+          // Merge stats into existing record
+          acc[key].total_orders = (acc[key].total_orders || 0) + (customer.total_orders || 0);
+          acc[key].total_spent = Number(acc[key].total_spent || 0) + Number(customer.total_spent || 0);
+          // Keep the most recent order date
+          if (customer.last_order_date && (!acc[key].last_order_date || customer.last_order_date > acc[key].last_order_date)) {
+            acc[key].last_order_date = customer.last_order_date;
+          }
+        }
+        return acc;
+      }, {});
+      
+      return Object.values(deduped);
     },
   });
 
