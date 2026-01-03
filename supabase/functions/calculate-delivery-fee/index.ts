@@ -55,7 +55,7 @@ serve(async (req) => {
 
     if (!barangay?.trim()) {
       return new Response(
-        JSON.stringify({ error: 'Please enter your barangay' }),
+        JSON.stringify({ error: 'Please select a barangay' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -77,7 +77,7 @@ serve(async (req) => {
       );
     }
 
-    // Build full address for geocoding (include barangay for better accuracy)
+    // Build full address for geocoding - use official barangay name for better accuracy
     const fullAddress = `${streetAddress}, ${barangay}, ${city}, Pampanga, Philippines`;
     const encodedAddress = encodeURIComponent(fullAddress);
 
@@ -93,7 +93,7 @@ serve(async (req) => {
       console.error('Address not found:', fullAddress);
       return new Response(
         JSON.stringify({ 
-          error: 'Could not find your address. Please check your barangay and street address.',
+          error: 'Could not find your address. Please verify your street address is correct.',
           address: fullAddress 
         }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -117,10 +117,10 @@ serve(async (req) => {
       );
     }
 
-    // Get driving distance using Mapbox Directions API
-    const directionsUrl = `https://api.mapbox.com/directions/v5/mapbox/driving/${RESTAURANT_COORDS.lng},${RESTAURANT_COORDS.lat};${geocodedLng},${geocodedLat}?access_token=${MAPBOX_TOKEN}&overview=false`;
+    // Get driving distance using Mapbox Directions API with route geometry
+    const directionsUrl = `https://api.mapbox.com/directions/v5/mapbox/driving/${RESTAURANT_COORDS.lng},${RESTAURANT_COORDS.lat};${geocodedLng},${geocodedLat}?access_token=${MAPBOX_TOKEN}&overview=full&geometries=geojson`;
     
-    console.log('Getting driving distance...');
+    console.log('Getting driving distance with route geometry...');
     const directionsResponse = await fetch(directionsUrl);
     const directionsData = await directionsResponse.json();
 
@@ -138,6 +138,7 @@ serve(async (req) => {
     // Distance in meters, convert to km
     const distanceMeters = directionsData.routes[0].distance;
     const distanceKm = distanceMeters / 1000;
+    const routeGeometry = directionsData.routes[0].geometry;
 
     // Check maximum delivery distance
     if (distanceKm > MAX_DELIVERY_DISTANCE_KM) {
@@ -172,6 +173,7 @@ serve(async (req) => {
         },
         restaurantCoords: RESTAURANT_COORDS,
         geocodedAddress: geocodeData.features[0].place_name,
+        routeGeometry, // Include route geometry for map display
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
