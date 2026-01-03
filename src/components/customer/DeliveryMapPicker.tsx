@@ -102,6 +102,7 @@ export function DeliveryMapPicker({
   const [mapLoaded, setMapLoaded] = useState(false);
   const [mapError, setMapError] = useState<string>("");
   const [googleLoaded, setGoogleLoaded] = useState(false);
+  const [apiKey, setApiKey] = useState<string>("");
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
@@ -115,17 +116,39 @@ export function DeliveryMapPicker({
   // Get barangays for selected city
   const availableBarangays = selectedCity ? getBarangaysByCity(selectedCity) : [];
 
-  // Initialize Google Maps API once
+  // Fetch Google Maps API key from edge function
   useEffect(() => {
-    if (mapsInitializedRef.current) return;
+    const fetchApiKey = async () => {
+      try {
+        console.log("Fetching Google Maps API key from edge function...");
+        const { data, error } = await supabase.functions.invoke("get-google-maps-key");
+        
+        if (error) {
+          console.error("Error fetching API key:", error);
+          setMapError("Failed to load map configuration. Please refresh.");
+          return;
+        }
+        
+        if (data?.apiKey) {
+          console.log("API key retrieved successfully");
+          setApiKey(data.apiKey);
+        } else {
+          console.error("No API key returned from edge function");
+          setMapError("Map API key not configured. Please contact support.");
+        }
+      } catch (err) {
+        console.error("Failed to fetch API key:", err);
+        setMapError("Failed to load map configuration.");
+      }
+    };
     
-    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-    if (!apiKey) {
-      console.error("VITE_GOOGLE_MAPS_API_KEY not configured in .env");
-      setMapError("Map API key not configured. Please contact support.");
-      return;
-    }
+    fetchApiKey();
+  }, []);
 
+  // Initialize Google Maps API once we have the key
+  useEffect(() => {
+    if (mapsInitializedRef.current || !apiKey) return;
+    
     mapsInitializedRef.current = true;
     
     // Set API options
@@ -148,7 +171,7 @@ export function DeliveryMapPicker({
       setMapError("Failed to load Google Maps. Please check your API key and enabled APIs.");
       mapsInitializedRef.current = false;
     });
-  }, []);
+  }, [apiKey]);
 
   // Initialize Places Autocomplete when Google is loaded and input is available
   useEffect(() => {
