@@ -270,7 +270,10 @@ const Order = () => {
         </div>
 
         {/* Category selector - Mobile dropdown */}
-        <div className="sm:hidden border-t border-border px-4 py-3">
+        <div className="sm:hidden border-t border-border px-4 py-3 space-y-2">
+          <label className="text-sm font-medium text-muted-foreground">
+            Filter by Category
+          </label>
           <Select 
             value={activeCategory} 
             onValueChange={(v) => setSearchParams({ category: v })}
