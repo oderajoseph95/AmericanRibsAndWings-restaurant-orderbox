@@ -128,12 +128,12 @@ export function BundleWizard({
 
   const getStepLabel = (componentName: string): string => {
     const lower = componentName.toLowerCase();
-    if (lower.includes("rib")) return "Ribs Flavor";
-    if (lower.includes("chicken") && !lower.includes("wing")) return "Chicken Flavor";
-    if (lower.includes("wing") || lower.includes("ala carte")) return "Wings Flavor";
-    if (lower.includes("fries") || lower.includes("fry")) return "Fries Flavor";
-    if (lower.includes("drink") || lower.includes("beverage")) return "Drink";
-    return "Flavor";
+    if (lower.includes("rib")) return "CHOOSE RIBS FLAVOR";
+    if (lower.includes("chicken") && !lower.includes("wing")) return "CHOOSE CHICKEN FLAVOR";
+    if (lower.includes("wing") || lower.includes("ala carte")) return "CHOOSE WINGS FLAVOR";
+    if (lower.includes("fries") || lower.includes("fry")) return "CHOOSE FRIES FLAVOR";
+    if (lower.includes("drink") || lower.includes("beverage")) return "CHOOSE YOUR DRINK";
+    return "CHOOSE FLAVOR";
   };
 
   return (
@@ -141,11 +141,9 @@ export function BundleWizard({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="text-xl">{product.name}</DialogTitle>
-          {currentComponent && (
-            <p className="text-sm text-muted-foreground">
-              Step {currentStep + 1} of {totalSteps}: Choose {getStepLabel(currentComponent.component_product.name)}
-            </p>
-          )}
+          <p className="text-sm text-muted-foreground">
+            Step {currentStep + 1} of {totalSteps}
+          </p>
         </DialogHeader>
 
         {/* Progress indicator */}
@@ -171,8 +169,11 @@ export function BundleWizard({
         ) : (
           <>
             {currentComponent && (
-              <div className="mb-4">
-                <p className="text-sm font-medium text-muted-foreground mb-2">
+              <div className="text-center mb-6">
+                <h3 className="text-2xl font-bold text-primary animate-pulse mb-2">
+                  {getStepLabel(currentComponent.component_product.name)}
+                </h3>
+                <p className="text-sm text-muted-foreground">
                   {currentComponent.component_product.name}
                   {currentComponent.total_units && ` (${currentComponent.total_units} pcs)`}
                 </p>
