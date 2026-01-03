@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { format, addDays, isBefore, startOfDay, isToday, setHours, setMinutes } from "date-fns";
+import { useQuery } from "@tanstack/react-query";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -15,13 +16,12 @@ import { Separator } from "@/components/ui/separator";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Upload, X, Check, Package, Truck, CalendarIcon, MapPin, User, CreditCard, ClipboardList, Bike } from "lucide-react";
+import { Loader2, Upload, X, Check, Package, Truck, CalendarIcon, MapPin, User, CreditCard, ClipboardList } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { DeliveryMapPicker } from "./DeliveryMapPicker";
 import { AccordionSection } from "./checkout/AccordionSection";
-import { DeliveryHeroCard } from "./checkout/DeliveryHeroCard";
 import { CompactOrderSummary } from "./checkout/CompactOrderSummary";
 import type { CartItem, OrderType } from "@/pages/Order";
 
@@ -82,7 +82,7 @@ const checkoutSchema = z.object({
 });
 
 type CheckoutFormData = z.infer<typeof checkoutSchema>;
-type SectionId = "order-type" | "pickup-schedule" | "delivery-address" | "delivery-fee" | "customer-info" | "payment" | "review";
+type SectionId = "order-type" | "pickup-schedule" | "delivery-address" | "customer-info" | "payment" | "review";
 
 interface CheckoutSheetProps {
   open: boolean;
@@ -133,6 +133,27 @@ export function CheckoutSheet({
   const [activeSection, setActiveSection] = useState<SectionId>("order-type");
   const [completedSections, setCompletedSections] = useState<Set<SectionId>>(new Set());
 
+  // Fetch payment settings
+  const { data: paymentSettings = [] } = useQuery({
+    queryKey: ['payment-settings'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('settings')
+        .select('*')
+        .in('key', [
+          'gcash_qr_url', 'gcash_account_name', 'gcash_number',
+          'bank_qr_url', 'bank_name', 'bank_account_name', 'bank_account_number'
+        ]);
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const getPaymentSetting = (key: string) => {
+    const setting = paymentSettings.find((s) => s.key === key);
+    return setting?.value as string | undefined;
+  };
+
   const form = useForm<CheckoutFormData>({
     resolver: zodResolver(checkoutSchema),
     defaultValues: {
@@ -180,7 +201,6 @@ export function CheckoutSheet({
   useEffect(() => {
     if (deliveryFee !== null && deliveryFee >= 0) {
       setCompletedSections(prev => new Set([...prev, "delivery-address"]));
-      setActiveSection("delivery-fee");
     }
   }, [deliveryFee]);
 
@@ -249,6 +269,11 @@ export function CheckoutSheet({
     setIsCalculatingFee(calculating);
   };
 
+  const handleDeliveryContinue = () => {
+    setCompletedSections(prev => new Set([...prev, "delivery-address"]));
+    setActiveSection("customer-info");
+  };
+
   const handlePaymentProofChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -279,13 +304,12 @@ export function CheckoutSheet({
           ? `${format(pickupDate, "MMM d")} at ${pickupTime}`
           : "Select date & time";
       case "delivery-address":
+        if (deliveryFee !== null && deliveryDistance !== null) {
+          return `${deliveryDistance} km • ₱${deliveryFee} fee • ${deliveryEta || "Calculating..."}`;
+        }
         return barangay && city 
           ? `${barangay}, ${city}`
           : "Enter your address";
-      case "delivery-fee":
-        return deliveryFee !== null
-          ? `₱${deliveryFee} • ETA ${deliveryEta || "calculating..."}`
-          : "Calculate delivery fee";
       case "customer-info":
         return customerName && customerPhone
           ? `${customerName.split(" ")[0]} • ${customerPhone}`
@@ -559,11 +583,11 @@ export function CheckoutSheet({
                 </AccordionSection>
               )}
 
-              {/* Section 2b: Delivery Address (only for delivery) */}
+              {/* Section 2b: Delivery Address & ETA (merged - only for delivery) */}
               {orderType === "delivery" && (
                 <AccordionSection
                   id="delivery-address"
-                  title="Delivery Address"
+                  title="Delivery Address & ETA"
                   icon={<MapPin className="h-4 w-4" />}
                   summary={getSectionSummary("delivery-address")}
                   isActive={activeSection === "delivery-address"}
@@ -573,7 +597,8 @@ export function CheckoutSheet({
                   <DeliveryMapPicker 
                     onLocationSelect={handleLocationSelect} 
                     onFeeCalculated={handleFeeCalculated} 
-                    onCalculating={handleCalculating} 
+                    onCalculating={handleCalculating}
+                    onContinue={handleDeliveryContinue}
                     streetAddress={streetAddress || ""} 
                     onStreetAddressChange={value => form.setValue("streetAddress", value)} 
                     barangay={barangay} 
@@ -591,41 +616,7 @@ export function CheckoutSheet({
                 </AccordionSection>
               )}
 
-              {/* Section 3: Delivery Fee & ETA - HERO (only for delivery after calculation) */}
-              {orderType === "delivery" && deliveryFee !== null && deliveryDistance !== null && (
-                <AccordionSection
-                  id="delivery-fee"
-                  title="Delivery Fee & ETA"
-                  icon={<Bike className="h-4 w-4" />}
-                  summary={getSectionSummary("delivery-fee")}
-                  isActive={activeSection === "delivery-fee"}
-                  isCompleted={completedSections.has("delivery-fee")}
-                  onToggle={() => setActiveSection("delivery-fee")}
-                  variant="hero"
-                >
-                  <DeliveryHeroCard 
-                    distance={deliveryDistance} 
-                    fee={deliveryFee} 
-                    eta={deliveryEta || "Calculating..."} 
-                    travelMinutes={travelMinutes || 0} 
-                  />
-                  
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    size="sm" 
-                    className="w-full mt-2"
-                    onClick={() => {
-                      setCompletedSections(prev => new Set([...prev, "delivery-fee"]));
-                      setActiveSection("customer-info");
-                    }}
-                  >
-                    Continue
-                  </Button>
-                </AccordionSection>
-              )}
-
-              {/* Section 4: Customer Information */}
+              {/* Section 3: Customer Information */}
               <AccordionSection
                 id="customer-info"
                 title="Customer Information"
@@ -704,7 +695,7 @@ export function CheckoutSheet({
                 )}
               </AccordionSection>
 
-              {/* Section 5: Payment Method */}
+              {/* Section 4: Payment Method */}
               <AccordionSection
                 id="payment"
                 title="Payment Method"
@@ -766,11 +757,23 @@ export function CheckoutSheet({
                               <div className="px-3 pb-3 pt-1 border-t border-primary/20 space-y-3">
                                 <div className="bg-white p-4 rounded-lg text-center">
                                   <p className="text-sm font-medium text-foreground mb-2">Scan to pay via GCash</p>
-                                  <div className="w-40 h-40 mx-auto bg-muted rounded-lg flex items-center justify-center border">
-                                    <span className="text-xs text-muted-foreground">GCash QR Code</span>
-                                  </div>
-                                  <p className="text-sm mt-2 font-medium">American Ribs & Wings</p>
-                                  <p className="text-xs text-muted-foreground">09XX XXX XXXX</p>
+                                  {getPaymentSetting('gcash_qr_url') ? (
+                                    <img 
+                                      src={getPaymentSetting('gcash_qr_url')} 
+                                      alt="GCash QR Code" 
+                                      className="w-40 h-40 mx-auto object-contain border rounded-lg"
+                                    />
+                                  ) : (
+                                    <div className="w-40 h-40 mx-auto bg-muted rounded-lg flex items-center justify-center border">
+                                      <span className="text-xs text-muted-foreground">QR Code not set</span>
+                                    </div>
+                                  )}
+                                  <p className="text-sm mt-2 font-medium">
+                                    {getPaymentSetting('gcash_account_name') || 'American Ribs & Wings'}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {getPaymentSetting('gcash_number') || 'Contact store for number'}
+                                  </p>
                                 </div>
                               </div>
                             )}
@@ -794,12 +797,26 @@ export function CheckoutSheet({
                               <div className="px-3 pb-3 pt-1 border-t border-primary/20 space-y-3">
                                 <div className="bg-white p-4 rounded-lg text-center">
                                   <p className="text-sm font-medium text-foreground mb-2">Bank Transfer Details</p>
-                                  <div className="w-40 h-40 mx-auto bg-muted rounded-lg flex items-center justify-center border">
-                                    <span className="text-xs text-muted-foreground">Bank QR Code</span>
-                                  </div>
-                                  <p className="text-sm mt-2 font-medium">BDO</p>
-                                  <p className="text-xs text-muted-foreground">American Ribs & Wings</p>
-                                  <p className="text-xs text-muted-foreground">XXXX-XXXX-XXXX</p>
+                                  {getPaymentSetting('bank_qr_url') ? (
+                                    <img 
+                                      src={getPaymentSetting('bank_qr_url')} 
+                                      alt="Bank QR Code" 
+                                      className="w-40 h-40 mx-auto object-contain border rounded-lg"
+                                    />
+                                  ) : (
+                                    <div className="w-40 h-40 mx-auto bg-muted rounded-lg flex items-center justify-center border">
+                                      <span className="text-xs text-muted-foreground">QR Code not set</span>
+                                    </div>
+                                  )}
+                                  <p className="text-sm mt-2 font-medium">
+                                    {getPaymentSetting('bank_name') || 'Bank'}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {getPaymentSetting('bank_account_name') || 'American Ribs & Wings'}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {getPaymentSetting('bank_account_number') || 'Contact store for account'}
+                                  </p>
                                 </div>
                               </div>
                             )}
@@ -870,7 +887,7 @@ export function CheckoutSheet({
                 )}
               </AccordionSection>
 
-              {/* Section 6: Review & Place Order */}
+              {/* Section 5: Review & Place Order */}
               <AccordionSection
                 id="review"
                 title="Review & Place Order"
@@ -881,7 +898,32 @@ export function CheckoutSheet({
                 onToggle={() => setActiveSection("review")}
               >
                 <div className="space-y-3">
+                  {/* Detailed Order Items */}
                   <div className="bg-muted/50 rounded-lg p-3 space-y-2">
+                    <p className="text-sm font-medium mb-2">Order Items</p>
+                    {cart.map(item => (
+                      <div key={item.id} className="space-y-1">
+                        <div className="flex justify-between text-sm">
+                          <span>{item.quantity}x {item.product.name}</span>
+                          <span>₱{item.lineTotal.toFixed(2)}</span>
+                        </div>
+                        {item.flavors && item.flavors.length > 0 && (
+                          <div className="ml-4 space-y-0.5">
+                            {item.flavors.map((flavor, idx) => (
+                              <div key={idx} className="flex justify-between text-xs text-muted-foreground">
+                                <span>
+                                  • {flavor.name} {flavor.quantity > 1 && `(${flavor.quantity}x)`}
+                                </span>
+                                {flavor.surcharge > 0 && (
+                                  <span className="text-primary">+₱{(flavor.surcharge * flavor.quantity).toFixed(2)}</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    <Separator className="my-2" />
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Subtotal</span>
                       <span>₱{total.toFixed(2)}</span>
@@ -892,7 +934,7 @@ export function CheckoutSheet({
                         <span>₱{deliveryFee.toFixed(2)}</span>
                       </div>
                     )}
-                    <Separator />
+                    <Separator className="my-2" />
                     <div className="flex justify-between font-semibold">
                       <span>Grand Total</span>
                       <span className="text-primary text-lg">₱{grandTotal.toFixed(2)}</span>
