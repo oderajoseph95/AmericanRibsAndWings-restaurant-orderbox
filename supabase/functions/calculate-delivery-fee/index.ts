@@ -6,10 +6,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Restaurant location: American Ribs And Wings - Floridablanca
+// Restaurant location: American Ribs And Wings - Floridablanca (exact coordinates)
 const RESTAURANT_COORDS = {
-  lat: 14.9747,
-  lng: 120.5373,
+  lat: 14.972683712714007,
+  lng: 120.53207910676976,
 };
 
 const RATE_PER_KM = 20; // ₱20 per km
