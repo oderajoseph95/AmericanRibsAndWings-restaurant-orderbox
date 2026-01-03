@@ -9,6 +9,8 @@ import AuthPage from "./pages/Auth";
 import NoAccess from "./pages/NoAccess";
 import Index from "./pages/Index";
 import Order from "./pages/Order";
+import OrderTracking from "./pages/OrderTracking";
+import MyOrders from "./pages/MyOrders";
 import AdminLayout from "./layouts/AdminLayout";
 import Dashboard from "./pages/admin/Dashboard";
 import Orders from "./pages/admin/Orders";
@@ -35,6 +37,8 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/order" element={<Order />} />
+            <Route path="/order/:orderId" element={<OrderTracking />} />
+            <Route path="/my-orders" element={<MyOrders />} />
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/no-access" element={<NoAccess />} />
             

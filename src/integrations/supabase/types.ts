@@ -109,6 +109,7 @@ export type Database = {
           total_orders: number | null
           total_spent: number | null
           updated_at: string | null
+          user_id: string | null
         }
         Insert: {
           created_at?: string | null
@@ -120,6 +121,7 @@ export type Database = {
           total_orders?: number | null
           total_spent?: number | null
           updated_at?: string | null
+          user_id?: string | null
         }
         Update: {
           created_at?: string | null
@@ -131,6 +133,7 @@ export type Database = {
           total_orders?: number | null
           total_spent?: number | null
           updated_at?: string | null
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -741,6 +744,10 @@ export type Database = {
         Returns: boolean
       }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
+      link_customer_to_user: {
+        Args: { p_email: string; p_phone: string; p_user_id: string }
+        Returns: string
+      }
     }
     Enums: {
       adjustment_type:
@@ -756,6 +763,13 @@ export type Database = {
         | "approved"
         | "rejected"
         | "completed"
+        | "preparing"
+        | "ready_for_pickup"
+        | "waiting_for_rider"
+        | "picked_up"
+        | "in_transit"
+        | "delivered"
+        | "cancelled"
       order_type: "dine_in" | "pickup" | "delivery"
       product_type: "simple" | "flavored" | "bundle" | "unlimited"
     }
@@ -899,6 +913,13 @@ export const Constants = {
         "approved",
         "rejected",
         "completed",
+        "preparing",
+        "ready_for_pickup",
+        "waiting_for_rider",
+        "picked_up",
+        "in_transit",
+        "delivered",
+        "cancelled",
       ],
       order_type: ["dine_in", "pickup", "delivery"],
       product_type: ["simple", "flavored", "bundle", "unlimited"],

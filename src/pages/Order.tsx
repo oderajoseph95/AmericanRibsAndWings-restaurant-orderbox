@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,6 @@ import { Cart } from "@/components/customer/Cart";
 import { FlavorModal } from "@/components/customer/FlavorModal";
 import { BundleWizard } from "@/components/customer/BundleWizard";
 import { CheckoutSheet } from "@/components/customer/CheckoutSheet";
-import { OrderConfirmation } from "@/components/customer/OrderConfirmation";
 import type { Tables } from "@/integrations/supabase/types";
 
 export type CartItem = {
@@ -29,18 +28,12 @@ export type OrderType = "dine_in" | "pickup" | "delivery";
 
 const Order = () => {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Tables<"products"> | null>(null);
   const [isFlavorModalOpen, setIsFlavorModalOpen] = useState(false);
   const [isBundleWizardOpen, setIsBundleWizardOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
-  const [confirmedOrder, setConfirmedOrder] = useState<{ 
-    orderNumber: string; 
-    orderId: string; 
-    orderType: OrderType;
-    pickupDate?: string;
-    pickupTime?: string;
-  } | null>(null);
   const [isCartOpen, setIsCartOpen] = useState(false);
 
   const activeCategory = searchParams.get("category") || "all";
@@ -206,7 +199,7 @@ const Order = () => {
     setCart([]);
   };
 
-  // Handle order confirmation
+  // Handle order confirmation - redirect to tracking page
   const handleOrderConfirmed = (
     orderNumber: string, 
     orderId: string, 
@@ -214,28 +207,11 @@ const Order = () => {
     pickupDate?: string,
     pickupTime?: string
   ) => {
-    setConfirmedOrder({ orderNumber, orderId, orderType, pickupDate, pickupTime });
     setIsCheckoutOpen(false);
     clearCart();
+    // Navigate to the order tracking page
+    navigate(`/order/${orderId}`);
   };
-
-  // Reset for new order
-  const handleNewOrder = () => {
-    setConfirmedOrder(null);
-  };
-
-  // Show confirmation screen
-  if (confirmedOrder) {
-    return (
-      <OrderConfirmation
-        orderNumber={confirmedOrder.orderNumber}
-        orderType={confirmedOrder.orderType}
-        pickupDate={confirmedOrder.pickupDate}
-        pickupTime={confirmedOrder.pickupTime}
-        onNewOrder={handleNewOrder}
-      />
-    );
-  }
 
   return (
     <div className="min-h-screen bg-background">
