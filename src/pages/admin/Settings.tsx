@@ -12,14 +12,16 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
-import { Plus, Trash2, Shield, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Shield, Loader2, Upload, CreditCard, X } from 'lucide-react';
 import type { Json } from '@/integrations/supabase/types';
 import { format } from 'date-fns';
-import type { Tables, Enums } from '@/integrations/supabase/types';
+import type { Enums } from '@/integrations/supabase/types';
 
 export default function Settings() {
   const { role, user } = useAuth();
   const [userDialogOpen, setUserDialogOpen] = useState(false);
+  const [uploadingGcash, setUploadingGcash] = useState(false);
+  const [uploadingBank, setUploadingBank] = useState(false);
   const queryClient = useQueryClient();
 
   // Fetch user roles
@@ -136,6 +138,73 @@ export default function Settings() {
     return setting?.value as string | undefined;
   };
 
+  const handleQRUpload = async (file: File, type: 'gcash' | 'bank') => {
+    const setUploading = type === 'gcash' ? setUploadingGcash : setUploadingBank;
+    setUploading(true);
+
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${type}-qr-${Date.now()}.${fileExt}`;
+      
+      // Delete old file if exists
+      const oldUrl = getSetting(`${type}_qr_url`);
+      if (oldUrl) {
+        const oldPath = oldUrl.split('/').pop();
+        if (oldPath) {
+          await supabase.storage.from('payment-qr-codes').remove([oldPath]);
+        }
+      }
+
+      // Upload new file
+      const { error: uploadError } = await supabase.storage
+        .from('payment-qr-codes')
+        .upload(fileName, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('payment-qr-codes')
+        .getPublicUrl(fileName);
+
+      // Save URL to settings
+      await saveSettingMutation.mutateAsync({
+        key: `${type}_qr_url`,
+        value: urlData.publicUrl,
+      });
+
+      toast.success(`${type === 'gcash' ? 'GCash' : 'Bank'} QR code uploaded`);
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      toast.error(error.message || 'Failed to upload QR code');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDeleteQR = async (type: 'gcash' | 'bank') => {
+    const url = getSetting(`${type}_qr_url`);
+    if (!url) return;
+
+    try {
+      const path = url.split('/').pop();
+      if (path) {
+        await supabase.storage.from('payment-qr-codes').remove([path]);
+      }
+      
+      // Clear the setting
+      const setting = settings.find((s) => s.key === `${type}_qr_url`);
+      if (setting) {
+        await supabase.from('settings').delete().eq('id', setting.id);
+        queryClient.invalidateQueries({ queryKey: ['settings'] });
+      }
+      
+      toast.success('QR code removed');
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to remove QR code');
+    }
+  };
+
   const roleColors: Record<Enums<'app_role'>, string> = {
     owner: 'bg-purple-500/20 text-purple-700 border-purple-500/30',
     manager: 'bg-blue-500/20 text-blue-700 border-blue-500/30',
@@ -201,6 +270,200 @@ export default function Settings() {
                   })
                 }
               />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Separator />
+
+      {/* Payment Settings */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CreditCard className="h-5 w-5" />
+            Payment Settings
+          </CardTitle>
+          <CardDescription>
+            Configure QR codes and account details for GCash and Bank Transfer payments
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* GCash Settings */}
+          <div className="space-y-4 p-4 border rounded-lg">
+            <h3 className="font-semibold text-lg">GCash</h3>
+            
+            <div className="grid gap-4 md:grid-cols-2">
+              {/* QR Code Upload */}
+              <div className="space-y-2">
+                <Label>QR Code</Label>
+                {getSetting('gcash_qr_url') ? (
+                  <div className="relative w-40 h-40">
+                    <img 
+                      src={getSetting('gcash_qr_url')} 
+                      alt="GCash QR" 
+                      className="w-full h-full object-contain border rounded-lg"
+                    />
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      className="absolute -top-2 -right-2 h-6 w-6"
+                      onClick={() => handleDeleteQR('gcash')}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center w-40 h-40 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
+                    {uploadingGcash ? (
+                      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                    ) : (
+                      <>
+                        <Upload className="h-8 w-8 text-muted-foreground mb-2" />
+                        <span className="text-xs text-muted-foreground">Upload QR</span>
+                      </>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleQRUpload(file, 'gcash');
+                      }}
+                      disabled={uploadingGcash}
+                    />
+                  </label>
+                )}
+              </div>
+
+              {/* Account Details */}
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="gcash_account_name">Account Name</Label>
+                  <Input
+                    id="gcash_account_name"
+                    defaultValue={getSetting('gcash_account_name') || ''}
+                    placeholder="American Ribs & Wings"
+                    onBlur={(e) =>
+                      saveSettingMutation.mutate({
+                        key: 'gcash_account_name',
+                        value: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="gcash_number">GCash Number</Label>
+                  <Input
+                    id="gcash_number"
+                    defaultValue={getSetting('gcash_number') || ''}
+                    placeholder="09XX XXX XXXX"
+                    onBlur={(e) =>
+                      saveSettingMutation.mutate({
+                        key: 'gcash_number',
+                        value: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Bank Transfer Settings */}
+          <div className="space-y-4 p-4 border rounded-lg">
+            <h3 className="font-semibold text-lg">Bank Transfer</h3>
+            
+            <div className="grid gap-4 md:grid-cols-2">
+              {/* QR Code Upload */}
+              <div className="space-y-2">
+                <Label>QR Code</Label>
+                {getSetting('bank_qr_url') ? (
+                  <div className="relative w-40 h-40">
+                    <img 
+                      src={getSetting('bank_qr_url')} 
+                      alt="Bank QR" 
+                      className="w-full h-full object-contain border rounded-lg"
+                    />
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      className="absolute -top-2 -right-2 h-6 w-6"
+                      onClick={() => handleDeleteQR('bank')}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center w-40 h-40 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
+                    {uploadingBank ? (
+                      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                    ) : (
+                      <>
+                        <Upload className="h-8 w-8 text-muted-foreground mb-2" />
+                        <span className="text-xs text-muted-foreground">Upload QR</span>
+                      </>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleQRUpload(file, 'bank');
+                      }}
+                      disabled={uploadingBank}
+                    />
+                  </label>
+                )}
+              </div>
+
+              {/* Account Details */}
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="bank_name">Bank Name</Label>
+                  <Input
+                    id="bank_name"
+                    defaultValue={getSetting('bank_name') || ''}
+                    placeholder="BDO, BPI, etc."
+                    onBlur={(e) =>
+                      saveSettingMutation.mutate({
+                        key: 'bank_name',
+                        value: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="bank_account_name">Account Name</Label>
+                  <Input
+                    id="bank_account_name"
+                    defaultValue={getSetting('bank_account_name') || ''}
+                    placeholder="American Ribs & Wings"
+                    onBlur={(e) =>
+                      saveSettingMutation.mutate({
+                        key: 'bank_account_name',
+                        value: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="bank_account_number">Account Number</Label>
+                  <Input
+                    id="bank_account_number"
+                    defaultValue={getSetting('bank_account_number') || ''}
+                    placeholder="XXXX-XXXX-XXXX"
+                    onBlur={(e) =>
+                      saveSettingMutation.mutate({
+                        key: 'bank_account_number',
+                        value: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </CardContent>

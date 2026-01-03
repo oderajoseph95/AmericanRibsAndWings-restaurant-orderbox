@@ -14,7 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { ALLOWED_CITIES, getBarangaysByCity, findBarangay } from "@/data/barangays";
+import { ALLOWED_CITIES, getBarangaysByCity } from "@/data/barangays";
+import { DeliveryHeroCard } from "./checkout/DeliveryHeroCard";
 
 // Exact restaurant coordinates (American Ribs And Wings - Floridablanca)
 const RESTAURANT_COORDS = {
@@ -37,6 +38,7 @@ interface DeliveryMapPickerProps {
   }) => void;
   onFeeCalculated: (fee: number, distance: number, eta?: string, travelMinutes?: number) => void;
   onCalculating: (calculating: boolean) => void;
+  onContinue?: () => void;
   streetAddress: string;
   onStreetAddressChange: (value: string) => void;
   barangay: string;
@@ -76,6 +78,7 @@ export function DeliveryMapPicker({
   onLocationSelect,
   onFeeCalculated,
   onCalculating,
+  onContinue,
   streetAddress,
   onStreetAddressChange,
   barangay,
@@ -92,6 +95,8 @@ export function DeliveryMapPicker({
   const [customerCoords, setCustomerCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locationMethod, setLocationMethod] = useState<"pin" | "autocomplete" | null>(null);
   const [hasAutoCalculated, setHasAutoCalculated] = useState(false);
+  const [deliveryEta, setDeliveryEta] = useState<string | null>(null);
+  const [travelMinutes, setTravelMinutes] = useState<number | null>(null);
   const [routeData, setRouteData] = useState<{
     encodedPolyline: string | null;
     distanceKm: number | null;
@@ -274,6 +279,8 @@ export function DeliveryMapPicker({
       
       // Reset route data since location changed
       setRouteData({ encodedPolyline: null, distanceKm: null, deliveryFee: null });
+      setDeliveryEta(null);
+      setTravelMinutes(null);
       onFeeCalculated(0, 0);
       
     } catch (error) {
@@ -282,17 +289,14 @@ export function DeliveryMapPicker({
     }
   };
 
-  // Validate coordinates are within Pampanga delivery area
-  const isInPampangaArea = (lat: number, lng: number): boolean => {
-    return lat >= 14.5 && lat <= 15.5 && lng >= 120.0 && lng <= 121.0;
-  };
-
   // Handle marker drag end
   const handleMarkerDragEnd = useCallback((position: google.maps.LatLng | null) => {
     if (!position) return;
     setCustomerCoords({ lat: position.lat(), lng: position.lng() });
     setLocationMethod("pin");
     setRouteData({ encodedPolyline: null, distanceKm: null, deliveryFee: null });
+    setDeliveryEta(null);
+    setTravelMinutes(null);
     onFeeCalculated(0, 0);
     setCalculatedAddress("");
   }, [onFeeCalculated]);
@@ -304,6 +308,8 @@ export function DeliveryMapPicker({
     setCalculatedAddress("");
     setErrorMessage("");
     setRouteData({ encodedPolyline: null, distanceKm: null, deliveryFee: null });
+    setDeliveryEta(null);
+    setTravelMinutes(null);
     onFeeCalculated(0, 0);
   };
 
@@ -313,6 +319,8 @@ export function DeliveryMapPicker({
     setHasAutoCalculated(false);
     setErrorMessage("");
     setRouteData({ encodedPolyline: null, distanceKm: null, deliveryFee: null });
+    setDeliveryEta(null);
+    setTravelMinutes(null);
     onFeeCalculated(0, 0);
   };
 
@@ -492,6 +500,8 @@ export function DeliveryMapPicker({
         : `${barangay}, ${selectedCity}`;
       
       setCalculatedAddress(displayAddress);
+      setDeliveryEta(data.etaRange);
+      setTravelMinutes(data.travelMinutes);
       onFeeCalculated(data.deliveryFee, data.distanceKm, data.etaRange, data.travelMinutes);
       onLocationSelect({
         lat: customerCoords.lat,
@@ -591,7 +601,7 @@ export function DeliveryMapPicker({
         </div>
 
         <p className="text-xs text-muted-foreground text-center">
-          Search your address above, then confirm your barangay
+          Search your address above, then confirm your details below
         </p>
       </div>
 
@@ -603,45 +613,7 @@ export function DeliveryMapPicker({
         </div>
       )}
 
-      {/* Interactive Map - Always visible once Google is loaded */}
-      {googleLoaded && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <Label className="text-sm font-medium">Delivery Location Map</Label>
-            {routeData.distanceKm && routeData.deliveryFee && (
-              <span className="text-sm font-bold text-primary bg-primary/10 px-2 py-1 rounded">
-                {routeData.distanceKm} km · ₱{routeData.deliveryFee}
-              </span>
-            )}
-          </div>
-          <div
-            ref={mapContainerRef}
-            className="w-full h-[280px] rounded-lg overflow-hidden border-2 border-border bg-muted"
-            style={{ minHeight: "280px" }}
-          />
-          
-          {/* Location Method Indicator */}
-          {locationMethod && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 p-2 rounded-lg">
-              <GripVertical className="h-3 w-3 flex-shrink-0" />
-              <span>
-                {locationMethod === "pin" && "✋ Pin adjusted manually • "}
-                {locationMethod === "autocomplete" && "🔍 Address from search • "}
-                Drag the blue pin to fine-tune your exact location
-              </span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {!googleLoaded && (
-        <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground py-8">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading map...
-        </div>
-      )}
-
-      {/* STEP 2: City & Barangay Selection - After location is found */}
+      {/* STEP 2: City, Barangay, Landmark - Show after location is found */}
       {customerCoords && (
         <div className="space-y-4 p-4 bg-muted/30 rounded-lg border border-border">
           <Label className="text-base font-semibold">Confirm Your Area</Label>
@@ -715,7 +687,7 @@ export function DeliveryMapPicker({
           {/* Landmark Input */}
           {selectedCity && barangay && !isOutsideDeliveryArea && (
             <div className="space-y-2">
-              <Label>Landmark, Street address or Additional info</Label>
+              <Label>Landmark or Additional info</Label>
               <Input
                 value={landmark}
                 onChange={(e) => onLandmarkChange(e.target.value)}
@@ -723,34 +695,57 @@ export function DeliveryMapPicker({
               />
             </div>
           )}
+
+          {/* Street Address (optional) */}
+          {selectedCity && barangay && !isOutsideDeliveryArea && (
+            <div className="space-y-2">
+              <Label>Street Address (optional)</Label>
+              <Input
+                value={streetAddress}
+                onChange={(e) => onStreetAddressChange(e.target.value)}
+                placeholder="123 Main Street"
+              />
+            </div>
+          )}
         </div>
       )}
 
-      {/* STEP 3: Recalculate Button (only shown after initial calculation) */}
-      {customerCoords && selectedCity && barangay && !isOutsideDeliveryArea && routeData.deliveryFee !== null && (
-        <Button
-          type="button"
-          onClick={() => {
-            setHasAutoCalculated(true);
-            calculateDeliveryFee();
-          }}
-          disabled={isLoading}
-          variant="outline"
-          className="w-full"
-          size="sm"
-        >
-          {isLoading ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              Recalculating...
-            </>
-          ) : (
-            <>
-              <Calculator className="h-4 w-4 mr-2" />
-              Recalculate Delivery Fee
-            </>
+      {/* STEP 3: Interactive Map - Always visible once Google is loaded */}
+      {googleLoaded && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label className="text-sm font-medium">Delivery Location Map</Label>
+            {routeData.distanceKm && routeData.deliveryFee && (
+              <span className="text-sm font-bold text-primary bg-primary/10 px-2 py-1 rounded">
+                {routeData.distanceKm} km · ₱{routeData.deliveryFee}
+              </span>
+            )}
+          </div>
+          <div
+            ref={mapContainerRef}
+            className="w-full h-[280px] rounded-lg overflow-hidden border-2 border-border bg-muted"
+            style={{ minHeight: "280px" }}
+          />
+          
+          {/* Location Method Indicator */}
+          {locationMethod && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 p-2 rounded-lg">
+              <GripVertical className="h-3 w-3 flex-shrink-0" />
+              <span>
+                {locationMethod === "pin" && "✋ Pin adjusted manually • "}
+                {locationMethod === "autocomplete" && "🔍 Address from search • "}
+                Drag the blue pin to fine-tune your exact location
+              </span>
+            </div>
           )}
-        </Button>
+        </div>
+      )}
+
+      {!googleLoaded && (
+        <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground py-8">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading map...
+        </div>
       )}
 
       {/* Loading indicator for initial calculation */}
@@ -769,29 +764,54 @@ export function DeliveryMapPicker({
         </div>
       )}
 
-      {/* Success Result */}
-      {calculatedAddress && routeData.deliveryFee !== null && (
-        <div className="bg-primary/5 border border-primary/20 p-4 rounded-lg space-y-2">
-          <div className="flex items-start gap-2">
-            <MapPin className="h-5 w-5 text-primary flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-medium text-sm">Delivery Address</p>
-              <p className="text-sm text-muted-foreground">{calculatedAddress}</p>
-              {landmark && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Landmark: {landmark}
-                </p>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center justify-between pt-2 border-t border-primary/10">
-            <span className="text-sm">Driving Distance:</span>
-            <span className="font-bold">{routeData.distanceKm} km</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-sm">Delivery Fee:</span>
-            <span className="font-bold text-lg text-primary">₱{routeData.deliveryFee}</span>
-          </div>
+      {/* STEP 4: Delivery Hero Card - After calculation */}
+      {calculatedAddress && routeData.deliveryFee !== null && routeData.distanceKm !== null && deliveryEta && (
+        <DeliveryHeroCard 
+          distance={routeData.distanceKm} 
+          fee={routeData.deliveryFee} 
+          eta={deliveryEta} 
+          travelMinutes={travelMinutes || 0} 
+        />
+      )}
+
+      {/* STEP 5: Action Buttons - Side by side */}
+      {customerCoords && selectedCity && barangay && !isOutsideDeliveryArea && routeData.deliveryFee !== null && (
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            onClick={() => {
+              setHasAutoCalculated(true);
+              calculateDeliveryFee();
+            }}
+            disabled={isLoading}
+            variant="outline"
+            className="flex-1"
+            size="sm"
+          >
+            {isLoading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                Recalculating...
+              </>
+            ) : (
+              <>
+                <Calculator className="h-4 w-4 mr-2" />
+                Recalculate
+              </>
+            )}
+          </Button>
+          
+          {onContinue && (
+            <Button
+              type="button"
+              onClick={onContinue}
+              disabled={isLoading}
+              className="flex-1"
+              size="sm"
+            >
+              Continue
+            </Button>
+          )}
         </div>
       )}
     </div>

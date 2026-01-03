@@ -56,11 +56,30 @@ export function CompactOrderSummary({
           <div className="px-3 pb-3 space-y-2">
             <Separator />
             {cart.map(item => (
-              <div key={item.id} className="flex justify-between text-sm">
-                <span className="text-muted-foreground">
-                  {item.quantity}x {item.product.name}
-                </span>
-                <span>₱{item.lineTotal.toFixed(2)}</span>
+              <div key={item.id} className="space-y-1">
+                {/* Main product line */}
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">
+                    {item.quantity}x {item.product.name}
+                  </span>
+                  <span>₱{item.lineTotal.toFixed(2)}</span>
+                </div>
+                
+                {/* Flavor/combo selections - indented below */}
+                {item.flavors && item.flavors.length > 0 && (
+                  <div className="ml-4 space-y-0.5">
+                    {item.flavors.map((flavor, idx) => (
+                      <div key={idx} className="flex justify-between text-xs text-muted-foreground">
+                        <span>
+                          • {flavor.name} {flavor.quantity > 1 && `(${flavor.quantity}x)`}
+                        </span>
+                        {flavor.surcharge > 0 && (
+                          <span className="text-primary">+₱{(flavor.surcharge * flavor.quantity).toFixed(2)}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
             <Separator />
