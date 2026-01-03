@@ -8,9 +8,10 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Download, Loader2, TrendingUp, ShoppingCart, Users, DollarSign } from 'lucide-react';
+import { Download, Loader2, TrendingUp, ShoppingCart, Users, DollarSign, ShieldX } from 'lucide-react';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import type { Tables } from '@/integrations/supabase/types';
+import { useAuth } from '@/contexts/AuthContext';
 
 type OrderWithItems = Tables<'orders'> & {
   order_items: (Tables<'order_items'> & {
@@ -21,8 +22,22 @@ type OrderWithItems = Tables<'orders'> & {
 const COLORS = ['hsl(8, 72%, 45%)', 'hsl(40, 85%, 55%)', 'hsl(142, 76%, 36%)', 'hsl(217, 91%, 60%)', 'hsl(162, 63%, 41%)'];
 
 export default function Reports() {
+  const { role } = useAuth();
   const [dateFrom, setDateFrom] = useState(format(subDays(new Date(), 30), 'yyyy-MM-dd'));
   const [dateTo, setDateTo] = useState(format(new Date(), 'yyyy-MM-dd'));
+
+  // Cashiers cannot access reports
+  if (role === 'cashier') {
+    return (
+      <div className="min-h-[400px] flex flex-col items-center justify-center gap-4 text-center">
+        <ShieldX className="h-16 w-16 text-muted-foreground" />
+        <h2 className="text-2xl font-bold text-foreground">Access Denied</h2>
+        <p className="text-muted-foreground max-w-md">
+          You don't have permission to view reports. Please contact an owner or manager if you need access.
+        </p>
+      </div>
+    );
+  }
 
   const { data: orders = [], isLoading } = useQuery({
     queryKey: ['reports-orders', dateFrom, dateTo],
