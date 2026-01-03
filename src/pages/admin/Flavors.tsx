@@ -226,6 +226,7 @@ export default function Flavors() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
+                  <TableHead>Category</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Surcharge</TableHead>
                   <TableHead>Status</TableHead>
@@ -236,6 +237,20 @@ export default function Flavors() {
                 {flavors.map((flavor) => (
                   <TableRow key={flavor.id}>
                     <TableCell className="font-medium">{flavor.name}</TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={
+                          (flavor as any).flavor_category === 'fries'
+                            ? 'bg-orange-500/20 text-orange-700 border-orange-500/30'
+                            : (flavor as any).flavor_category === 'drinks'
+                            ? 'bg-cyan-500/20 text-cyan-700 border-cyan-500/30'
+                            : 'bg-purple-500/20 text-purple-700 border-purple-500/30'
+                        }
+                      >
+                        {((flavor as any).flavor_category || 'wings').charAt(0).toUpperCase() + ((flavor as any).flavor_category || 'wings').slice(1)}
+                      </Badge>
+                    </TableCell>
                     <TableCell>
                       <Badge
                         variant="outline"
