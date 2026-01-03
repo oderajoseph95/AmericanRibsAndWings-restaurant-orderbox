@@ -12,8 +12,10 @@ const RESTAURANT_COORDS = {
   lng: 120.53207910676976,
 };
 
-const RATE_PER_KM = 20; // ₱20 per km
-const MINIMUM_FEE = 20; // Minimum ₱20 delivery fee
+// Delivery fee pricing structure
+const BASE_FEE = 39;           // ₱39 for first 3km
+const FREE_KM = 3;             // First 3km included in base fee
+const ADDITIONAL_RATE = 15;    // ₱15 per additional km beyond 3km
 const MAX_DELIVERY_DISTANCE_KM = 25; // Maximum delivery radius
 
 // Allowed delivery cities
@@ -153,13 +155,26 @@ serve(async (req) => {
       );
     }
     
-    // Calculate fee (round up km for pricing, with minimum fee)
-    const calculatedFee = Math.ceil(distanceKm) * RATE_PER_KM;
-    const deliveryFee = Math.max(calculatedFee, MINIMUM_FEE);
+    // Calculate fee: ₱39 for first 3km, then ₱15 per additional km (rounded up)
+    let deliveryFee: number;
+    let additionalKm = 0;
 
-    console.log('Delivery calculation:', { 
-      distanceKm: distanceKm.toFixed(1), 
-      deliveryFee,
+    if (distanceKm <= FREE_KM) {
+      // Within 3km = flat ₱39
+      deliveryFee = BASE_FEE;
+    } else {
+      // Beyond 3km = ₱39 + ₱15 per additional km (rounded up)
+      additionalKm = Math.ceil(distanceKm - FREE_KM);
+      deliveryFee = BASE_FEE + (additionalKm * ADDITIONAL_RATE);
+    }
+
+    console.log('Delivery fee calculation:', { 
+      distanceKm: distanceKm.toFixed(1),
+      baseKm: FREE_KM,
+      additionalKm,
+      baseFee: BASE_FEE,
+      additionalFee: additionalKm * ADDITIONAL_RATE,
+      totalFee: deliveryFee,
       restaurantCoords: RESTAURANT_COORDS,
       customerCoords: { lat: finalLat, lng: finalLng },
       barangay,

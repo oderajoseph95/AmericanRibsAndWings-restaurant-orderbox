@@ -84,6 +84,8 @@ export function DeliveryMapPicker({
   onLandmarkChange,
 }: DeliveryMapPickerProps) {
   const [selectedCity, setSelectedCity] = useState<string>("");
+  const [detectedCity, setDetectedCity] = useState<string>("");
+  const [isOutsideDeliveryArea, setIsOutsideDeliveryArea] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isGettingLocation, setIsGettingLocation] = useState(false);
   const [calculatedAddress, setCalculatedAddress] = useState<string>("");
@@ -217,42 +219,63 @@ export function DeliveryMapPicker({
       // Update the street address
       onStreetAddressChange(description);
       
-      // Try to auto-detect city from address components
+      // Extract city from address components - check multiple component types
       const addressComponents = results[0].address_components;
       const cityComponent = addressComponents.find(
-        (c) => c.types.includes("locality") || c.types.includes("administrative_area_level_2")
+        (c) => c.types.includes("locality") || 
+               c.types.includes("administrative_area_level_3") ||
+               c.types.includes("administrative_area_level_2")
       );
       
       if (cityComponent) {
         const cityName = cityComponent.long_name;
-        // Check if it matches allowed cities
+        setDetectedCity(cityName);
+        
+        // Check if it matches allowed delivery cities
         const matchedCity = ALLOWED_CITIES.find(
-          (c) => cityName.toLowerCase().includes(c.toLowerCase()) || c.toLowerCase().includes(cityName.toLowerCase())
+          (c) => cityName.toLowerCase().includes(c.toLowerCase()) || 
+                 c.toLowerCase().includes(cityName.toLowerCase())
         );
-        if (matchedCity && !selectedCity) {
+        
+        if (matchedCity) {
           setSelectedCity(matchedCity);
+          setIsOutsideDeliveryArea(false);
+          
+          // Try to auto-detect barangay for this city
+          const barangaysForCity = getBarangaysByCity(matchedCity);
+          const barangayComponent = addressComponents.find(
+            (c) => c.types.includes("sublocality") || c.types.includes("sublocality_level_1")
+          );
+          if (barangayComponent) {
+            const brgyName = barangayComponent.long_name;
+            const matchedBarangay = barangaysForCity.find(
+              (b) => b.name.toLowerCase().includes(brgyName.toLowerCase()) || 
+                     brgyName.toLowerCase().includes(b.name.toLowerCase())
+            );
+            if (matchedBarangay) {
+              onBarangayChange(matchedBarangay.name);
+            }
+          }
+          
+          toast.success("Location found! Please confirm your barangay.");
+        } else {
+          // City is outside delivery area
+          setSelectedCity("");
+          setIsOutsideDeliveryArea(true);
+          onBarangayChange("");
+          toast.error(`Sorry, we don't deliver to ${cityName}. You can pick up your order instead.`);
         }
-      }
-
-      // Try to auto-detect barangay
-      const barangayComponent = addressComponents.find(
-        (c) => c.types.includes("sublocality") || c.types.includes("sublocality_level_1")
-      );
-      if (barangayComponent && selectedCity) {
-        const brgyName = barangayComponent.long_name;
-        const matchedBarangay = availableBarangays.find(
-          (b) => b.name.toLowerCase().includes(brgyName.toLowerCase()) || brgyName.toLowerCase().includes(b.name.toLowerCase())
-        );
-        if (matchedBarangay) {
-          onBarangayChange(matchedBarangay.name);
-        }
+      } else {
+        // Could not detect city - let user select manually
+        setDetectedCity("");
+        setIsOutsideDeliveryArea(false);
+        toast.info("Location found! Please select your city to continue.");
       }
       
       // Reset route data since location changed
       setRouteData({ encodedPolyline: null, distanceKm: null, deliveryFee: null });
       onFeeCalculated(0, 0);
       
-      toast.success("Location found! You can drag the pin to fine-tune.");
     } catch (error) {
       console.error("Error geocoding address:", error);
       toast.error("Could not find that address. Please try again.");
@@ -674,28 +697,52 @@ export function DeliveryMapPicker({
         <div className="space-y-4 p-4 bg-muted/30 rounded-lg border border-border">
           <Label className="text-base font-semibold">Confirm Your Area</Label>
           
-          {/* City Selection */}
+          {/* Outside Delivery Area Warning */}
+          {isOutsideDeliveryArea && detectedCity && (
+            <div className="flex items-start gap-2 text-sm bg-destructive/10 text-destructive p-3 rounded-lg border border-destructive/20">
+              <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium">Cannot deliver to {detectedCity}</p>
+                <p className="text-xs mt-1">We only deliver to Floridablanca, Lubao, Guagua, and Porac. You can pick up your order at our restaurant instead.</p>
+              </div>
+            </div>
+          )}
+          
+          {/* City - Auto-detected or Manual Selection */}
           <div className="space-y-2">
             <Label>Delivery City *</Label>
-            <Select value={selectedCity} onValueChange={handleCityChange}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select your city" />
-              </SelectTrigger>
-              <SelectContent>
-                {ALLOWED_CITIES.map((city) => (
-                  <SelectItem key={city} value={city}>
-                    {city}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              We deliver to Floridablanca, Lubao, Guagua, and Porac only
-            </p>
+            {detectedCity && !isOutsideDeliveryArea ? (
+              // Show detected city as confirmation
+              <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">{selectedCity || detectedCity}</span>
+                  <span className="text-xs text-primary bg-primary/10 px-2 py-0.5 rounded">Auto-detected</span>
+                </div>
+              </div>
+            ) : !isOutsideDeliveryArea ? (
+              // Manual selection if not detected
+              <Select value={selectedCity} onValueChange={handleCityChange}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select your city" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ALLOWED_CITIES.map((city) => (
+                    <SelectItem key={city} value={city}>
+                      {city}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : null}
+            {!isOutsideDeliveryArea && (
+              <p className="text-xs text-muted-foreground">
+                We deliver to Floridablanca, Lubao, Guagua, and Porac only
+              </p>
+            )}
           </div>
 
           {/* Barangay Dropdown */}
-          {selectedCity && (
+          {selectedCity && !isOutsideDeliveryArea && (
             <div className="space-y-2">
               <Label>Barangay *</Label>
               <Select value={barangay} onValueChange={handleBarangayChange}>
@@ -717,7 +764,7 @@ export function DeliveryMapPicker({
           )}
 
           {/* Landmark Input */}
-          {selectedCity && barangay && (
+          {selectedCity && barangay && !isOutsideDeliveryArea && (
             <div className="space-y-2">
               <Label>Landmark (Optional)</Label>
               <Input
@@ -731,7 +778,7 @@ export function DeliveryMapPicker({
       )}
 
       {/* STEP 3: Calculate Button */}
-      {customerCoords && selectedCity && barangay && (
+      {customerCoords && selectedCity && barangay && !isOutsideDeliveryArea && (
         <Button
           type="button"
           onClick={calculateDeliveryFee}
