@@ -20,6 +20,7 @@ import Stock from "./pages/admin/Stock";
 import Customers from "./pages/admin/Customers";
 import Reports from "./pages/admin/Reports";
 import Settings from "./pages/admin/Settings";
+import Website from "./pages/admin/Website";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -54,6 +55,7 @@ const App = () => (
               <Route path="stock" element={<Stock />} />
               <Route path="customers" element={<Customers />} />
               <Route path="reports" element={<Reports />} />
+              <Route path="website" element={<Website />} />
               <Route path="settings" element={<Settings />} />
             </Route>
 
