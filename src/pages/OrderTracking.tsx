@@ -29,13 +29,53 @@ import {
 import { format } from "date-fns";
 import type { Tables, Enums } from "@/integrations/supabase/types";
 
-type Order = Tables<'orders'> & {
-  customers: Tables<'customers'> | null;
-};
+// Types for the secure RPC response
+interface OrderTrackingCustomer {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+}
 
-type OrderItem = Tables<'order_items'> & {
-  order_item_flavors: Tables<'order_item_flavors'>[];
-};
+interface OrderTrackingOrder {
+  id: string;
+  order_number: string | null;
+  status: Enums<'order_status'> | null;
+  order_type: Enums<'order_type'> | null;
+  created_at: string | null;
+  updated_at: string | null;
+  status_changed_at: string | null;
+  subtotal: number | null;
+  delivery_fee: number | null;
+  total_amount: number | null;
+  pickup_date: string | null;
+  pickup_time: string | null;
+  delivery_address: string | null;
+  delivery_distance_km: number | null;
+  customer: OrderTrackingCustomer | null;
+}
+
+interface OrderTrackingItemFlavor {
+  flavor_name: string;
+  quantity: number;
+  surcharge_applied: number;
+}
+
+interface OrderTrackingItem {
+  id: string;
+  product_name: string;
+  quantity: number;
+  unit_price: number;
+  line_total: number;
+  flavors: OrderTrackingItemFlavor[] | null;
+}
+
+interface OrderTrackingResponse {
+  order: OrderTrackingOrder;
+  items: OrderTrackingItem[];
+  is_owner: boolean;
+  is_admin: boolean;
+}
 
 const RESTAURANT_INFO = {
   address: "Purok 1 Ground Floor, Hony Arcade, Floridablanca, 2006 Pampanga, Philippines",
@@ -129,46 +169,29 @@ const deliveryFlow: Enums<'order_status'>[] = ['pending', 'for_verification', 'a
 export default function OrderTracking() {
   const { orderId } = useParams<{ orderId: string }>();
   const navigate = useNavigate();
-  const [order, setOrder] = useState<Order | null>(null);
+  const [trackingData, setTrackingData] = useState<OrderTrackingResponse | null>(null);
   const [showAccountPrompt, setShowAccountPrompt] = useState(false);
   const [password, setPassword] = useState('');
   const [isCreatingAccount, setIsCreatingAccount] = useState(false);
 
-  // Fetch order data
+  // Fetch order data using secure RPC function
   const { data: orderData, isLoading, error } = useQuery({
     queryKey: ['order-tracking', orderId],
     queryFn: async () => {
       if (!orderId) throw new Error('No order ID');
-      const { data, error } = await supabase
-        .from('orders')
-        .select('*, customers(*)')
-        .eq('id', orderId)
-        .single();
+      const { data, error } = await supabase.rpc('get_order_tracking', {
+        p_order_id: orderId
+      });
       if (error) throw error;
-      return data as Order;
+      return data as unknown as OrderTrackingResponse;
     },
     enabled: !!orderId,
   });
 
-  // Fetch order items
-  const { data: orderItems = [] } = useQuery({
-    queryKey: ['order-tracking-items', orderId],
-    queryFn: async () => {
-      if (!orderId) return [];
-      const { data, error } = await supabase
-        .from('order_items')
-        .select('*, order_item_flavors(*)')
-        .eq('order_id', orderId);
-      if (error) throw error;
-      return data as OrderItem[];
-    },
-    enabled: !!orderId,
-  });
-
-  // Update local order state when data changes
+  // Update local tracking data when query data changes
   useEffect(() => {
     if (orderData) {
-      setOrder(orderData);
+      setTrackingData(orderData);
     }
   }, [orderData]);
 
@@ -187,7 +210,14 @@ export default function OrderTracking() {
           filter: `id=eq.${orderId}`,
         },
         (payload) => {
-          setOrder(prev => prev ? { ...prev, ...payload.new } : null);
+          // Refetch the tracking data to get proper masked/unmasked data
+          setTrackingData(prev => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              order: { ...prev.order, status: payload.new.status as Enums<'order_status'> }
+            };
+          });
           toast.success(`Order status updated to ${statusConfig[payload.new.status as Enums<'order_status'>]?.label || payload.new.status}`);
         }
       )
@@ -207,7 +237,7 @@ export default function OrderTracking() {
     if (navigator.share) {
       try {
         await navigator.share({
-          title: `Order ${order?.order_number}`,
+          title: `Order ${trackingData?.order?.order_number}`,
           text: 'Track my order from American Ribs & Wings',
           url: window.location.href,
         });
@@ -220,7 +250,8 @@ export default function OrderTracking() {
   };
 
   const handleCreateAccount = async () => {
-    if (!order?.customers?.email || !password) {
+    const customerEmail = trackingData?.order?.customer?.email;
+    if (!customerEmail || !password) {
       toast.error('Please enter a password');
       return;
     }
@@ -228,7 +259,7 @@ export default function OrderTracking() {
     setIsCreatingAccount(true);
     try {
       const { error } = await supabase.auth.signUp({
-        email: order.customers.email,
+        email: customerEmail,
         password,
         options: {
           emailRedirectTo: `${window.location.origin}/my-orders`,
@@ -239,11 +270,11 @@ export default function OrderTracking() {
 
       // Link customer record to user
       const { data: { user } } = await supabase.auth.getUser();
-      if (user && order.customers) {
+      if (user && trackingData?.order?.customer) {
         await supabase.rpc('link_customer_to_user', {
           p_user_id: user.id,
-          p_email: order.customers.email,
-          p_phone: order.customers.phone,
+          p_email: customerEmail,
+          p_phone: trackingData.order.customer.phone,
         });
       }
 
@@ -263,6 +294,9 @@ export default function OrderTracking() {
       </div>
     );
   }
+
+  const order = trackingData?.order;
+  const orderItems = trackingData?.items || [];
 
   if (error || !order) {
     return (
@@ -461,9 +495,9 @@ export default function OrderTracking() {
                   </span>
                   <span>₱{item.line_total?.toFixed(2)}</span>
                 </div>
-                {item.order_item_flavors.length > 0 && (
+                {item.flavors && item.flavors.length > 0 && (
                   <div className="ml-4 text-sm text-muted-foreground space-y-0.5">
-                    {item.order_item_flavors.map((flavor, idx) => (
+                    {item.flavors.map((flavor, idx) => (
                       <div key={idx} className="flex justify-between">
                         <span>
                           - {flavor.flavor_name} {flavor.quantity > 1 && `(${flavor.quantity}x)`}
@@ -500,7 +534,7 @@ export default function OrderTracking() {
         </Card>
 
         {/* Customer Info */}
-        {order.customers && (
+        {order.customer && (
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
@@ -509,19 +543,19 @@ export default function OrderTracking() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <p><span className="text-muted-foreground">Name:</span> {order.customers.name}</p>
-              {order.customers.phone && (
-                <p><span className="text-muted-foreground">Phone:</span> {order.customers.phone}</p>
+              <p><span className="text-muted-foreground">Name:</span> {order.customer.name}</p>
+              {order.customer.phone && (
+                <p><span className="text-muted-foreground">Phone:</span> {order.customer.phone}</p>
               )}
-              {order.customers.email && (
-                <p><span className="text-muted-foreground">Email:</span> {order.customers.email}</p>
+              {order.customer.email && (
+                <p><span className="text-muted-foreground">Email:</span> {order.customer.email}</p>
               )}
             </CardContent>
           </Card>
         )}
 
         {/* Save to Account Prompt */}
-        {order.customers?.email && !showAccountPrompt && (
+        {order.customer?.email && !showAccountPrompt && (
           <Card className="border-primary/20 bg-primary/5">
             <CardContent className="pt-6">
               <div className="text-center">
@@ -537,13 +571,13 @@ export default function OrderTracking() {
           </Card>
         )}
 
-        {showAccountPrompt && order.customers?.email && (
+        {showAccountPrompt && order.customer?.email && (
           <Card className="border-primary">
             <CardContent className="pt-6 space-y-4">
               <div className="text-center">
                 <h3 className="font-semibold mb-1">Create Your Account</h3>
                 <p className="text-sm text-muted-foreground">
-                  Using: {order.customers.email}
+                  Using: {order.customer.email}
                 </p>
               </div>
               <Input
