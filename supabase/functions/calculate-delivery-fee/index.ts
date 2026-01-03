@@ -19,11 +19,9 @@ const MAX_DELIVERY_DISTANCE_KM = 25; // Maximum delivery radius
 // Allowed delivery cities
 const ALLOWED_CITIES = ['Floridablanca', 'Lubao', 'Guagua', 'Porac'];
 
-// Validate coordinates are within Pampanga area (expanded bounds)
-const isInPampangaArea = (lat: number, lng: number): boolean => {
-  // Expanded to cover all of Pampanga province
-  return lat >= 14.5 && lat <= 15.5 && lng >= 120.0 && lng <= 121.0;
-};
+// Note: We no longer validate Pampanga bounds here
+// The MAX_DELIVERY_DISTANCE check will catch locations that are too far
+// Frontend handles GPS validation before sending
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -97,16 +95,10 @@ serve(async (req) => {
       );
     }
 
-    // Validate coordinates are in Pampanga area
-    if (!isInPampangaArea(finalLat, finalLng)) {
-      console.error('Coordinates outside Pampanga:', { lat: finalLat, lng: finalLng });
-      return new Response(
-        JSON.stringify({ 
-          error: 'The selected location is outside our delivery area. Please select a location within Pampanga.',
-        }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    // Note: We skip strict Pampanga validation here
+    // The MAX_DELIVERY_DISTANCE check (25km) will catch locations that are too far
+    // Frontend handles GPS validation before sending coords
+    console.log('Coordinates received:', { lat: finalLat, lng: finalLng });
 
     // Get driving distance using Mapbox Directions API
     const directionsUrl = `https://api.mapbox.com/directions/v5/mapbox/driving/${RESTAURANT_COORDS.lng},${RESTAURANT_COORDS.lat};${finalLng},${finalLat}?access_token=${MAPBOX_TOKEN}&overview=full&geometries=geojson`;
