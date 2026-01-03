@@ -52,11 +52,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         // Defer role fetch with setTimeout to avoid deadlock
         if (session?.user) {
+          setLoading(true); // Set loading while fetching role
           setTimeout(() => {
-            fetchUserRole(session.user.id).then(setRole);
+            fetchUserRole(session.user.id).then((fetchedRole) => {
+              setRole(fetchedRole);
+              setLoading(false);
+            });
           }, 0);
         } else {
           setRole(null);
+          setLoading(false);
         }
       }
     );
