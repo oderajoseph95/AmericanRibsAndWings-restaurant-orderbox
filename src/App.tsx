@@ -7,6 +7,8 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import AuthPage from "./pages/Auth";
 import NoAccess from "./pages/NoAccess";
+import Index from "./pages/Index";
+import Order from "./pages/Order";
 import AdminLayout from "./layouts/AdminLayout";
 import Dashboard from "./pages/admin/Dashboard";
 import Orders from "./pages/admin/Orders";
@@ -30,7 +32,8 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
           <Routes>
-            <Route path="/" element={<Navigate to="/admin" replace />} />
+            <Route path="/" element={<Index />} />
+            <Route path="/order" element={<Order />} />
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/no-access" element={<NoAccess />} />
             
