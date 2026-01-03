@@ -36,7 +36,7 @@ export function VideoSection() {
         .select("*")
         .eq("section_key", "videos")
         .eq("is_visible", true)
-        .single();
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
@@ -79,7 +79,7 @@ export function VideoSection() {
       <div className="container px-4">
         {/* Section header */}
         <div className="text-center mb-12">
-          <Badge variant="outline" className="mb-4">
+          <Badge variant="outline" className="mb-4 border-primary/30 text-primary">
             <VideoIcon className="h-3 w-3 mr-1" />
             Videos
           </Badge>
@@ -98,14 +98,14 @@ export function VideoSection() {
           {videos.map((video) => (
             <Card
               key={video.id}
-              className="overflow-hidden cursor-pointer group"
+              className="overflow-hidden cursor-pointer group border-0 shadow-lg"
               onClick={() => setSelectedVideo(video)}
             >
               <div className="aspect-[9/16] relative bg-muted">
                 {video.thumbnail_url ? (
                   <img
                     src={video.thumbnail_url}
-                    alt={video.title || "Video thumbnail"}
+                    alt="Video thumbnail"
                     className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                   />
                 ) : (
@@ -114,18 +114,11 @@ export function VideoSection() {
                   </div>
                 )}
                 <div className="absolute inset-0 bg-black/30 group-hover:bg-black/50 transition-colors flex items-center justify-center">
-                  <div className="w-14 h-14 bg-primary rounded-full flex items-center justify-center transform group-hover:scale-110 transition-transform">
+                  <div className="w-14 h-14 bg-primary rounded-full flex items-center justify-center transform group-hover:scale-110 transition-transform shadow-lg">
                     <Play className="h-6 w-6 text-primary-foreground ml-1" fill="currentColor" />
                   </div>
                 </div>
               </div>
-              {video.title && (
-                <div className="p-3">
-                  <h3 className="font-semibold text-foreground text-sm truncate">
-                    {video.title}
-                  </h3>
-                </div>
-              )}
             </Card>
           ))}
         </div>
@@ -133,7 +126,7 @@ export function VideoSection() {
 
       {/* Video player modal - vertical aspect ratio */}
       <Dialog open={!!selectedVideo} onOpenChange={() => setSelectedVideo(null)}>
-        <DialogContent className="max-w-md p-0 overflow-hidden">
+        <DialogContent className="max-w-md p-0 overflow-hidden bg-black">
           {selectedVideo && (
             <div className="aspect-[9/16] max-h-[80vh]">
               <video
