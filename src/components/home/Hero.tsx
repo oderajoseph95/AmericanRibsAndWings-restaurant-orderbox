@@ -55,9 +55,9 @@ export function Hero() {
               asChild 
               variant="outline" 
               size="lg"
-              className="border-primary-foreground/30 text-primary-foreground hover:bg-primary-foreground/10 text-lg px-8 py-6 rounded-full"
+              className="border-primary-foreground/30 bg-primary-foreground/10 text-primary-foreground hover:bg-primary-foreground/20 text-lg px-8 py-6 rounded-full"
             >
-              <a href="#menu">
+              <a href="#menu" className="text-primary-foreground">
                 View Menu
               </a>
             </Button>
@@ -67,15 +67,15 @@ export function Hero() {
           <div className="flex flex-wrap justify-center gap-6 text-primary-foreground/80 text-sm">
             <div className="flex items-center gap-2">
               <MapPin className="h-4 w-4" />
-              <span>123 Main Street, City</span>
+              <span>Floridablanca, Pampanga</span>
             </div>
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4" />
-              <span>10AM - 10PM Daily</span>
+              <span>12PM - 9PM Daily</span>
             </div>
             <div className="flex items-center gap-2">
               <Phone className="h-4 w-4" />
-              <span>(123) 456-7890</span>
+              <span>0976 207 4276</span>
             </div>
           </div>
         </div>

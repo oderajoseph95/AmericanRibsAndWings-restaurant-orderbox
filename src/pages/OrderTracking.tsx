@@ -27,6 +27,7 @@ import {
   User
 } from "lucide-react";
 import { format } from "date-fns";
+import { SEOHead } from "@/components/SEOHead";
 import type { Tables, Enums } from "@/integrations/supabase/types";
 
 // Types for the secure RPC response
@@ -329,6 +330,11 @@ export default function OrderTracking() {
 
   return (
     <div className="min-h-screen bg-background">
+      <SEOHead 
+        pagePath="/order-tracking" 
+        fallbackTitle={`Order ${order?.order_number || ''} | American Ribs & Wings`}
+        fallbackDescription="Track your order status in real-time at American Ribs & Wings Floridablanca."
+      />
       {/* Header */}
       <header className="sticky top-0 z-40 bg-card border-b border-border">
         <div className="container px-4 h-16 flex items-center justify-between">

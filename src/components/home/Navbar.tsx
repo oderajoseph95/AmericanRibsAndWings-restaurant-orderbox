@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { Menu, X, ShoppingBag } from "lucide-react";
+import { Menu, ShoppingBag } from "lucide-react";
 
 export function Navbar() {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -36,11 +36,13 @@ export function Navbar() {
           {/* Logo */}
           <Link 
             to="/" 
-            className={`font-bold text-xl transition-colors ${
-              isScrolled ? "text-foreground" : "text-primary-foreground"
-            }`}
+            className="flex items-center"
           >
-            AR<span className="text-accent">&W</span>
+            <img 
+              src="/images/logo.jpg" 
+              alt="American Ribs & Wings" 
+              className="h-12 md:h-14 w-auto object-contain"
+            />
           </Link>
 
           {/* Desktop nav */}

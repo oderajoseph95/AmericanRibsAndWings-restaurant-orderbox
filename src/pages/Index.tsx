@@ -9,6 +9,7 @@ import { Gallery } from "@/components/home/Gallery";
 import { About } from "@/components/home/About";
 import { Location } from "@/components/home/Location";
 import { Footer } from "@/components/home/Footer";
+import { SEOHead } from "@/components/SEOHead";
 
 interface SectionConfig {
   section_key: string;
@@ -37,6 +38,11 @@ const Index = () => {
 
   return (
     <div className="min-h-screen">
+      <SEOHead 
+        pagePath="/" 
+        fallbackTitle="American Ribs & Wings - Floridablanca | Best BBQ in Pampanga"
+        fallbackDescription="Savor authentic American-style BBQ ribs and wings in Floridablanca, Pampanga. All you can eat, outdoor seating, free Wi-Fi. Order online!"
+      />
       <Navbar />
       {isVisible("hero") && <Hero />}
       {isVisible("featured_menu") && <FeaturedMenu />}

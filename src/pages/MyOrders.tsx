@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { 
   ArrowLeft, 
@@ -13,6 +13,7 @@ import {
   Clock
 } from "lucide-react";
 import { format } from "date-fns";
+import { SEOHead } from "@/components/SEOHead";
 import type { Tables, Enums } from "@/integrations/supabase/types";
 
 type Order = Tables<'orders'>;
@@ -62,6 +63,11 @@ export default function MyOrders() {
 
   return (
     <div className="min-h-screen bg-background">
+      <SEOHead 
+        pagePath="/my-orders" 
+        fallbackTitle="My Orders | American Ribs & Wings"
+        fallbackDescription="Track and view your order history at American Ribs & Wings Floridablanca."
+      />
       {/* Header */}
       <header className="sticky top-0 z-40 bg-card border-b border-border">
         <div className="container px-4 h-16 flex items-center gap-4">

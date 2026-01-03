@@ -40,8 +40,7 @@ import {
   Plus,
   Trash2,
   Upload,
-  X,
-  ExternalLink,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -72,19 +71,31 @@ interface VideoItem {
   is_active: boolean | null;
 }
 
+interface PageSeo {
+  id: string;
+  page_path: string;
+  title: string | null;
+  description: string | null;
+  og_image_url: string | null;
+}
+
 export default function Website() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("sections");
   const [editingSection, setEditingSection] = useState<HomepageSection | null>(null);
+  const [editingSeo, setEditingSeo] = useState<PageSeo | null>(null);
   const [addImageOpen, setAddImageOpen] = useState(false);
   const [addVideoOpen, setAddVideoOpen] = useState(false);
   const [deleteImageId, setDeleteImageId] = useState<string | null>(null);
   const [deleteVideoId, setDeleteVideoId] = useState<string | null>(null);
   const [newImageTitle, setNewImageTitle] = useState("");
   const [newVideoTitle, setNewVideoTitle] = useState("");
-  const [newVideoUrl, setNewVideoUrl] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [uploadingVideo, setUploadingVideo] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const thumbnailInputRef = useRef<HTMLInputElement>(null);
+  const [newVideoThumbnail, setNewVideoThumbnail] = useState<string | null>(null);
 
   // Fetch all sections
   const { data: sections, isLoading: sectionsLoading } = useQuery({
@@ -119,6 +130,16 @@ export default function Website() {
       const { data, error } = await supabase.from("videos").select("*").order("sort_order");
       if (error) throw error;
       return data as VideoItem[];
+    },
+  });
+
+  // Fetch SEO data
+  const { data: seoData, isLoading: seoLoading } = useQuery({
+    queryKey: ["admin-page-seo"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("page_seo").select("*").order("page_path");
+      if (error) throw error;
+      return data as PageSeo[];
     },
   });
 
@@ -158,6 +179,30 @@ export default function Website() {
     },
     onError: () => {
       toast.error("Failed to update section");
+    },
+  });
+
+  // Update SEO
+  const updateSeo = useMutation({
+    mutationFn: async (seo: PageSeo) => {
+      const { error } = await supabase
+        .from("page_seo")
+        .update({ 
+          title: seo.title, 
+          description: seo.description,
+          og_image_url: seo.og_image_url 
+        })
+        .eq("id", seo.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-page-seo"] });
+      queryClient.invalidateQueries({ queryKey: ["page-seo"] });
+      setEditingSeo(null);
+      toast.success("SEO updated successfully");
+    },
+    onError: () => {
+      toast.error("Failed to update SEO");
     },
   });
 
@@ -213,19 +258,15 @@ export default function Website() {
     },
   });
 
-  // Add video
+  // Add video (upload)
   const addVideo = useMutation({
-    mutationFn: async ({ title, video_url }: { title: string; video_url: string }) => {
+    mutationFn: async ({ title, video_url, thumbnail_url }: { title: string; video_url: string; thumbnail_url?: string }) => {
       const maxOrder = videos?.reduce((max, v) => Math.max(max, v.sort_order || 0), 0) || 0;
-      const video_type = video_url.includes("youtube") || video_url.includes("youtu.be")
-        ? "youtube"
-        : video_url.includes("vimeo")
-        ? "vimeo"
-        : "upload";
       const { error } = await supabase.from("videos").insert({
         title,
         video_url,
-        video_type,
+        video_type: "upload",
+        thumbnail_url: thumbnail_url || null,
         sort_order: maxOrder + 1,
       });
       if (error) throw error;
@@ -235,7 +276,7 @@ export default function Website() {
       queryClient.invalidateQueries({ queryKey: ["videos"] });
       setAddVideoOpen(false);
       setNewVideoTitle("");
-      setNewVideoUrl("");
+      setNewVideoThumbnail(null);
       toast.success("Video added successfully");
     },
     onError: () => {
@@ -300,6 +341,63 @@ export default function Website() {
     }
   };
 
+  // Handle video upload
+  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingVideo(true);
+    try {
+      const fileExt = file.name.split(".").pop();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("videos")
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage.from("videos").getPublicUrl(filePath);
+
+      addVideo.mutate({ 
+        title: newVideoTitle, 
+        video_url: urlData.publicUrl,
+        thumbnail_url: newVideoThumbnail || undefined
+      });
+    } catch (error) {
+      console.error("Upload error:", error);
+      toast.error("Failed to upload video");
+    } finally {
+      setUploadingVideo(false);
+    }
+  };
+
+  // Handle thumbnail upload
+  const handleThumbnailUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const fileExt = file.name.split(".").pop();
+      const fileName = `thumb_${Date.now()}.${fileExt}`;
+      const filePath = `thumbnails/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("videos")
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage.from("videos").getPublicUrl(filePath);
+      setNewVideoThumbnail(urlData.publicUrl);
+      toast.success("Thumbnail uploaded");
+    } catch (error) {
+      console.error("Thumbnail upload error:", error);
+      toast.error("Failed to upload thumbnail");
+    }
+  };
+
   const getSectionLabel = (key: string): string => {
     const labels: Record<string, string> = {
       hero: "Hero Section",
@@ -312,6 +410,16 @@ export default function Website() {
       footer: "Footer",
     };
     return labels[key] || key;
+  };
+
+  const getPageLabel = (path: string): string => {
+    const labels: Record<string, string> = {
+      "/": "Homepage",
+      "/order": "Order Page",
+      "/my-orders": "My Orders",
+      "/order-tracking": "Order Tracking",
+    };
+    return labels[path] || path;
   };
 
   if (sectionsLoading) {
@@ -332,12 +440,12 @@ export default function Website() {
             Website Management
           </h1>
           <p className="text-muted-foreground">
-            Manage your homepage sections, gallery, and videos
+            Manage your homepage sections, gallery, videos, and SEO
           </p>
         </div>
         <Button asChild variant="outline">
           <a href="/" target="_blank" rel="noopener noreferrer">
-            <ExternalLink className="h-4 w-4 mr-2" />
+            <Eye className="h-4 w-4 mr-2" />
             View Website
           </a>
         </Button>
@@ -345,10 +453,11 @@ export default function Website() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="sections">Sections</TabsTrigger>
           <TabsTrigger value="gallery">Gallery</TabsTrigger>
           <TabsTrigger value="videos">Videos</TabsTrigger>
+          <TabsTrigger value="seo">SEO</TabsTrigger>
         </TabsList>
 
         {/* Sections Tab */}
@@ -503,12 +612,12 @@ export default function Website() {
                   Videos
                 </CardTitle>
                 <CardDescription>
-                  Add YouTube, Vimeo, or uploaded videos
+                  Upload videos (vertical/reel format recommended)
                 </CardDescription>
               </div>
               <Button onClick={() => setAddVideoOpen(true)}>
                 <Plus className="h-4 w-4 mr-2" />
-                Add Video
+                Upload Video
               </Button>
             </CardHeader>
             <CardContent>
@@ -517,10 +626,10 @@ export default function Website() {
                   <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 </div>
               ) : videos && videos.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                   {videos.map((video) => (
                     <div key={video.id} className="border rounded-lg overflow-hidden">
-                      <div className="aspect-video bg-muted relative">
+                      <div className="aspect-[9/16] bg-muted relative">
                         {video.thumbnail_url ? (
                           <img
                             src={video.thumbnail_url}
@@ -530,22 +639,19 @@ export default function Website() {
                             }`}
                           />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <Video className="h-12 w-12 text-muted-foreground" />
+                          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/20 to-accent/20">
+                            <Video className="h-8 w-8 text-muted-foreground" />
                           </div>
                         )}
                         <Badge
                           variant="secondary"
-                          className="absolute top-2 left-2 capitalize"
+                          className="absolute top-2 left-2 capitalize text-xs"
                         >
-                          {video.video_type}
+                          {video.video_type || "upload"}
                         </Badge>
                       </div>
                       <div className="p-3">
-                        <p className="font-medium truncate">{video.title || "Untitled"}</p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {video.video_url}
-                        </p>
+                        <p className="font-medium text-sm truncate">{video.title || "Untitled"}</p>
                         <div className="flex items-center justify-between mt-2">
                           <div className="flex items-center gap-2">
                             <Switch
@@ -578,7 +684,60 @@ export default function Website() {
                 <div className="text-center py-12 text-muted-foreground">
                   <Video className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>No videos yet</p>
-                  <p className="text-sm">Add YouTube or Vimeo links to display videos</p>
+                  <p className="text-sm">Upload videos to display on your website</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* SEO Tab */}
+        <TabsContent value="seo" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Search className="h-5 w-5" />
+                SEO Settings
+              </CardTitle>
+              <CardDescription>
+                Manage meta titles, descriptions, and social sharing images for each page
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {seoLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+              ) : seoData && seoData.length > 0 ? (
+                <div className="space-y-3">
+                  {seoData.map((seo) => (
+                    <div
+                      key={seo.id}
+                      className="flex items-center justify-between p-4 border rounded-lg"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-medium">{getPageLabel(seo.page_path)}</h3>
+                        <p className="text-sm text-muted-foreground truncate">
+                          {seo.title || "No title set"}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate mt-1">
+                          {seo.description?.substring(0, 80) || "No description set"}...
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setEditingSeo(seo)}
+                      >
+                        Edit SEO
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Search className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>No SEO settings found</p>
                 </div>
               )}
             </CardContent>
@@ -618,6 +777,73 @@ export default function Website() {
                 <Save className="h-4 w-4 mr-2" />
               )}
               Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit SEO Dialog */}
+      <Dialog open={!!editingSeo} onOpenChange={() => setEditingSeo(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              Edit SEO for {editingSeo && getPageLabel(editingSeo.page_path)}
+            </DialogTitle>
+          </DialogHeader>
+          {editingSeo && (
+            <div className="space-y-4">
+              <div>
+                <Label>Page Title (for browser tab & search results)</Label>
+                <Input
+                  value={editingSeo.title || ""}
+                  onChange={(e) => setEditingSeo({ ...editingSeo, title: e.target.value })}
+                  placeholder="Page title..."
+                  maxLength={60}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  {editingSeo.title?.length || 0}/60 characters (keep under 60 for best results)
+                </p>
+              </div>
+              <div>
+                <Label>Meta Description (for search results & social previews)</Label>
+                <Textarea
+                  value={editingSeo.description || ""}
+                  onChange={(e) => setEditingSeo({ ...editingSeo, description: e.target.value })}
+                  placeholder="Page description..."
+                  rows={3}
+                  maxLength={160}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  {editingSeo.description?.length || 0}/160 characters (keep under 160 for best results)
+                </p>
+              </div>
+              <div>
+                <Label>Social Share Image URL (Open Graph image)</Label>
+                <Input
+                  value={editingSeo.og_image_url || ""}
+                  onChange={(e) => setEditingSeo({ ...editingSeo, og_image_url: e.target.value })}
+                  placeholder="https://..."
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Recommended size: 1200x630 pixels
+                </p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingSeo(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => editingSeo && updateSeo.mutate(editingSeo)}
+              disabled={updateSeo.isPending}
+            >
+              {updateSeo.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4 mr-2" />
+              )}
+              Save SEO
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -671,7 +897,7 @@ export default function Website() {
       <Dialog open={addVideoOpen} onOpenChange={setAddVideoOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Video</DialogTitle>
+            <DialogTitle>Upload Video</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
@@ -683,33 +909,64 @@ export default function Website() {
               />
             </div>
             <div>
-              <Label>Video URL</Label>
-              <Input
-                value={newVideoUrl}
-                onChange={(e) => setNewVideoUrl(e.target.value)}
-                placeholder="https://youtube.com/watch?v=... or https://vimeo.com/..."
+              <Label>Thumbnail (optional)</Label>
+              <input
+                ref={thumbnailInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleThumbnailUpload}
+                className="hidden"
               />
-              <p className="text-xs text-muted-foreground mt-1">
-                Supports YouTube and Vimeo URLs
-              </p>
+              {newVideoThumbnail ? (
+                <div className="relative w-24 h-40 border rounded overflow-hidden">
+                  <img src={newVideoThumbnail} alt="Thumbnail" className="w-full h-full object-cover" />
+                  <Button
+                    size="icon"
+                    variant="destructive"
+                    className="absolute top-1 right-1 h-6 w-6"
+                    onClick={() => setNewVideoThumbnail(null)}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => thumbnailInputRef.current?.click()}
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  Upload Thumbnail
+                </Button>
+              )}
+            </div>
+            <div>
+              <Label>Video File</Label>
+              <input
+                ref={videoInputRef}
+                type="file"
+                accept="video/*"
+                onChange={handleVideoUpload}
+                className="hidden"
+              />
+              <Button
+                variant="outline"
+                className="w-full h-32 flex flex-col gap-2"
+                onClick={() => videoInputRef.current?.click()}
+                disabled={uploadingVideo || !newVideoTitle}
+              >
+                {uploadingVideo ? (
+                  <Loader2 className="h-8 w-8 animate-spin" />
+                ) : (
+                  <>
+                    <Upload className="h-8 w-8" />
+                    <span>Click to upload video</span>
+                    <span className="text-xs text-muted-foreground">Vertical format (9:16) recommended</span>
+                  </>
+                )}
+              </Button>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddVideoOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => addVideo.mutate({ title: newVideoTitle, video_url: newVideoUrl })}
-              disabled={!newVideoUrl || addVideo.isPending}
-            >
-              {addVideo.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Plus className="h-4 w-4 mr-2" />
-              )}
-              Add Video
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -770,6 +1027,24 @@ function SectionEditor({
 
   const updateField = (key: string, value: unknown) => {
     onUpdate({ ...content, [key]: value });
+  };
+
+  const updateHoursItem = (index: number, field: 'day' | 'time', value: string) => {
+    const hours = [...((content.hours as { day: string; time: string }[]) || [])];
+    hours[index] = { ...hours[index], [field]: value };
+    updateField('hours', hours);
+  };
+
+  const addHoursItem = () => {
+    const hours = [...((content.hours as { day: string; time: string }[]) || [])];
+    hours.push({ day: '', time: '' });
+    updateField('hours', hours);
+  };
+
+  const removeHoursItem = (index: number) => {
+    const hours = [...((content.hours as { day: string; time: string }[]) || [])];
+    hours.splice(index, 1);
+    updateField('hours', hours);
   };
 
   switch (section.section_key) {
@@ -910,6 +1185,7 @@ function SectionEditor({
       );
 
     case "location":
+      const hours = (content.hours as { day: string; time: string }[]) || [];
       return (
         <div className="space-y-4">
           <div>
@@ -920,10 +1196,12 @@ function SectionEditor({
             />
           </div>
           <div>
-            <Label>Address</Label>
+            <Label>Address (use new lines for multiple lines)</Label>
             <Textarea
               value={(content.address as string) || ""}
               onChange={(e) => updateField("address", e.target.value)}
+              placeholder="Purok 1 Ground Floor, Hony Arcade&#10;Floridablanca, 2006 Pampanga"
+              rows={3}
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -949,6 +1227,62 @@ function SectionEditor({
               onChange={(e) => updateField("mapEmbedUrl", e.target.value)}
               placeholder="https://www.google.com/maps/embed?..."
             />
+            <p className="text-xs text-muted-foreground mt-1">
+              Paste only the URL from the src attribute of the embed iframe (not the full HTML)
+            </p>
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <Label>Operating Hours</Label>
+              <Button type="button" variant="outline" size="sm" onClick={addHoursItem}>
+                <Plus className="h-3 w-3 mr-1" /> Add
+              </Button>
+            </div>
+            <div className="space-y-2">
+              {hours.map((item, index) => (
+                <div key={index} className="flex gap-2 items-center">
+                  <Input
+                    value={item.day}
+                    onChange={(e) => updateHoursItem(index, 'day', e.target.value)}
+                    placeholder="Sunday"
+                    className="flex-1"
+                  />
+                  <Input
+                    value={item.time}
+                    onChange={(e) => updateHoursItem(index, 'time', e.target.value)}
+                    placeholder="12:00 PM - 9:00 PM"
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 text-destructive"
+                    onClick={() => removeHoursItem(index)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Facebook URL</Label>
+              <Input
+                value={(content.facebookUrl as string) || ""}
+                onChange={(e) => updateField("facebookUrl", e.target.value)}
+                placeholder="https://facebook.com/..."
+              />
+            </div>
+            <div>
+              <Label>Instagram URL</Label>
+              <Input
+                value={(content.instagramUrl as string) || ""}
+                onChange={(e) => updateField("instagramUrl", e.target.value)}
+                placeholder="https://instagram.com/..."
+              />
+            </div>
           </div>
         </div>
       );
@@ -982,6 +1316,7 @@ function SectionEditor({
             <Input
               value={(content.copyright as string) || ""}
               onChange={(e) => updateField("copyright", e.target.value)}
+              placeholder="© 2024 American Ribs & Wings. All rights reserved."
             />
           </div>
         </div>
@@ -989,8 +1324,8 @@ function SectionEditor({
 
     default:
       return (
-        <div className="text-center py-8 text-muted-foreground">
-          <p>This section doesn't have editable content</p>
+        <div className="text-muted-foreground text-center py-8">
+          No editor available for this section
         </div>
       );
   }
