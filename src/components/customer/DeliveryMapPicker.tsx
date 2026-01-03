@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Loader2, MapPin, AlertCircle, Calculator, Navigation, GripVertical, Search } from "lucide-react";
+import { Loader2, MapPin, AlertCircle, Calculator, GripVertical, Search } from "lucide-react";
 import { setOptions, importLibrary } from "@googlemaps/js-api-loader";
 import usePlacesAutocomplete, { getGeocode, getLatLng } from "use-places-autocomplete";
 import {
@@ -87,11 +87,11 @@ export function DeliveryMapPicker({
   const [detectedCity, setDetectedCity] = useState<string>("");
   const [isOutsideDeliveryArea, setIsOutsideDeliveryArea] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [isGettingLocation, setIsGettingLocation] = useState(false);
   const [calculatedAddress, setCalculatedAddress] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [customerCoords, setCustomerCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [locationMethod, setLocationMethod] = useState<"gps" | "pin" | "autocomplete" | null>(null);
+  const [locationMethod, setLocationMethod] = useState<"pin" | "autocomplete" | null>(null);
+  const [hasAutoCalculated, setHasAutoCalculated] = useState(false);
   const [routeData, setRouteData] = useState<{
     encodedPolyline: string | null;
     distanceKm: number | null;
@@ -287,60 +287,6 @@ export function DeliveryMapPicker({
     return lat >= 14.5 && lat <= 15.5 && lng >= 120.0 && lng <= 121.0;
   };
 
-  // Get user's GPS location - "FIND ME" button
-  const handleGetLocation = useCallback(() => {
-    if (!navigator.geolocation) {
-      toast.error("Geolocation is not supported by your browser");
-      return;
-    }
-
-    setIsGettingLocation(true);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        
-        console.log("GPS location found:", { latitude, longitude });
-        
-        // Set coordinates regardless - let user proceed
-        setCustomerCoords({ lat: latitude, lng: longitude });
-        setLocationMethod("gps");
-        setIsGettingLocation(false);
-        
-        // Show warning if outside Pampanga but don't block
-        if (!isInPampangaArea(latitude, longitude)) {
-          toast.info("Your GPS is outside our delivery area. Please search for an address or drag the pin to your delivery location.");
-        } else {
-          toast.success("Location found! You can drag the pin to adjust if needed.");
-        }
-        
-        // Reset route data
-        setRouteData({ encodedPolyline: null, distanceKm: null, deliveryFee: null });
-        onFeeCalculated(0, 0);
-      },
-      (error) => {
-        setIsGettingLocation(false);
-        switch (error.code) {
-          case error.PERMISSION_DENIED:
-            toast.error("Location permission denied. Please search for your address instead.");
-            break;
-          case error.POSITION_UNAVAILABLE:
-            toast.error("Location unavailable. Please search for your address instead.");
-            break;
-          case error.TIMEOUT:
-            toast.error("Location request timed out. Please try again or search for your address.");
-            break;
-          default:
-            toast.error("Could not get your location. Please search for your address.");
-        }
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0,
-      }
-    );
-  }, [onFeeCalculated]);
-
   // Handle marker drag end
   const handleMarkerDragEnd = useCallback((position: google.maps.LatLng | null) => {
     if (!position) return;
@@ -354,6 +300,7 @@ export function DeliveryMapPicker({
   const handleCityChange = (city: string) => {
     setSelectedCity(city);
     onBarangayChange("");
+    setHasAutoCalculated(false);
     setCalculatedAddress("");
     setErrorMessage("");
     setRouteData({ encodedPolyline: null, distanceKm: null, deliveryFee: null });
@@ -363,6 +310,7 @@ export function DeliveryMapPicker({
   const handleBarangayChange = (brgyName: string) => {
     onBarangayChange(brgyName);
     setCalculatedAddress("");
+    setHasAutoCalculated(false);
     setErrorMessage("");
     setRouteData({ encodedPolyline: null, distanceKm: null, deliveryFee: null });
     onFeeCalculated(0, 0);
@@ -488,9 +436,10 @@ export function DeliveryMapPicker({
     };
   }, []);
 
+  // Calculate delivery fee function
   const calculateDeliveryFee = async () => {
     if (!customerCoords) {
-      toast.error("Please find your location first using the search or FIND ME button");
+      toast.error("Please find your location first using the search");
       return;
     }
 
@@ -569,9 +518,38 @@ export function DeliveryMapPicker({
     }
   };
 
+  // Auto-calculate delivery fee when all required data is available
+  useEffect(() => {
+    if (
+      customerCoords &&
+      selectedCity &&
+      barangay &&
+      !isOutsideDeliveryArea &&
+      !hasAutoCalculated &&
+      !isLoading
+    ) {
+      console.log("Auto-calculating delivery fee...");
+      setHasAutoCalculated(true);
+      calculateDeliveryFee();
+    }
+  }, [customerCoords, selectedCity, barangay, isOutsideDeliveryArea, hasAutoCalculated, isLoading]);
+
+  // Debounced recalculation when landmark changes
+  useEffect(() => {
+    if (!landmark || !customerCoords || !selectedCity || !barangay || isOutsideDeliveryArea) return;
+    if (!hasAutoCalculated) return; // Only recalculate if we've already calculated once
+
+    const timeoutId = setTimeout(() => {
+      console.log("Recalculating due to landmark change...");
+      calculateDeliveryFee();
+    }, 1000);
+
+    return () => clearTimeout(timeoutId);
+  }, [landmark]);
+
   return (
     <div className="space-y-4">
-      {/* STEP 1: Search or Find Me - Top Priority */}
+      {/* STEP 1: Search Address */}
       <div className="space-y-3 p-4 bg-muted/30 rounded-lg border border-border">
         <Label className="text-base font-semibold flex items-center gap-2">
           <Search className="h-4 w-4" />
@@ -612,37 +590,8 @@ export function DeliveryMapPicker({
           )}
         </div>
 
-        {/* OR Divider */}
-        <div className="flex items-center gap-3">
-          <div className="flex-1 h-px bg-border" />
-          <span className="text-xs text-muted-foreground font-medium">OR</span>
-          <div className="flex-1 h-px bg-border" />
-        </div>
-
-        {/* FIND ME GPS Button */}
-        <Button
-          type="button"
-          variant="outline"
-          onClick={handleGetLocation}
-          disabled={isGettingLocation}
-          className="w-full"
-          size="lg"
-        >
-          {isGettingLocation ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              Finding your location...
-            </>
-          ) : (
-            <>
-              <Navigation className="h-4 w-4 mr-2" />
-              FIND ME
-            </>
-          )}
-        </Button>
-
         <p className="text-xs text-muted-foreground text-center">
-          Use GPS to locate you automatically, or search your address above
+          Search your address above, then confirm your barangay
         </p>
       </div>
 
@@ -676,7 +625,6 @@ export function DeliveryMapPicker({
             <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 p-2 rounded-lg">
               <GripVertical className="h-3 w-3 flex-shrink-0" />
               <span>
-                {locationMethod === "gps" && "📍 Using GPS location • "}
                 {locationMethod === "pin" && "✋ Pin adjusted manually • "}
                 {locationMethod === "autocomplete" && "🔍 Address from search • "}
                 Drag the blue pin to fine-tune your exact location
@@ -778,27 +726,39 @@ export function DeliveryMapPicker({
         </div>
       )}
 
-      {/* STEP 3: Calculate Button */}
-      {customerCoords && selectedCity && barangay && !isOutsideDeliveryArea && (
+      {/* STEP 3: Recalculate Button (only shown after initial calculation) */}
+      {customerCoords && selectedCity && barangay && !isOutsideDeliveryArea && routeData.deliveryFee !== null && (
         <Button
           type="button"
-          onClick={calculateDeliveryFee}
+          onClick={() => {
+            setHasAutoCalculated(true);
+            calculateDeliveryFee();
+          }}
           disabled={isLoading}
+          variant="outline"
           className="w-full"
-          size="lg"
+          size="sm"
         >
           {isLoading ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              Calculating route...
+              Recalculating...
             </>
           ) : (
             <>
               <Calculator className="h-4 w-4 mr-2" />
-              Calculate Delivery Fee
+              Recalculate Delivery Fee
             </>
           )}
         </Button>
+      )}
+
+      {/* Loading indicator for initial calculation */}
+      {customerCoords && selectedCity && barangay && !isOutsideDeliveryArea && routeData.deliveryFee === null && isLoading && (
+        <div className="flex items-center justify-center gap-2 p-3 bg-muted rounded-lg">
+          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          <span className="text-sm">Calculating delivery fee...</span>
+        </div>
       )}
 
       {/* Error Message */}

@@ -144,10 +144,11 @@ export function CheckoutSheet({
       city: "",
       landmark: "",
       notes: "",
-      paymentMethod: "cash"
+      paymentMethod: "gcash"
     }
   });
 
+  const CASH_MAX_AMOUNT = 500;
   const paymentMethod = form.watch("paymentMethod");
   const orderType = form.watch("orderType");
   const pickupDate = form.watch("pickupDate");
@@ -197,8 +198,22 @@ export function CheckoutSheet({
     }
   }, [customerName, customerPhone]);
 
-  // Auto-advance when payment is complete
+  const grandTotal = total + (deliveryFee || 0);
+  const isCashAllowed = orderType === "pickup" && grandTotal <= CASH_MAX_AMOUNT;
+
+  // Auto-advance when payment is complete + enforce payment rules
   useEffect(() => {
+    // If cash is selected but not allowed, switch to gcash
+    if (paymentMethod === "cash" && !isCashAllowed) {
+      form.setValue("paymentMethod", "gcash");
+      if (orderType === "delivery") {
+        toast.info("Cash payment is not available for delivery orders");
+      } else if (grandTotal > CASH_MAX_AMOUNT) {
+        toast.info(`Cash payment is only available for orders up to ₱${CASH_MAX_AMOUNT}`);
+      }
+      return;
+    }
+
     const isPaymentComplete = paymentMethod === "cash" || paymentProof !== null;
     if (isPaymentComplete) {
       setCompletedSections(prev => new Set([...prev, "payment"]));
@@ -209,7 +224,7 @@ export function CheckoutSheet({
         return newSet;
       });
     }
-  }, [paymentMethod, paymentProof]);
+  }, [paymentMethod, paymentProof, orderType, grandTotal, isCashAllowed]);
 
   const handleLocationSelect = (data: {
     lat: number;
@@ -254,7 +269,6 @@ export function CheckoutSheet({
   };
 
   const timeSlots = generateTimeSlots(pickupDate);
-  const grandTotal = total + (deliveryFee || 0);
 
   const getSectionSummary = (sectionId: SectionId): string => {
     switch (sectionId) {
@@ -277,8 +291,8 @@ export function CheckoutSheet({
           ? `${customerName.split(" ")[0]} • ${customerPhone}`
           : "Enter your details";
       case "payment":
-        if (paymentMethod === "cash") return "Cash on Delivery";
-        return `${paymentMethod.toUpperCase()}${paymentProof ? " (Uploaded)" : ""}`;
+        if (paymentMethod === "cash") return "Cash on Pickup";
+        return `${paymentMethod.toUpperCase()}${paymentProof ? " ✓" : " (Pending upload)"}`;
       case "review":
         return `₱${grandTotal.toFixed(2)} total`;
       default:
@@ -334,8 +348,8 @@ export function CheckoutSheet({
           quantity: item.quantity,
           unit_price: item.product.price,
           subtotal: item.quantity * item.product.price,
-          flavor_surcharge_total: item.flavors?.reduce((sum, f) => sum + f.surcharge * f.quantity, 0) || 0,
-          line_total: item.lineTotal
+          flavor_surcharge_total: item.flavors?.reduce((sum, f) => sum + f.surcharge * f.quantity, 0) || 0
+          // line_total is a generated column - database calculates it automatically
         };
         const { data: orderItem, error: itemError } = await supabase.from("order_items").insert(orderItemData).select().single();
         if (itemError) throw itemError;
@@ -706,29 +720,89 @@ export function CheckoutSheet({
                   render={({ field }) => (
                     <FormItem>
                       <FormControl>
-                        <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="space-y-2">
-                          <div className="flex items-center space-x-3 p-3 border rounded-lg cursor-pointer hover:bg-muted/50">
-                            <RadioGroupItem value="cash" id="cash" />
-                            <Label htmlFor="cash" className="flex-1 cursor-pointer">
+                        <RadioGroup onValueChange={(value) => {
+                          field.onChange(value);
+                          // Clear payment proof when switching methods
+                          if (value === "cash") {
+                            clearPaymentProof();
+                          }
+                        }} value={field.value} className="space-y-2">
+                          {/* Cash Option - Conditional */}
+                          <div className={cn(
+                            "flex items-center space-x-3 p-3 border rounded-lg",
+                            isCashAllowed 
+                              ? "cursor-pointer hover:bg-muted/50" 
+                              : "opacity-50 cursor-not-allowed bg-muted/30"
+                          )}>
+                            <RadioGroupItem value="cash" id="cash" disabled={!isCashAllowed} />
+                            <Label htmlFor="cash" className={cn("flex-1", isCashAllowed && "cursor-pointer")}>
                               <span className="font-medium">Cash</span>
                               <p className="text-xs text-muted-foreground">
-                                Pay upon {orderType === "delivery" ? "delivery" : "pickup"}
+                                {isCashAllowed 
+                                  ? "Pay upon pickup"
+                                  : orderType === "delivery"
+                                    ? "Cash not available for delivery orders"
+                                    : `Cash allowed for pickup orders up to ₱${CASH_MAX_AMOUNT} only`
+                                }
                               </p>
                             </Label>
                           </div>
-                          <div className="flex items-center space-x-3 p-3 border rounded-lg cursor-pointer hover:bg-muted/50">
-                            <RadioGroupItem value="gcash" id="gcash" />
-                            <Label htmlFor="gcash" className="flex-1 cursor-pointer">
-                              <span className="font-medium">GCash</span>
-                              <p className="text-xs text-muted-foreground">Upload payment screenshot</p>
-                            </Label>
+
+                          {/* GCash Option */}
+                          <div className={cn(
+                            "flex flex-col border rounded-lg transition-all",
+                            paymentMethod === "gcash" ? "border-primary bg-primary/5" : "hover:bg-muted/50"
+                          )}>
+                            <div className="flex items-center space-x-3 p-3 cursor-pointer">
+                              <RadioGroupItem value="gcash" id="gcash" />
+                              <Label htmlFor="gcash" className="flex-1 cursor-pointer">
+                                <span className="font-medium">GCash</span>
+                                <p className="text-xs text-muted-foreground">Scan QR & upload screenshot</p>
+                              </Label>
+                            </div>
+                            
+                            {/* GCash Details - Inline when selected */}
+                            {paymentMethod === "gcash" && (
+                              <div className="px-3 pb-3 pt-1 border-t border-primary/20 space-y-3">
+                                <div className="bg-white p-4 rounded-lg text-center">
+                                  <p className="text-sm font-medium text-foreground mb-2">Scan to pay via GCash</p>
+                                  <div className="w-40 h-40 mx-auto bg-muted rounded-lg flex items-center justify-center border">
+                                    <span className="text-xs text-muted-foreground">GCash QR Code</span>
+                                  </div>
+                                  <p className="text-sm mt-2 font-medium">American Ribs & Wings</p>
+                                  <p className="text-xs text-muted-foreground">09XX XXX XXXX</p>
+                                </div>
+                              </div>
+                            )}
                           </div>
-                          <div className="flex items-center space-x-3 p-3 border rounded-lg cursor-pointer hover:bg-muted/50">
-                            <RadioGroupItem value="bank" id="bank" />
-                            <Label htmlFor="bank" className="flex-1 cursor-pointer">
-                              <span className="font-medium">Bank Transfer</span>
-                              <p className="text-xs text-muted-foreground">Upload payment screenshot</p>
-                            </Label>
+
+                          {/* Bank Transfer Option */}
+                          <div className={cn(
+                            "flex flex-col border rounded-lg transition-all",
+                            paymentMethod === "bank" ? "border-primary bg-primary/5" : "hover:bg-muted/50"
+                          )}>
+                            <div className="flex items-center space-x-3 p-3 cursor-pointer">
+                              <RadioGroupItem value="bank" id="bank" />
+                              <Label htmlFor="bank" className="flex-1 cursor-pointer">
+                                <span className="font-medium">Bank Transfer</span>
+                                <p className="text-xs text-muted-foreground">Scan QR & upload screenshot</p>
+                              </Label>
+                            </div>
+                            
+                            {/* Bank Details - Inline when selected */}
+                            {paymentMethod === "bank" && (
+                              <div className="px-3 pb-3 pt-1 border-t border-primary/20 space-y-3">
+                                <div className="bg-white p-4 rounded-lg text-center">
+                                  <p className="text-sm font-medium text-foreground mb-2">Bank Transfer Details</p>
+                                  <div className="w-40 h-40 mx-auto bg-muted rounded-lg flex items-center justify-center border">
+                                    <span className="text-xs text-muted-foreground">Bank QR Code</span>
+                                  </div>
+                                  <p className="text-sm mt-2 font-medium">BDO</p>
+                                  <p className="text-xs text-muted-foreground">American Ribs & Wings</p>
+                                  <p className="text-xs text-muted-foreground">XXXX-XXXX-XXXX</p>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </RadioGroup>
                       </FormControl>
@@ -736,9 +810,15 @@ export function CheckoutSheet({
                   )} 
                 />
 
+                {/* Payment Proof Upload - Only for GCash/Bank */}
                 {(paymentMethod === "gcash" || paymentMethod === "bank") && (
-                  <div className="space-y-2">
-                    <Label>Payment Proof *</Label>
+                  <div className="space-y-2 mt-3">
+                    <Label className="flex items-center gap-2">
+                      Upload Payment Screenshot *
+                      {!paymentProof && (
+                        <span className="text-xs text-destructive">(Required)</span>
+                      )}
+                    </Label>
                     {paymentProofPreview ? (
                       <div className="relative">
                         <img 
@@ -755,23 +835,34 @@ export function CheckoutSheet({
                         >
                           <X className="h-3 w-3" />
                         </Button>
+                        <div className="absolute bottom-2 left-2 bg-green-500 text-white text-xs px-2 py-1 rounded flex items-center gap-1">
+                          <Check className="h-3 w-3" />
+                          Uploaded
+                        </div>
                       </div>
                     ) : (
-                      <label className="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
+                      <label className="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-destructive/50 rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
                         <Upload className="h-6 w-6 text-muted-foreground mb-1" />
                         <span className="text-xs text-muted-foreground">Click to upload screenshot</span>
-                        <input type="file" accept="image/*" className="hidden" onChange={handlePaymentProofChange} />
+                        <span className="text-xs text-destructive mt-1">Required to place order</span>
+                        <input 
+                          type="file" 
+                          accept="image/jpeg,image/png,image/jpg" 
+                          className="hidden" 
+                          onChange={handlePaymentProofChange} 
+                        />
                       </label>
                     )}
                   </div>
                 )}
 
+                {/* Continue Button */}
                 {(paymentMethod === "cash" || paymentProof) && (
                   <Button 
                     type="button" 
                     variant="outline" 
                     size="sm" 
-                    className="w-full mt-2"
+                    className="w-full mt-3"
                     onClick={() => setActiveSection("review")}
                   >
                     Continue to Review
@@ -808,11 +899,23 @@ export function CheckoutSheet({
                     </div>
                   </div>
 
+                  {/* Payment proof warning */}
+                  {(paymentMethod === "gcash" || paymentMethod === "bank") && !paymentProof && (
+                    <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-lg flex items-center gap-2">
+                      <Upload className="h-4 w-4" />
+                      Please upload your payment proof to continue
+                    </div>
+                  )}
+
                   <Button 
                     type="submit" 
                     className="w-full" 
                     size="lg" 
-                    disabled={isSubmitting || (orderType === "delivery" && (isCalculatingFee || deliveryFee === null))}
+                    disabled={
+                      isSubmitting || 
+                      (orderType === "delivery" && (isCalculatingFee || deliveryFee === null)) ||
+                      ((paymentMethod === "gcash" || paymentMethod === "bank") && !paymentProof)
+                    }
                   >
                     {isSubmitting ? (
                       <>
