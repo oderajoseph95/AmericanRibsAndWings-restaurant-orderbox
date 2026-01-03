@@ -58,7 +58,11 @@ export function BundleWizard({
   // Determine flavor category from component product name
   const getFlavorCategory = (componentName: string): string => {
     const lower = componentName.toLowerCase();
-    if (lower.includes("wing") || lower.includes("ala carte")) return "wings";
+    // Ribs, chicken, and wings all use "wings" flavors
+    if (lower.includes("rib") || 
+        lower.includes("chicken") || 
+        lower.includes("wing") || 
+        lower.includes("ala carte")) return "wings";
     if (lower.includes("fries") || lower.includes("fry")) return "fries";
     if (lower.includes("drink") || lower.includes("beverage")) return "drinks";
     return "wings"; // default
@@ -124,10 +128,12 @@ export function BundleWizard({
 
   const getStepLabel = (componentName: string): string => {
     const lower = componentName.toLowerCase();
+    if (lower.includes("rib")) return "Ribs Flavor";
+    if (lower.includes("chicken") && !lower.includes("wing")) return "Chicken Flavor";
     if (lower.includes("wing") || lower.includes("ala carte")) return "Wings Flavor";
     if (lower.includes("fries") || lower.includes("fry")) return "Fries Flavor";
     if (lower.includes("drink") || lower.includes("beverage")) return "Drink";
-    return "Selection";
+    return "Flavor";
   };
 
   return (
