@@ -19,9 +19,10 @@ const MAX_DELIVERY_DISTANCE_KM = 25; // Maximum delivery radius
 // Allowed delivery cities
 const ALLOWED_CITIES = ['Floridablanca', 'Lubao', 'Guagua', 'Porac'];
 
-// Validate coordinates are within Pampanga area (roughly)
+// Validate coordinates are within Pampanga area (expanded bounds)
 const isInPampangaArea = (lat: number, lng: number): boolean => {
-  return lat >= 14.7 && lat <= 15.3 && lng >= 120.3 && lng <= 120.8;
+  // Expanded to cover all of Pampanga province
+  return lat >= 14.5 && lat <= 15.5 && lng >= 120.0 && lng <= 121.0;
 };
 
 serve(async (req) => {
