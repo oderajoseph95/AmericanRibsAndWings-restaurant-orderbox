@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -11,15 +11,22 @@ import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Plus, Pencil, Archive, ArchiveRestore, GripVertical, Loader2 } from 'lucide-react';
+import { Plus, Pencil, Archive, ArchiveRestore, GripVertical, Loader2, Upload, ImageIcon } from 'lucide-react';
 import type { Tables } from '@/integrations/supabase/types';
+
+type CategoryWithImage = Tables<'categories'> & {
+  image_url?: string | null;
+};
 
 export default function Categories() {
   const { role } = useAuth();
   const canEdit = role === 'owner' || role === 'manager';
   const [showArchived, setShowArchived] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<Tables<'categories'> | null>(null);
+  const [editingCategory, setEditingCategory] = useState<CategoryWithImage | null>(null);
+  const [imageUrl, setImageUrl] = useState<string>('');
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
   const { data: categories = [], isLoading } = useQuery({
@@ -38,12 +45,41 @@ export default function Categories() {
 
       const { data, error } = await query;
       if (error) throw error;
-      return data;
+      return data as CategoryWithImage[];
     },
   });
 
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingImage(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const filePath = `categories/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('product-images')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('product-images')
+        .getPublicUrl(filePath);
+
+      setImageUrl(publicUrl);
+      toast.success('Image uploaded');
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to upload image');
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
   const saveMutation = useMutation({
-    mutationFn: async (category: { name: string; is_active?: boolean }) => {
+    mutationFn: async (category: { name: string; is_active?: boolean; image_url?: string | null }) => {
       if (editingCategory) {
         const { error } = await supabase
           .from('categories')
@@ -56,6 +92,7 @@ export default function Categories() {
           name: category.name,
           is_active: category.is_active,
           sort_order: maxSort + 1,
+          image_url: category.image_url,
         });
         if (error) throw error;
       }
@@ -65,6 +102,7 @@ export default function Categories() {
       toast.success(editingCategory ? 'Category updated' : 'Category created');
       setDialogOpen(false);
       setEditingCategory(null);
+      setImageUrl('');
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to save category');
@@ -91,18 +129,23 @@ export default function Categories() {
     saveMutation.mutate({
       name: form.get('name') as string,
       is_active: form.get('is_active') === 'on',
+      image_url: imageUrl || editingCategory?.image_url || null,
     });
   };
 
-  const openEditDialog = (category: Tables<'categories'>) => {
+  const openEditDialog = (category: CategoryWithImage) => {
     setEditingCategory(category);
+    setImageUrl(category.image_url || '');
     setDialogOpen(true);
   };
 
   const openNewDialog = () => {
     setEditingCategory(null);
+    setImageUrl('');
     setDialogOpen(true);
   };
+
+  const currentImageUrl = imageUrl || editingCategory?.image_url;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -114,7 +157,13 @@ export default function Categories() {
           </p>
         </div>
         {canEdit && (
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <Dialog open={dialogOpen} onOpenChange={(open) => {
+            setDialogOpen(open);
+            if (!open) {
+              setEditingCategory(null);
+              setImageUrl('');
+            }
+          }}>
             <DialogTrigger asChild>
               <Button onClick={openNewDialog}>
                 <Plus className="h-4 w-4 mr-2" />
@@ -128,6 +177,48 @@ export default function Categories() {
                 </DialogTitle>
               </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-4">
+                {/* Category Image Upload */}
+                <div className="space-y-2">
+                  <Label>Category Image</Label>
+                  <p className="text-xs text-muted-foreground">Recommended: 600×400px (landscape)</p>
+                  <div className="flex items-start gap-4">
+                    <div className="w-24 h-16 rounded-lg border-2 border-dashed border-muted-foreground/30 flex items-center justify-center overflow-hidden bg-muted">
+                      {currentImageUrl ? (
+                        <img 
+                          src={currentImageUrl} 
+                          alt="Category" 
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <ImageIcon className="h-6 w-6 text-muted-foreground/50" />
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <input
+                        ref={imageInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        className="hidden"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => imageInputRef.current?.click()}
+                        disabled={isUploadingImage}
+                      >
+                        {isUploadingImage ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Upload className="h-4 w-4 mr-2" />
+                        )}
+                        {currentImageUrl ? 'Change Image' : 'Upload Image'}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="name">Name *</Label>
                   <Input
@@ -193,6 +284,7 @@ export default function Categories() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-10"></TableHead>
+                  <TableHead className="w-16">Image</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Order</TableHead>
@@ -204,6 +296,19 @@ export default function Categories() {
                   <TableRow key={category.id}>
                     <TableCell>
                       <GripVertical className="h-4 w-4 text-muted-foreground" />
+                    </TableCell>
+                    <TableCell>
+                      <div className="w-12 h-8 rounded bg-muted flex items-center justify-center overflow-hidden">
+                        {category.image_url ? (
+                          <img 
+                            src={category.image_url} 
+                            alt={category.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="font-medium">{category.name}</TableCell>
                     <TableCell>

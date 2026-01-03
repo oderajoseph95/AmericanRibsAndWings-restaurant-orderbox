@@ -73,6 +73,7 @@ export type Database = {
           archived_at: string | null
           created_at: string | null
           id: string
+          image_url: string | null
           is_active: boolean | null
           name: string
           sort_order: number | null
@@ -82,6 +83,7 @@ export type Database = {
           archived_at?: string | null
           created_at?: string | null
           id?: string
+          image_url?: string | null
           is_active?: boolean | null
           name: string
           sort_order?: number | null
@@ -91,6 +93,7 @@ export type Database = {
           archived_at?: string | null
           created_at?: string | null
           id?: string
+          image_url?: string | null
           is_active?: boolean | null
           name?: string
           sort_order?: number | null

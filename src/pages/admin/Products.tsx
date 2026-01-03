@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Plus, Pencil, Archive, ArchiveRestore, Search, Loader2 } from 'lucide-react';
+import { Plus, Pencil, Archive, ArchiveRestore, Search, Loader2, Upload, ImageIcon } from 'lucide-react';
 import type { Tables, Enums } from '@/integrations/supabase/types';
 
 type Product = Tables<'products'> & {
@@ -41,6 +41,9 @@ export default function Products() {
   const [showArchived, setShowArchived] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [imageUrl, setImageUrl] = useState<string>('');
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
   const { data: products = [], isLoading } = useQuery({
@@ -77,6 +80,35 @@ export default function Products() {
     },
   });
 
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingImage(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const filePath = `products/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('product-images')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('product-images')
+        .getPublicUrl(filePath);
+
+      setImageUrl(publicUrl);
+      toast.success('Image uploaded');
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to upload image');
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
   const saveMutation = useMutation({
     mutationFn: async (product: Partial<Tables<'products'>> & { name: string }) => {
       if (editingProduct) {
@@ -95,6 +127,7 @@ export default function Products() {
           product_type: product.product_type,
           is_active: product.is_active,
           stock_enabled: product.stock_enabled,
+          image_url: product.image_url,
         });
         if (error) throw error;
       }
@@ -104,6 +137,7 @@ export default function Products() {
       toast.success(editingProduct ? 'Product updated' : 'Product created');
       setDialogOpen(false);
       setEditingProduct(null);
+      setImageUrl('');
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to save product');
@@ -144,18 +178,23 @@ export default function Products() {
       product_type: productType,
       is_active: form.get('is_active') === 'on',
       stock_enabled: productType !== 'unlimited' && form.get('stock_enabled') === 'on',
+      image_url: imageUrl || editingProduct?.image_url || null,
     });
   };
 
   const openEditDialog = (product: Product) => {
     setEditingProduct(product);
+    setImageUrl(product.image_url || '');
     setDialogOpen(true);
   };
 
   const openNewDialog = () => {
     setEditingProduct(null);
+    setImageUrl('');
     setDialogOpen(true);
   };
+
+  const currentImageUrl = imageUrl || editingProduct?.image_url;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -167,7 +206,13 @@ export default function Products() {
           </p>
         </div>
         {canEdit && (
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <Dialog open={dialogOpen} onOpenChange={(open) => {
+            setDialogOpen(open);
+            if (!open) {
+              setEditingProduct(null);
+              setImageUrl('');
+            }
+          }}>
             <DialogTrigger asChild>
               <Button onClick={openNewDialog}>
                 <Plus className="h-4 w-4 mr-2" />
@@ -182,6 +227,48 @@ export default function Products() {
               </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="grid gap-4">
+                  {/* Product Image Upload */}
+                  <div className="space-y-2">
+                    <Label>Product Image</Label>
+                    <p className="text-xs text-muted-foreground">Recommended: 400×400px (square)</p>
+                    <div className="flex items-start gap-4">
+                      <div className="w-24 h-24 rounded-lg border-2 border-dashed border-muted-foreground/30 flex items-center justify-center overflow-hidden bg-muted">
+                        {currentImageUrl ? (
+                          <img 
+                            src={currentImageUrl} 
+                            alt="Product" 
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <ImageIcon className="h-8 w-8 text-muted-foreground/50" />
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <input
+                          ref={imageInputRef}
+                          type="file"
+                          accept="image/*"
+                          onChange={handleImageUpload}
+                          className="hidden"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => imageInputRef.current?.click()}
+                          disabled={isUploadingImage}
+                        >
+                          {isUploadingImage ? (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          ) : (
+                            <Upload className="h-4 w-4 mr-2" />
+                          )}
+                          {currentImageUrl ? 'Change Image' : 'Upload Image'}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="name">Name *</Label>
                     <Input
@@ -332,6 +419,7 @@ export default function Products() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12">Image</TableHead>
                     <TableHead>Product</TableHead>
                     <TableHead>SKU</TableHead>
                     <TableHead>Category</TableHead>
@@ -344,6 +432,19 @@ export default function Products() {
                 <TableBody>
                   {filteredProducts.map((product) => (
                     <TableRow key={product.id}>
+                      <TableCell>
+                        <div className="w-10 h-10 rounded bg-muted flex items-center justify-center overflow-hidden">
+                          {product.image_url ? (
+                            <img 
+                              src={product.image_url} 
+                              alt={product.name}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell className="font-medium">{product.name}</TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">
                         {product.sku}

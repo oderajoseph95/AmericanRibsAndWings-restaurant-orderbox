@@ -107,15 +107,15 @@ export function Gallery() {
         </div>
       </div>
 
-      {/* Scrolling gallery - Desktop: 2 rows, Mobile: 1 row */}
-      <div className="space-y-3">
+      {/* Scrolling gallery - Both mobile and desktop: 2 rows */}
+      <div className="space-y-2 md:space-y-3">
         {/* Row 1 - scrolls left */}
         <div className="relative">
-          <div className="flex gap-3 animate-scroll-left">
+          <div className="flex gap-2 md:gap-3 animate-scroll-left">
             {scrollImages.map((image, index) => (
               <div
                 key={`row1-${image.id}-${index}`}
-                className="flex-shrink-0 w-56 md:w-72 h-40 md:h-48 rounded-xl overflow-hidden cursor-pointer group shadow-md"
+                className="flex-shrink-0 w-36 md:w-72 h-28 md:h-48 rounded-lg md:rounded-xl overflow-hidden cursor-pointer group shadow-md"
                 onClick={() => setSelectedImage(image)}
               >
                 <img
@@ -128,13 +128,13 @@ export function Gallery() {
           </div>
         </div>
 
-        {/* Row 2 - scrolls right (hidden on mobile) */}
-        <div className="relative hidden md:block">
-          <div className="flex gap-3 animate-scroll-right">
+        {/* Row 2 - scrolls right (visible on both mobile and desktop) */}
+        <div className="relative">
+          <div className="flex gap-2 md:gap-3 animate-scroll-right">
             {row2Images.map((image, index) => (
               <div
                 key={`row2-${image.id}-${index}`}
-                className="flex-shrink-0 w-72 h-48 rounded-xl overflow-hidden cursor-pointer group shadow-md"
+                className="flex-shrink-0 w-36 md:w-72 h-28 md:h-48 rounded-lg md:rounded-xl overflow-hidden cursor-pointer group shadow-md"
                 onClick={() => setSelectedImage(image)}
               >
                 <img

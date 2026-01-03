@@ -103,26 +103,20 @@ export function VideoSection() {
               onClick={() => setSelectedVideo(video)}
             >
               <div className="aspect-[9/16] relative bg-muted">
-                {/* Autoplay muted preview */}
-                {video.thumbnail_url ? (
-                  <img
-                    src={video.thumbnail_url}
-                    alt="Video thumbnail"
-                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                  />
-                ) : (
-                  <video
-                    ref={(el) => {
-                      if (el) videoRefs.current.set(video.id, el);
-                    }}
-                    src={video.video_url}
-                    muted
-                    loop
-                    playsInline
-                    autoPlay
-                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                  />
-                )}
+                {/* Autoplay muted preview - use video itself as thumbnail */}
+                <video
+                  ref={(el) => {
+                    if (el) videoRefs.current.set(video.id, el);
+                  }}
+                  src={`${video.video_url}#t=0.1`}
+                  muted
+                  loop
+                  playsInline
+                  autoPlay
+                  preload="metadata"
+                  poster={video.thumbnail_url || undefined}
+                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                />
                 <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-colors flex items-center justify-center">
                   <div className="w-12 h-12 bg-primary rounded-full flex items-center justify-center transform group-hover:scale-110 transition-transform shadow-lg">
                     <Play className="h-5 w-5 text-primary-foreground ml-0.5" fill="currentColor" />

@@ -39,6 +39,17 @@ export function Navbar() {
           />
         </Link>
 
+        {/* Mobile "Now Taking Orders" Badge - between logo and hamburger */}
+        <div className="flex md:hidden items-center flex-1 justify-center">
+          <div className="inline-flex items-center gap-1 bg-primary/10 text-primary px-2 py-1 rounded-full text-[10px] font-medium">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-accent"></span>
+            </span>
+            Now Taking Orders
+          </div>
+        </div>
+
         {/* Desktop Nav */}
         <div className="hidden md:flex items-center gap-8">
           {navLinks.map((link) => (
