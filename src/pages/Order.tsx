@@ -11,6 +11,7 @@ import { ArrowLeft, ShoppingCart, Home, MapPin } from "lucide-react";
 import { ProductCard } from "@/components/customer/ProductCard";
 import { Cart } from "@/components/customer/Cart";
 import { FlavorModal } from "@/components/customer/FlavorModal";
+import { BundleWizard } from "@/components/customer/BundleWizard";
 import { CheckoutSheet } from "@/components/customer/CheckoutSheet";
 import { OrderConfirmation } from "@/components/customer/OrderConfirmation";
 import type { Tables } from "@/integrations/supabase/types";
@@ -31,6 +32,7 @@ const Order = () => {
   const [orderType, setOrderType] = useState<OrderType>("pickup");
   const [selectedProduct, setSelectedProduct] = useState<Tables<"products"> | null>(null);
   const [isFlavorModalOpen, setIsFlavorModalOpen] = useState(false);
+  const [isBundleWizardOpen, setIsBundleWizardOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [confirmedOrder, setConfirmedOrder] = useState<{ orderNumber: string; orderId: string } | null>(null);
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -102,7 +104,12 @@ const Order = () => {
 
   // Add to cart handler
   const handleAddToCart = (product: Tables<"products">) => {
-    if (product.product_type === "flavored" || product.product_type === "bundle") {
+    if (product.product_type === "bundle") {
+      // Bundle products use the BundleWizard for step-by-step selection
+      setSelectedProduct(product);
+      setIsBundleWizardOpen(true);
+    } else if (product.product_type === "flavored") {
+      // Flavored products use FlavorModal
       setSelectedProduct(product);
       setIsFlavorModalOpen(true);
     } else {
@@ -383,12 +390,26 @@ const Order = () => {
         </div>
       )}
 
-      {/* Flavor selection modal */}
-      {selectedProduct && flavors && (
+      {/* Flavor selection modal for flavored products */}
+      {selectedProduct && flavors && selectedProduct.product_type === "flavored" && (
         <FlavorModal
           open={isFlavorModalOpen}
           onOpenChange={(open) => {
             setIsFlavorModalOpen(open);
+            if (!open) setSelectedProduct(null);
+          }}
+          product={selectedProduct}
+          flavors={flavors}
+          onConfirm={handleAddFlavoredItem}
+        />
+      )}
+
+      {/* Bundle wizard for bundle products */}
+      {selectedProduct && flavors && selectedProduct.product_type === "bundle" && (
+        <BundleWizard
+          open={isBundleWizardOpen}
+          onOpenChange={(open) => {
+            setIsBundleWizardOpen(open);
             if (!open) setSelectedProduct(null);
           }}
           product={selectedProduct}
