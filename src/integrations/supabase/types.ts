@@ -142,6 +142,7 @@ export type Database = {
           id: string
           is_active: boolean | null
           name: string
+          sort_order: number | null
           surcharge: number | null
           updated_at: string | null
         }
@@ -152,6 +153,7 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           name: string
+          sort_order?: number | null
           surcharge?: number | null
           updated_at?: string | null
         }
@@ -162,6 +164,7 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           name?: string
+          sort_order?: number | null
           surcharge?: number | null
           updated_at?: string | null
         }
