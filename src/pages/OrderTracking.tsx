@@ -533,8 +533,8 @@ export default function OrderTracking() {
           </CardContent>
         </Card>
 
-        {/* Customer Info */}
-        {order.customer && (
+        {/* Customer Info - Only show for owners/admins */}
+        {order.customer && (trackingData?.is_owner || trackingData?.is_admin) && (
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
@@ -554,8 +554,21 @@ export default function OrderTracking() {
           </Card>
         )}
 
-        {/* Save to Account Prompt */}
-        {order.customer?.email && !showAccountPrompt && (
+        {/* Security Notice for public viewers */}
+        {!trackingData?.is_owner && !trackingData?.is_admin && (
+          <Card className="border-muted bg-muted/30">
+            <CardContent className="pt-6">
+              <div className="text-center text-sm text-muted-foreground">
+                <CheckCircle className="h-5 w-5 mx-auto mb-2 text-green-600" />
+                <p>Your personal information is protected.</p>
+                <p className="text-xs mt-1">Log in to see full order details.</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Save to Account Prompt - Only show for owners who have email visible */}
+        {trackingData?.is_owner && order.customer?.email && !showAccountPrompt && (
           <Card className="border-primary/20 bg-primary/5">
             <CardContent className="pt-6">
               <div className="text-center">
@@ -571,7 +584,7 @@ export default function OrderTracking() {
           </Card>
         )}
 
-        {showAccountPrompt && order.customer?.email && (
+        {showAccountPrompt && trackingData?.is_owner && order.customer?.email && (
           <Card className="border-primary">
             <CardContent className="pt-6 space-y-4">
               <div className="text-center">
