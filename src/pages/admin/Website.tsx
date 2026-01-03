@@ -500,15 +500,13 @@ export default function Website() {
                           }
                         />
                       </div>
-                      {!["featured_menu", "category_showcase"].includes(section.section_key) && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setEditingSection(section)}
-                        >
-                          Edit Content
-                        </Button>
-                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setEditingSection(section)}
+                      >
+                        Edit Content
+                      </Button>
                     </div>
                   </div>
                 ))}
@@ -1297,9 +1295,116 @@ function SectionEditor({
         </div>
       );
 
+    case "featured_menu":
+      return (
+        <div className="space-y-4">
+          <div>
+            <Label>Badge Text</Label>
+            <Input
+              value={(content.badge as string) || ""}
+              onChange={(e) => updateField("badge", e.target.value)}
+              placeholder="Popular Items"
+            />
+          </div>
+          <div>
+            <Label>Section Title</Label>
+            <Input
+              value={(content.title as string) || ""}
+              onChange={(e) => updateField("title", e.target.value)}
+              placeholder="Our Best Sellers"
+            />
+          </div>
+          <div>
+            <Label>Subtitle</Label>
+            <Textarea
+              value={(content.subtitle as string) || ""}
+              onChange={(e) => updateField("subtitle", e.target.value)}
+              placeholder="Discover our most loved dishes..."
+              rows={2}
+            />
+          </div>
+        </div>
+      );
+
+    case "category_showcase":
+      return (
+        <div className="space-y-4">
+          <div>
+            <Label>Badge Text</Label>
+            <Input
+              value={(content.badge as string) || ""}
+              onChange={(e) => updateField("badge", e.target.value)}
+              placeholder="Explore Our Menu"
+            />
+          </div>
+          <div>
+            <Label>Section Title</Label>
+            <Input
+              value={(content.title as string) || ""}
+              onChange={(e) => updateField("title", e.target.value)}
+              placeholder="Browse by Category"
+            />
+          </div>
+          <div>
+            <Label>Subtitle</Label>
+            <Textarea
+              value={(content.subtitle as string) || ""}
+              onChange={(e) => updateField("subtitle", e.target.value)}
+              placeholder="From hearty rice meals to refreshing drinks..."
+              rows={2}
+            />
+          </div>
+        </div>
+      );
+
     case "footer":
       return (
         <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Brand Name</Label>
+              <Input
+                value={(content.brandName as string) || ""}
+                onChange={(e) => updateField("brandName", e.target.value)}
+                placeholder="American Ribs"
+              />
+            </div>
+            <div>
+              <Label>Brand Accent</Label>
+              <Input
+                value={(content.brandAccent as string) || ""}
+                onChange={(e) => updateField("brandAccent", e.target.value)}
+                placeholder="& Wings"
+              />
+            </div>
+          </div>
+          <div>
+            <Label>Tagline</Label>
+            <Textarea
+              value={(content.tagline as string) || ""}
+              onChange={(e) => updateField("tagline", e.target.value)}
+              placeholder="Authentic American BBQ crafted with passion..."
+              rows={2}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Facebook URL</Label>
+              <Input
+                value={(content.facebookUrl as string) || ""}
+                onChange={(e) => updateField("facebookUrl", e.target.value)}
+                placeholder="https://facebook.com/..."
+              />
+            </div>
+            <div>
+              <Label>Instagram URL</Label>
+              <Input
+                value={(content.instagramUrl as string) || ""}
+                onChange={(e) => updateField("instagramUrl", e.target.value)}
+                placeholder="https://instagram.com/..."
+              />
+            </div>
+          </div>
           <div>
             <Label>Copyright Text</Label>
             <Input

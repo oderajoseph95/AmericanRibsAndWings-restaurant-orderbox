@@ -59,7 +59,7 @@ export function Gallery() {
 
   if (isLoading) {
     return (
-      <section className="py-20 bg-secondary/10">
+      <section className="py-12 bg-background">
         <div className="container px-4 flex justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -88,19 +88,19 @@ export function Gallery() {
   const row2Images = [...scrollImages].reverse();
 
   return (
-    <section className="py-20 bg-secondary/10 overflow-hidden">
-      <div className="container px-4 mb-12">
+    <section className="py-12 bg-background overflow-hidden">
+      <div className="container px-4 mb-8">
         {/* Section header */}
         <div className="text-center">
-          <Badge variant="outline" className="mb-4 border-primary/30 text-primary">
+          <Badge variant="outline" className="mb-3 border-primary/30 text-primary bg-primary/5">
             <ImageIcon className="h-3 w-3 mr-1" />
             Gallery
           </Badge>
-          <h2 className="text-4xl md:text-5xl font-bold text-foreground mb-4">
+          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-3">
             {content.title || "Our Food Gallery"}
           </h2>
           {content.subtitle && (
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+            <p className="text-base text-muted-foreground max-w-xl mx-auto">
               {content.subtitle}
             </p>
           )}
@@ -108,14 +108,14 @@ export function Gallery() {
       </div>
 
       {/* Scrolling gallery - Desktop: 2 rows, Mobile: 1 row */}
-      <div className="space-y-4">
+      <div className="space-y-3">
         {/* Row 1 - scrolls left */}
         <div className="relative">
-          <div className="flex gap-4 animate-scroll-left">
+          <div className="flex gap-3 animate-scroll-left">
             {scrollImages.map((image, index) => (
               <div
                 key={`row1-${image.id}-${index}`}
-                className="flex-shrink-0 w-64 md:w-80 h-48 md:h-56 rounded-xl overflow-hidden cursor-pointer group"
+                className="flex-shrink-0 w-56 md:w-72 h-40 md:h-48 rounded-xl overflow-hidden cursor-pointer group shadow-md"
                 onClick={() => setSelectedImage(image)}
               >
                 <img
@@ -130,11 +130,11 @@ export function Gallery() {
 
         {/* Row 2 - scrolls right (hidden on mobile) */}
         <div className="relative hidden md:block">
-          <div className="flex gap-4 animate-scroll-right">
+          <div className="flex gap-3 animate-scroll-right">
             {row2Images.map((image, index) => (
               <div
                 key={`row2-${image.id}-${index}`}
-                className="flex-shrink-0 w-80 h-56 rounded-xl overflow-hidden cursor-pointer group"
+                className="flex-shrink-0 w-72 h-48 rounded-xl overflow-hidden cursor-pointer group shadow-md"
                 onClick={() => setSelectedImage(image)}
               >
                 <img
@@ -150,7 +150,7 @@ export function Gallery() {
 
       {/* Lightbox modal */}
       <Dialog open={!!selectedImage} onOpenChange={() => setSelectedImage(null)}>
-        <DialogContent className="max-w-4xl p-0 overflow-hidden bg-black/90">
+        <DialogContent className="max-w-4xl p-0 overflow-hidden bg-black/95 border-0">
           {selectedImage && (
             <div className="relative">
               <img
@@ -159,8 +159,8 @@ export function Gallery() {
                 className="w-full h-auto max-h-[80vh] object-contain"
               />
               {selectedImage.title && (
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-6">
-                  <h3 className="text-white text-xl font-semibold">
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
+                  <h3 className="text-white text-lg font-semibold">
                     {selectedImage.title}
                   </h3>
                 </div>

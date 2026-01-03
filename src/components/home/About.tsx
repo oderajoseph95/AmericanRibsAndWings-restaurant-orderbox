@@ -1,6 +1,18 @@
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Flame, Clock, Award, Heart, Truck, Users } from "lucide-react";
+import { Loader2 } from "lucide-react";
+
+interface AboutContent {
+  title?: string;
+  titleAccent?: string;
+  story?: string;
+  yearsInBusiness?: string;
+  menuItems?: string;
+  happyCustomers?: string;
+}
 
 const features = [
   {
@@ -36,69 +48,85 @@ const features = [
 ];
 
 export function About() {
+  const { data: sectionConfig, isLoading } = useQuery({
+    queryKey: ["homepage-section", "about"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("homepage_sections")
+        .select("*")
+        .eq("section_key", "about")
+        .eq("is_visible", true)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <section id="about" className="py-12 bg-background">
+        <div className="container px-4 flex justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </section>
+    );
+  }
+
+  if (!sectionConfig) return null;
+
+  const content = (sectionConfig.content as AboutContent) || {};
+
   return (
-    <section className="py-20 bg-background">
+    <section id="about" className="py-12 bg-background">
       <div className="container px-4">
-        <div className="grid lg:grid-cols-2 gap-12 items-center">
+        <div className="grid lg:grid-cols-2 gap-8 items-center">
           {/* Left side - Story */}
           <div>
-            <Badge variant="secondary" className="mb-4">
-              Our Story
+            <Badge variant="secondary" className="mb-3">
+              {content.title || "Our Story"}
             </Badge>
-            <h2 className="text-4xl md:text-5xl font-bold text-foreground mb-6">
+            <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
               Authentic American
-              <span className="text-primary"> BBQ Experience</span>
+              <span className="text-primary"> {content.titleAccent || "BBQ Experience"}</span>
             </h2>
-            <div className="space-y-4 text-muted-foreground">
-              <p className="text-lg">
-                Welcome to American Ribs & Wings, where we bring the authentic taste 
-                of American BBQ right to your table. Our journey started with a simple 
-                passion: to serve the most delicious, tender ribs and crispy wings 
-                you've ever tasted.
-              </p>
-              <p>
-                We slow-smoke our meats using traditional techniques, combined with 
-                our signature blend of spices and homemade sauces. Each bite is a 
-                testament to our commitment to quality and flavor.
-              </p>
-              <p>
-                Whether you're dining in, picking up, or ordering delivery, we promise 
-                an unforgettable BBQ experience that'll keep you coming back for more.
+            <div className="space-y-3 text-muted-foreground">
+              <p className="text-base">
+                {content.story || "Welcome to American Ribs & Wings, where we bring the authentic taste of American BBQ right to your table. Our journey started with a simple passion: to serve the most delicious, tender ribs and crispy wings you've ever tasted."}
               </p>
             </div>
 
             {/* Stats */}
-            <div className="grid grid-cols-3 gap-6 mt-8">
+            <div className="grid grid-cols-3 gap-4 mt-6">
               <div className="text-center">
-                <div className="text-4xl font-bold text-primary">5+</div>
-                <div className="text-sm text-muted-foreground">Years of Experience</div>
+                <div className="text-3xl font-bold text-primary">{content.yearsInBusiness || "5+"}</div>
+                <div className="text-xs text-muted-foreground">Years</div>
               </div>
               <div className="text-center">
-                <div className="text-4xl font-bold text-primary">50+</div>
-                <div className="text-sm text-muted-foreground">Menu Items</div>
+                <div className="text-3xl font-bold text-primary">{content.menuItems || "50+"}</div>
+                <div className="text-xs text-muted-foreground">Menu Items</div>
               </div>
               <div className="text-center">
-                <div className="text-4xl font-bold text-primary">10K+</div>
-                <div className="text-sm text-muted-foreground">Happy Customers</div>
+                <div className="text-3xl font-bold text-primary">{content.happyCustomers || "10K+"}</div>
+                <div className="text-xs text-muted-foreground">Customers</div>
               </div>
             </div>
           </div>
 
           {/* Right side - Features grid */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
             {features.map((feature, index) => (
               <Card 
                 key={index} 
                 className="border-border/50 hover:border-primary/50 hover:shadow-md transition-all duration-300"
               >
-                <CardContent className="p-5">
-                  <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
-                    <feature.icon className="h-6 w-6 text-primary" />
+                <CardContent className="p-4">
+                  <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center mb-3">
+                    <feature.icon className="h-5 w-5 text-primary" />
                   </div>
-                  <h3 className="font-semibold text-foreground mb-2">
+                  <h3 className="font-semibold text-foreground mb-1 text-sm">
                     {feature.title}
                   </h3>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     {feature.description}
                   </p>
                 </CardContent>
