@@ -149,6 +149,7 @@ export function CheckoutSheet({
   const [isCalculatingFee, setIsCalculatingFee] = useState(false);
   const [deliveryFee, setDeliveryFee] = useState<number | null>(null);
   const [deliveryDistance, setDeliveryDistance] = useState<number | null>(null);
+  const [barangay, setBarangay] = useState("");
 
   const form = useForm<CheckoutFormData>({
     resolver: zodResolver(checkoutSchema),
@@ -177,6 +178,7 @@ export function CheckoutSheet({
     if (orderType === "pickup") {
       setDeliveryFee(null);
       setDeliveryDistance(null);
+      setBarangay("");
     }
   }, [orderType]);
 
@@ -251,9 +253,9 @@ export function CheckoutSheet({
 
       if (customerError) throw customerError;
 
-      // Build delivery address string
+      // Build delivery address string (include barangay)
       const deliveryAddress = data.orderType === "delivery"
-        ? `${data.streetAddress}, ${data.city}, Pampanga${data.landmark ? ` (Landmark: ${data.landmark})` : ""} [GPS: ${data.customerLat?.toFixed(5)}, ${data.customerLng?.toFixed(5)}]`
+        ? `${data.streetAddress}, ${barangay}, ${data.city}, Pampanga${data.landmark ? ` (Landmark: ${data.landmark})` : ""} [GPS: ${data.customerLat?.toFixed(5)}, ${data.customerLng?.toFixed(5)}]`
         : null;
 
       // 2. Create order
@@ -582,6 +584,8 @@ export function CheckoutSheet({
                     onCalculating={handleCalculating}
                     streetAddress={streetAddress || ""}
                     onStreetAddressChange={(value) => form.setValue("streetAddress", value)}
+                    barangay={barangay}
+                    onBarangayChange={setBarangay}
                     landmark={form.watch("landmark") || ""}
                     onLandmarkChange={(value) => form.setValue("landmark", value)}
                   />
