@@ -28,6 +28,7 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
+  Globe,
 } from 'lucide-react';
 
 const navItems = [
@@ -40,6 +41,7 @@ const navItems = [
   { title: 'Stock', url: '/admin/stock', icon: BoxesIcon, roles: ['owner', 'manager', 'cashier'] },
   { title: 'Customers', url: '/admin/customers', icon: Users, roles: ['owner', 'manager', 'cashier'] },
   { title: 'Reports', url: '/admin/reports', icon: BarChart3, roles: ['owner', 'manager'] },
+  { title: 'Website', url: '/admin/website', icon: Globe, roles: ['owner', 'manager'] },
   { title: 'Settings', url: '/admin/settings', icon: Settings, roles: ['owner'] },
 ];
 

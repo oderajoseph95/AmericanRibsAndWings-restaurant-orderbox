@@ -159,9 +159,14 @@ export function FlavorModal({
                         </Badge>
                       )}
                     </div>
-                    {flavor.surcharge && flavor.surcharge > 0 && (
+                    {flavor.surcharge && flavor.surcharge > 0 ? (
                       <p className="text-xs text-accent">
                         +₱{flavor.surcharge.toFixed(2)} per {unitsPerFlavor}pcs
+                      </p>
+                    ) : (
+                      <p className="text-xs flex items-center gap-1">
+                        <span className="line-through text-muted-foreground">₱0.00</span>
+                        <Badge variant="secondary" className="text-[10px] px-1 py-0">FREE</Badge>
                       </p>
                     )}
                   </div>
