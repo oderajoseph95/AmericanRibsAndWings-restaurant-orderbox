@@ -22,6 +22,14 @@ interface GalleryContent {
   subtitle?: string;
 }
 
+// Placeholder images for when gallery is empty
+const placeholderImages = [
+  { id: "p1", title: "Delicious Ribs", image_url: "https://images.unsplash.com/photo-1544025162-d76978e27f53?w=400&h=400&fit=crop" },
+  { id: "p2", title: "Crispy Wings", image_url: "https://images.unsplash.com/photo-1608039755401-742074f0548d?w=400&h=400&fit=crop" },
+  { id: "p3", title: "BBQ Feast", image_url: "https://images.unsplash.com/photo-1529193591184-b1d58069ecdd?w=400&h=400&fit=crop" },
+  { id: "p4", title: "Grilled Perfection", image_url: "https://images.unsplash.com/photo-1558030006-450675393462?w=400&h=400&fit=crop" },
+];
+
 export function Gallery() {
   const [selectedImage, setSelectedImage] = useState<GalleryImage | null>(null);
 
@@ -68,9 +76,9 @@ export function Gallery() {
     );
   }
 
-  if (!images || images.length === 0) {
-    return null;
-  }
+  // Use actual images or placeholders if empty
+  const displayImages = images && images.length > 0 ? images : placeholderImages as GalleryImage[];
+  const isPlaceholder = !images || images.length === 0;
 
   return (
     <section className="py-20 bg-background">
@@ -89,15 +97,20 @@ export function Gallery() {
               {content.subtitle}
             </p>
           )}
+          {isPlaceholder && (
+            <p className="text-sm text-muted-foreground mt-2">
+              (Sample images - Upload your own in the admin panel)
+            </p>
+          )}
         </div>
 
         {/* Image grid */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {images.map((image) => (
+          {displayImages.map((image) => (
             <Card
               key={image.id}
               className="overflow-hidden cursor-pointer group"
-              onClick={() => setSelectedImage(image)}
+              onClick={() => !isPlaceholder && setSelectedImage(image)}
             >
               <div className="aspect-square relative">
                 <img

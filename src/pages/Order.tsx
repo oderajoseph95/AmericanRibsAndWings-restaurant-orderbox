@@ -14,6 +14,7 @@ import { Cart } from "@/components/customer/Cart";
 import { FlavorModal } from "@/components/customer/FlavorModal";
 import { BundleWizard } from "@/components/customer/BundleWizard";
 import { CheckoutSheet } from "@/components/customer/CheckoutSheet";
+import { SEOHead } from "@/components/SEOHead";
 import type { Tables } from "@/integrations/supabase/types";
 
 export type CartItem = {
@@ -215,6 +216,11 @@ const Order = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      <SEOHead 
+        pagePath="/order" 
+        fallbackTitle="Order Online | American Ribs & Wings Floridablanca"
+        fallbackDescription="Order delicious BBQ ribs, wings, and more online from American Ribs & Wings Floridablanca."
+      />
       {/* Header */}
       <header className="sticky top-0 z-40 bg-card border-b border-border">
         <div className="container px-4 h-16 flex items-center justify-between">

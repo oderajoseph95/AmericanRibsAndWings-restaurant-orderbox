@@ -24,32 +24,6 @@ interface VideoContent {
   subtitle?: string;
 }
 
-// Helper to extract YouTube video ID
-function getYouTubeId(url: string): string | null {
-  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-  const match = url.match(regExp);
-  return match && match[2].length === 11 ? match[2] : null;
-}
-
-// Helper to get YouTube thumbnail
-function getYouTubeThumbnail(url: string): string {
-  const videoId = getYouTubeId(url);
-  return videoId ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg` : "";
-}
-
-// Helper to get embed URL
-function getEmbedUrl(url: string, type: string | null): string {
-  if (type === "youtube" || url.includes("youtube") || url.includes("youtu.be")) {
-    const videoId = getYouTubeId(url);
-    return videoId ? `https://www.youtube.com/embed/${videoId}?autoplay=1` : url;
-  }
-  if (type === "vimeo" || url.includes("vimeo")) {
-    const vimeoId = url.match(/vimeo\.com\/(\d+)/)?.[1];
-    return vimeoId ? `https://player.vimeo.com/video/${vimeoId}?autoplay=1` : url;
-  }
-  return url;
-}
-
 export function VideoSection() {
   const [selectedVideo, setSelectedVideo] = useState<VideoItem | null>(null);
 
@@ -119,68 +93,56 @@ export function VideoSection() {
           )}
         </div>
 
-        {/* Video grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {videos.map((video) => {
-            const thumbnail = video.thumbnail_url || getYouTubeThumbnail(video.video_url);
-            
-            return (
-              <Card
-                key={video.id}
-                className="overflow-hidden cursor-pointer group"
-                onClick={() => setSelectedVideo(video)}
-              >
-                <div className="aspect-video relative bg-muted">
-                  {thumbnail ? (
-                    <img
-                      src={thumbnail}
-                      alt={video.title || "Video thumbnail"}
-                      className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <VideoIcon className="h-12 w-12 text-muted-foreground" />
-                    </div>
-                  )}
-                  <div className="absolute inset-0 bg-black/30 group-hover:bg-black/50 transition-colors flex items-center justify-center">
-                    <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center transform group-hover:scale-110 transition-transform">
-                      <Play className="h-8 w-8 text-primary-foreground ml-1" fill="currentColor" />
-                    </div>
-                  </div>
-                </div>
-                {video.title && (
-                  <div className="p-4">
-                    <h3 className="font-semibold text-foreground truncate">
-                      {video.title}
-                    </h3>
+        {/* Video grid - optimized for vertical/reel format */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+          {videos.map((video) => (
+            <Card
+              key={video.id}
+              className="overflow-hidden cursor-pointer group"
+              onClick={() => setSelectedVideo(video)}
+            >
+              <div className="aspect-[9/16] relative bg-muted">
+                {video.thumbnail_url ? (
+                  <img
+                    src={video.thumbnail_url}
+                    alt={video.title || "Video thumbnail"}
+                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/20 to-accent/20">
+                    <VideoIcon className="h-12 w-12 text-muted-foreground" />
                   </div>
                 )}
-              </Card>
-            );
-          })}
+                <div className="absolute inset-0 bg-black/30 group-hover:bg-black/50 transition-colors flex items-center justify-center">
+                  <div className="w-14 h-14 bg-primary rounded-full flex items-center justify-center transform group-hover:scale-110 transition-transform">
+                    <Play className="h-6 w-6 text-primary-foreground ml-1" fill="currentColor" />
+                  </div>
+                </div>
+              </div>
+              {video.title && (
+                <div className="p-3">
+                  <h3 className="font-semibold text-foreground text-sm truncate">
+                    {video.title}
+                  </h3>
+                </div>
+              )}
+            </Card>
+          ))}
         </div>
       </div>
 
-      {/* Video player modal */}
+      {/* Video player modal - vertical aspect ratio */}
       <Dialog open={!!selectedVideo} onOpenChange={() => setSelectedVideo(null)}>
-        <DialogContent className="max-w-4xl p-0 overflow-hidden">
+        <DialogContent className="max-w-md p-0 overflow-hidden">
           {selectedVideo && (
-            <div className="aspect-video">
-              {selectedVideo.video_type === "upload" ? (
-                <video
-                  src={selectedVideo.video_url}
-                  controls
-                  autoPlay
-                  className="w-full h-full"
-                />
-              ) : (
-                <iframe
-                  src={getEmbedUrl(selectedVideo.video_url, selectedVideo.video_type)}
-                  className="w-full h-full"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                />
-              )}
+            <div className="aspect-[9/16] max-h-[80vh]">
+              <video
+                src={selectedVideo.video_url}
+                controls
+                autoPlay
+                className="w-full h-full object-contain bg-black"
+                playsInline
+              />
             </div>
           )}
         </DialogContent>

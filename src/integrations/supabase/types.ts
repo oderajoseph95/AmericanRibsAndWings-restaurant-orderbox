@@ -403,6 +403,36 @@ export type Database = {
           },
         ]
       }
+      page_seo: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          id: string
+          og_image_url: string | null
+          page_path: string
+          title: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          og_image_url?: string | null
+          page_path: string
+          title?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          og_image_url?: string | null
+          page_path?: string
+          title?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       payment_proofs: {
         Row: {
           id: string
