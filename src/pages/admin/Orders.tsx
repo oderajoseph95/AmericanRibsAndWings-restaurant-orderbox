@@ -9,8 +9,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
-import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package } from 'lucide-react';
+import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package, MoreHorizontal, Link, Share2, Copy } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Tables, Enums } from '@/integrations/supabase/types';
 
@@ -115,15 +125,30 @@ export default function Orders() {
         .update({ status })
         .eq('id', id);
       if (error) throw error;
+      return { id, status };
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
+      // Update local selected order state so buttons refresh immediately
+      if (selectedOrder?.id === variables.id) {
+        setSelectedOrder(prev => prev ? { ...prev, status: variables.status } : null);
+      }
       toast.success('Order status updated');
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to update status');
     },
   });
+
+  const handleCopyTrackingLink = (orderId: string) => {
+    const url = `${window.location.origin}/order/${orderId}`;
+    navigator.clipboard.writeText(url);
+    toast.success('Tracking link copied to clipboard!');
+  };
+
+  const handleQuickStatusUpdate = (orderId: string, status: Enums<'order_status'>) => {
+    updateStatusMutation.mutate({ id: orderId, status });
+  };
 
   const updateNotesMutation = useMutation({
     mutationFn: async ({ id, notes }: { id: string; notes: string }) => {
@@ -284,13 +309,47 @@ export default function Orders() {
                       {order.created_at && format(new Date(order.created_at), 'MMM d, h:mm a')}
                     </TableCell>
                     <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setSelectedOrder(order)}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => setSelectedOrder(order)}>
+                            <Eye className="h-4 w-4 mr-2" />
+                            View Details
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleCopyTrackingLink(order.id)}>
+                            <Copy className="h-4 w-4 mr-2" />
+                            Copy Tracking Link
+                          </DropdownMenuItem>
+                          
+                          {getNextActions(order.status, order.order_type).length > 0 && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuSub>
+                                <DropdownMenuSubTrigger>
+                                  <Share2 className="h-4 w-4 mr-2" />
+                                  Update Status
+                                </DropdownMenuSubTrigger>
+                                <DropdownMenuSubContent>
+                                  {getNextActions(order.status, order.order_type).map((action) => (
+                                    <DropdownMenuItem
+                                      key={action.status}
+                                      onClick={() => handleQuickStatusUpdate(order.id, action.status)}
+                                      disabled={updateStatusMutation.isPending}
+                                      className={action.variant === 'destructive' ? 'text-destructive' : ''}
+                                    >
+                                      {action.label}
+                                    </DropdownMenuItem>
+                                  ))}
+                                </DropdownMenuSubContent>
+                              </DropdownMenuSub>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -315,11 +374,21 @@ export default function Orders() {
                   >
                     {statusLabels[selectedOrder.status || 'pending']}
                   </Badge>
-                  <span className="text-sm text-muted-foreground">
-                    {selectedOrder.created_at &&
-                      format(new Date(selectedOrder.created_at), 'PPp')}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleCopyTrackingLink(selectedOrder.id)}
+                    >
+                      <Copy className="h-4 w-4 mr-2" />
+                      Share Tracking Link
+                    </Button>
+                  </div>
                 </div>
+                <span className="text-sm text-muted-foreground block">
+                  {selectedOrder.created_at &&
+                    format(new Date(selectedOrder.created_at), 'PPp')}
+                </span>
 
                 <div className="space-y-2">
                   <h4 className="font-medium">Customer</h4>
