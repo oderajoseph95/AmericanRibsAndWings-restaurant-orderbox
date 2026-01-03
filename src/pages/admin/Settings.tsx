@@ -48,9 +48,17 @@ export default function Settings() {
     },
   });
 
-  // Add user role mutation
+  // Add user role mutation - now uses email to look up user
   const addRoleMutation = useMutation({
-    mutationFn: async ({ userId, userRole }: { userId: string; userRole: Enums<'app_role'> }) => {
+    mutationFn: async ({ email, userRole }: { email: string; userRole: Enums<'app_role'> }) => {
+      // First, look up user ID by email using secure RPC function
+      const { data: userId, error: lookupError } = await supabase.rpc('get_user_id_by_email', {
+        p_email: email,
+      });
+
+      if (lookupError) throw lookupError;
+      if (!userId) throw new Error('User not found');
+
       // Check if role already exists
       const { data: existing } = await supabase
         .from('user_roles')
@@ -74,11 +82,16 @@ export default function Settings() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user-roles'] });
-      toast.success('User role updated');
+      toast.success('User role assigned successfully');
       setUserDialogOpen(false);
     },
-    onError: (error) => {
-      toast.error(error.message || 'Failed to add user role');
+    onError: (error: any) => {
+      const message = error.message || 'Failed to add user role';
+      if (message.includes('No user found')) {
+        toast.error('No account found with that email. Make sure they signed up first.');
+      } else {
+        toast.error(message);
+      }
     },
   });
 
@@ -128,7 +141,7 @@ export default function Settings() {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     addRoleMutation.mutate({
-      userId: form.get('user_id') as string,
+      email: form.get('email') as string,
       userRole: form.get('role') as Enums<'app_role'>,
     });
   };
@@ -493,15 +506,16 @@ export default function Settings() {
               </DialogHeader>
               <form onSubmit={handleUserSubmit} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="user_id">User ID *</Label>
+                  <Label htmlFor="email">Email Address *</Label>
                   <Input
-                    id="user_id"
-                    name="user_id"
-                    placeholder="Paste the user's UUID"
+                    id="email"
+                    name="email"
+                    type="email"
+                    placeholder="user@example.com"
                     required
                   />
                   <p className="text-xs text-muted-foreground">
-                    Get this from the user after they sign up
+                    Enter the email they used to sign up
                   </p>
                 </div>
                 <div className="space-y-2">
