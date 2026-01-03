@@ -766,7 +766,7 @@ export function DeliveryMapPicker({
           {/* Landmark Input */}
           {selectedCity && barangay && !isOutsideDeliveryArea && (
             <div className="space-y-2">
-              <Label>Landmark (Optional)</Label>
+              <Label>Landmark, Street address or Additional info</Label>
               <Input
                 value={landmark}
                 onChange={(e) => onLandmarkChange(e.target.value)}
