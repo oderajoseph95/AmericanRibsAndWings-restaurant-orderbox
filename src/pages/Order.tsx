@@ -84,11 +84,17 @@ const Order = () => {
     },
   });
 
-  // Filter products by category
+  // Filter products by category (exclude combo components from customer menu)
   const filteredProducts = useMemo(() => {
     if (!products) return [];
-    if (activeCategory === "all") return products;
-    return products.filter(
+    
+    // Exclude combo component products (internal bundle items with ₱0 price)
+    const visibleProducts = products.filter(
+      (p) => !(p.name.toLowerCase().startsWith("combo ") && p.price === 0)
+    );
+    
+    if (activeCategory === "all") return visibleProducts;
+    return visibleProducts.filter(
       (p) => p.categories?.name.toLowerCase() === activeCategory.toLowerCase()
     );
   }, [products, activeCategory]);
