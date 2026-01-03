@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Search, Eye, Clock, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Tables, Enums } from '@/integrations/supabase/types';
 
@@ -22,20 +22,36 @@ type OrderItem = Tables<'order_items'> & {
   order_item_flavors: Tables<'order_item_flavors'>[];
 };
 
+type PaymentProof = Tables<'payment_proofs'>;
+
 const statusColors: Record<Enums<'order_status'>, string> = {
   pending: 'bg-yellow-500/20 text-yellow-700 border-yellow-500/30',
   for_verification: 'bg-blue-500/20 text-blue-700 border-blue-500/30',
   approved: 'bg-green-500/20 text-green-700 border-green-500/30',
-  rejected: 'bg-red-500/20 text-red-700 border-red-500/30',
+  preparing: 'bg-orange-500/20 text-orange-700 border-orange-500/30',
+  ready_for_pickup: 'bg-emerald-500/20 text-emerald-700 border-emerald-500/30',
+  waiting_for_rider: 'bg-purple-500/20 text-purple-700 border-purple-500/30',
+  picked_up: 'bg-indigo-500/20 text-indigo-700 border-indigo-500/30',
+  in_transit: 'bg-blue-500/20 text-blue-700 border-blue-500/30',
+  delivered: 'bg-green-500/20 text-green-700 border-green-500/30',
   completed: 'bg-emerald-500/20 text-emerald-700 border-emerald-500/30',
+  rejected: 'bg-red-500/20 text-red-700 border-red-500/30',
+  cancelled: 'bg-gray-500/20 text-gray-700 border-gray-500/30',
 };
 
 const statusLabels: Record<Enums<'order_status'>, string> = {
   pending: 'Pending',
   for_verification: 'For Verification',
   approved: 'Approved',
-  rejected: 'Rejected',
+  preparing: 'Preparing',
+  ready_for_pickup: 'Ready for Pickup',
+  waiting_for_rider: 'Waiting for Rider',
+  picked_up: 'Picked Up',
+  in_transit: 'In Transit',
+  delivered: 'Delivered',
   completed: 'Completed',
+  rejected: 'Rejected',
+  cancelled: 'Cancelled',
 };
 
 export default function Orders() {
@@ -72,6 +88,22 @@ export default function Orders() {
         .eq('order_id', selectedOrder.id);
       if (error) throw error;
       return data as OrderItem[];
+    },
+    enabled: !!selectedOrder,
+  });
+
+  // Fetch payment proofs for selected order
+  const { data: paymentProofs = [] } = useQuery({
+    queryKey: ['payment-proofs', selectedOrder?.id],
+    queryFn: async () => {
+      if (!selectedOrder) return [];
+      const { data, error } = await supabase
+        .from('payment_proofs')
+        .select('*')
+        .eq('order_id', selectedOrder.id)
+        .order('uploaded_at', { ascending: false });
+      if (error) throw error;
+      return data as PaymentProof[];
     },
     enabled: !!selectedOrder,
   });
@@ -113,7 +145,9 @@ export default function Orders() {
       order.customers?.name?.toLowerCase().includes(search.toLowerCase())
   );
 
-  const getNextActions = (status: Enums<'order_status'> | null) => {
+  const getNextActions = (status: Enums<'order_status'> | null, orderType: string | null) => {
+    const isDelivery = orderType === 'delivery';
+    
     switch (status) {
       case 'pending':
         return [
@@ -126,6 +160,36 @@ export default function Orders() {
           { label: 'Reject', status: 'rejected' as const, variant: 'destructive' as const },
         ];
       case 'approved':
+        return [
+          { label: 'Start Preparing', status: 'preparing' as const, variant: 'default' as const },
+          { label: 'Cancel', status: 'cancelled' as const, variant: 'destructive' as const },
+        ];
+      case 'preparing':
+        return isDelivery ? [
+          { label: 'Ready - Waiting for Rider', status: 'waiting_for_rider' as const, variant: 'default' as const },
+          { label: 'Cancel', status: 'cancelled' as const, variant: 'destructive' as const },
+        ] : [
+          { label: 'Ready for Pickup', status: 'ready_for_pickup' as const, variant: 'default' as const },
+          { label: 'Cancel', status: 'cancelled' as const, variant: 'destructive' as const },
+        ];
+      case 'ready_for_pickup':
+        return [
+          { label: 'Complete', status: 'completed' as const, variant: 'default' as const },
+        ];
+      case 'waiting_for_rider':
+        return [
+          { label: 'Picked Up by Rider', status: 'picked_up' as const, variant: 'default' as const },
+          { label: 'Cancel', status: 'cancelled' as const, variant: 'destructive' as const },
+        ];
+      case 'picked_up':
+        return [
+          { label: 'In Transit', status: 'in_transit' as const, variant: 'default' as const },
+        ];
+      case 'in_transit':
+        return [
+          { label: 'Delivered', status: 'delivered' as const, variant: 'default' as const },
+        ];
+      case 'delivered':
         return [
           { label: 'Complete', status: 'completed' as const, variant: 'default' as const },
         ];
@@ -162,8 +226,15 @@ export default function Orders() {
                 <SelectItem value="pending">Pending</SelectItem>
                 <SelectItem value="for_verification">For Verification</SelectItem>
                 <SelectItem value="approved">Approved</SelectItem>
-                <SelectItem value="rejected">Rejected</SelectItem>
+                <SelectItem value="preparing">Preparing</SelectItem>
+                <SelectItem value="ready_for_pickup">Ready for Pickup</SelectItem>
+                <SelectItem value="waiting_for_rider">Waiting for Rider</SelectItem>
+                <SelectItem value="picked_up">Picked Up</SelectItem>
+                <SelectItem value="in_transit">In Transit</SelectItem>
+                <SelectItem value="delivered">Delivered</SelectItem>
                 <SelectItem value="completed">Completed</SelectItem>
+                <SelectItem value="rejected">Rejected</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -287,6 +358,72 @@ export default function Orders() {
                   </div>
                 </div>
 
+                {/* Delivery Info */}
+                {selectedOrder.order_type === 'delivery' && selectedOrder.delivery_address && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium flex items-center gap-2">
+                      <Truck className="h-4 w-4" />
+                      Delivery Details
+                    </h4>
+                    <div className="text-sm text-muted-foreground space-y-1">
+                      <p>{selectedOrder.delivery_address}</p>
+                      {selectedOrder.delivery_distance_km && (
+                        <p>Distance: {selectedOrder.delivery_distance_km.toFixed(1)} km</p>
+                      )}
+                      {selectedOrder.delivery_fee && (
+                        <p>Delivery Fee: ₱{selectedOrder.delivery_fee.toFixed(2)}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Payment Proof */}
+                {paymentProofs.length > 0 && (
+                  <div className="space-y-3">
+                    <h4 className="font-medium flex items-center gap-2">
+                      <Image className="h-4 w-4" />
+                      Payment Proof
+                    </h4>
+                    <div className="space-y-3">
+                      {paymentProofs.map((proof) => (
+                        <div key={proof.id} className="border rounded-lg p-3 space-y-2">
+                          <a 
+                            href={proof.image_url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="block"
+                          >
+                            <img 
+                              src={proof.image_url} 
+                              alt="Payment proof" 
+                              className="w-full h-48 object-cover rounded-md border hover:opacity-90 transition-opacity"
+                            />
+                          </a>
+                          <div className="flex items-center justify-between text-xs text-muted-foreground">
+                            <span>
+                              Uploaded: {proof.uploaded_at && format(new Date(proof.uploaded_at), 'PPp')}
+                            </span>
+                            <a 
+                              href={proof.image_url} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 text-primary hover:underline"
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                              View Full Size
+                            </a>
+                          </div>
+                          {proof.verified_at && (
+                            <Badge variant="outline" className="bg-green-500/20 text-green-700 border-green-500/30">
+                              Verified {format(new Date(proof.verified_at), 'PPp')}
+                            </Badge>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex justify-between font-medium pt-2 border-t">
                   <span>Total</span>
                   <span>₱{selectedOrder.total_amount?.toFixed(2)}</span>
@@ -307,7 +444,7 @@ export default function Orders() {
                 </div>
 
                 <div className="flex gap-2 flex-wrap">
-                  {getNextActions(selectedOrder.status).map((action) => (
+                  {getNextActions(selectedOrder.status, selectedOrder.order_type).map((action) => (
                     <Button
                       key={action.status}
                       variant={action.variant}
