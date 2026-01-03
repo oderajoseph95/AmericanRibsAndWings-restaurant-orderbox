@@ -106,6 +106,12 @@ export function DeliveryMapPicker({
     }
   };
 
+  // Validate coordinates are within Pampanga delivery area
+  const isInPampangaArea = (lat: number, lng: number): boolean => {
+    // Expanded bounds for all of Pampanga province
+    return lat >= 14.5 && lat <= 15.5 && lng >= 120.0 && lng <= 121.0;
+  };
+
   // Get user's GPS location
   const handleGetLocation = useCallback(() => {
     if (!navigator.geolocation) {
@@ -117,6 +123,14 @@ export function DeliveryMapPicker({
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
+        
+        // Validate GPS coordinates are within Pampanga
+        if (!isInPampangaArea(latitude, longitude)) {
+          setIsGettingLocation(false);
+          toast.error("Your GPS location is outside Pampanga. Please drag the blue pin to your delivery location.");
+          return; // Keep using barangay center coordinates
+        }
+        
         setCustomerCoords({ lat: latitude, lng: longitude });
         setLocationMethod("gps");
         setIsGettingLocation(false);
@@ -130,16 +144,16 @@ export function DeliveryMapPicker({
         setIsGettingLocation(false);
         switch (error.code) {
           case error.PERMISSION_DENIED:
-            toast.error("Location permission denied. Please enable location access or drag the pin manually.");
+            toast.error("Location permission denied. Please drag the blue pin to your location.");
             break;
           case error.POSITION_UNAVAILABLE:
-            toast.error("Location unavailable. Please drag the pin to your location.");
+            toast.error("Location unavailable. Please drag the blue pin to your location.");
             break;
           case error.TIMEOUT:
             toast.error("Location request timed out. Please try again or drag the pin.");
             break;
           default:
-            toast.error("Could not get your location. Please drag the pin manually.");
+            toast.error("Could not get your location. Please drag the blue pin manually.");
         }
       },
       {
