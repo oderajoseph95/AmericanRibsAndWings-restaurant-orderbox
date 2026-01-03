@@ -11,11 +11,14 @@ export function FeaturedMenu() {
   const { data: products, isLoading } = useQuery({
     queryKey: ["featured-products"],
     queryFn: async () => {
+      // Fetch products prioritizing bundles and popular items (Rice Meals, Racks, Wings)
       const { data, error } = await supabase
         .from("products")
         .select("*, categories(name)")
         .eq("is_active", true)
         .is("archived_at", null)
+        .or("product_type.eq.bundle,name.ilike.%rice%,name.ilike.%rack%,name.ilike.%wing%,name.ilike.%rib%")
+        .order("product_type", { ascending: false })
         .limit(6);
       
       if (error) throw error;
@@ -107,8 +110,8 @@ export function FeaturedMenu() {
                       ₱{product.price.toFixed(2)}
                     </span>
                     <Button size="sm" variant="secondary" asChild>
-                      <Link to={`/order?product=${product.id}`}>
-                        Add to Cart
+                      <Link to="/order">
+                        Order Now
                       </Link>
                     </Button>
                   </div>
