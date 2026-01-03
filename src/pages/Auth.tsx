@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -6,19 +6,35 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from '@/hooks/use-toast';
-import { Flame } from 'lucide-react';
+import { Flame, Loader2 } from 'lucide-react';
 
 export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const { signIn, signUp } = useAuth();
+  const [submitting, setSubmitting] = useState(false);
+  const { signIn, signUp, user, role, loading } = useAuth();
   const navigate = useNavigate();
+
+  // Redirect to admin once user and role are loaded
+  useEffect(() => {
+    if (!loading && user && role) {
+      navigate('/admin');
+    }
+  }, [user, role, loading, navigate]);
+
+  // Show loading while checking auth state
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-secondary/20 to-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    setSubmitting(true);
 
     try {
       if (isLogin) {
@@ -31,7 +47,7 @@ export default function AuthPage() {
           });
         } else {
           toast({ title: 'Welcome back!' });
-          navigate('/admin');
+          // Navigation handled by useEffect when role loads
         }
       } else {
         const { error } = await signUp(email, password);
@@ -58,7 +74,7 @@ export default function AuthPage() {
         }
       }
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
@@ -103,8 +119,8 @@ export default function AuthPage() {
                 autoComplete={isLogin ? 'current-password' : 'new-password'}
               />
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Please wait...' : isLogin ? 'Sign In' : 'Create Account'}
+            <Button type="submit" className="w-full" disabled={submitting}>
+              {submitting ? 'Please wait...' : isLogin ? 'Sign In' : 'Create Account'}
             </Button>
           </form>
           <div className="mt-4 text-center text-sm">
