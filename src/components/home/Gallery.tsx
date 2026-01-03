@@ -88,7 +88,7 @@ export function Gallery() {
   const row2Images = [...scrollImages].reverse();
 
   return (
-    <section className="pb-8 bg-background overflow-hidden">
+    <section className="-mt-8 pb-8 bg-background overflow-hidden relative z-10">
       {/* Scrolling gallery - Both mobile and desktop: 2 rows - No header, seamless with hero */}
       <div className="space-y-2">
         {/* Row 1 - scrolls left */}
