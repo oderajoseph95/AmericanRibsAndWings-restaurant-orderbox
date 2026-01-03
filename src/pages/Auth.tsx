@@ -6,13 +6,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from '@/hooks/use-toast';
-import { Flame, Loader2 } from 'lucide-react';
+import { Flame, Loader2, Copy, CheckCircle } from 'lucide-react';
 
 export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [signupComplete, setSignupComplete] = useState(false);
+  const [newUserId, setNewUserId] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const { signIn, signUp, user, role, loading } = useAuth();
   const navigate = useNavigate();
 
@@ -50,7 +53,7 @@ export default function AuthPage() {
           // Navigation handled by useEffect when role loads
         }
       } else {
-        const { error } = await signUp(email, password);
+        const { error, data } = await signUp(email, password);
         if (error) {
           if (error.message.includes('already registered')) {
             toast({
@@ -66,17 +69,97 @@ export default function AuthPage() {
             });
           }
         } else {
+          // Show success with User ID
+          setNewUserId(data?.user?.id || null);
+          setSignupComplete(true);
           toast({
             title: 'Account created!',
-            description: 'Please contact an admin to assign your role.',
+            description: 'Share your email with the owner to get your role assigned.',
           });
-          setIsLogin(true);
         }
       }
     } finally {
       setSubmitting(false);
     }
   };
+
+  const handleCopyUserId = () => {
+    if (newUserId) {
+      navigator.clipboard.writeText(newUserId);
+      setCopied(true);
+      toast({ title: 'User ID copied!' });
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleBackToLogin = () => {
+    setSignupComplete(false);
+    setNewUserId(null);
+    setIsLogin(true);
+    setEmail('');
+    setPassword('');
+  };
+
+  // Show signup success screen
+  if (signupComplete) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-secondary/20 to-background p-4">
+        <Card className="w-full max-w-md shadow-2xl border-primary/10">
+          <CardHeader className="text-center space-y-4">
+            <div className="mx-auto w-16 h-16 bg-green-500 rounded-full flex items-center justify-center">
+              <CheckCircle className="w-8 h-8 text-white" />
+            </div>
+            <div>
+              <CardTitle className="text-2xl font-bold text-green-600">Account Created!</CardTitle>
+              <CardDescription className="text-base mt-2">
+                Contact the owner to assign your admin role
+              </CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="bg-muted p-4 rounded-lg space-y-3">
+              <div>
+                <Label className="text-xs text-muted-foreground">Your Email (share with owner)</Label>
+                <p className="font-medium">{email}</p>
+              </div>
+              
+              {newUserId && (
+                <div>
+                  <Label className="text-xs text-muted-foreground">Your User ID (backup)</Label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <code className="flex-1 text-xs bg-background p-2 rounded border font-mono overflow-x-auto">
+                      {newUserId}
+                    </code>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCopyUserId}
+                      className="shrink-0"
+                    >
+                      {copied ? (
+                        <CheckCircle className="h-4 w-4 text-green-500" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div className="text-sm text-muted-foreground text-center">
+              <p>The owner can now add you using your <strong>email address</strong>.</p>
+              <p className="mt-1">Once assigned, sign in to access the admin panel.</p>
+            </div>
+
+            <Button onClick={handleBackToLogin} className="w-full">
+              Go to Sign In
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-secondary/20 to-background p-4">

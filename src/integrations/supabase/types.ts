@@ -737,6 +737,7 @@ export type Database = {
         Returns: string
       }
       get_order_tracking: { Args: { p_order_id: string }; Returns: Json }
+      get_user_id_by_email: { Args: { p_email: string }; Returns: string }
       get_user_role: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]
