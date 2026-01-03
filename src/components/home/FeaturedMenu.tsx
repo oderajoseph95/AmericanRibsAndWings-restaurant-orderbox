@@ -1,11 +1,18 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowRight, Flame, Loader2 } from "lucide-react";
+import { ArrowRight, Flame, Loader2, Eye } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface FeaturedMenuContent {
   title?: string;
@@ -13,7 +20,19 @@ interface FeaturedMenuContent {
   badge?: string;
 }
 
+interface Product {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  image_url: string | null;
+  product_type: string | null;
+  categories: { name: string } | null;
+}
+
 export function FeaturedMenu() {
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  
   const { data: sectionConfig } = useQuery({
     queryKey: ["homepage-section", "featured_menu"],
     queryFn: async () => {
@@ -129,11 +148,21 @@ export function FeaturedMenu() {
                     <span className="text-xl font-bold text-primary">
                       ₱{product.price.toFixed(2)}
                     </span>
-                    <Button size="sm" variant="secondary" asChild>
-                      <Link to="/order">
-                        Order Now
-                      </Link>
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => setSelectedProduct(product as Product)}
+                      >
+                        <Eye className="h-3 w-3 mr-1" />
+                        View
+                      </Button>
+                      <Button size="sm" variant="secondary" asChild>
+                        <Link to="/order">
+                          Order
+                        </Link>
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -151,6 +180,58 @@ export function FeaturedMenu() {
           </Button>
         </div>
       </div>
+
+      {/* Product Details Modal */}
+      <Dialog open={!!selectedProduct} onOpenChange={() => setSelectedProduct(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{selectedProduct?.name}</DialogTitle>
+          </DialogHeader>
+          {selectedProduct && (
+            <div className="space-y-4">
+              {/* Product Image */}
+              <div className="aspect-square rounded-lg overflow-hidden bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+                {selectedProduct.image_url ? (
+                  <img 
+                    src={selectedProduct.image_url} 
+                    alt={selectedProduct.name}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="text-6xl opacity-50">🍖</div>
+                )}
+              </div>
+              
+              {/* Product Info */}
+              <div>
+                {selectedProduct.categories && (
+                  <Badge variant="secondary" className="mb-2">
+                    {selectedProduct.categories.name}
+                  </Badge>
+                )}
+                {selectedProduct.description && (
+                  <p className="text-muted-foreground">
+                    {selectedProduct.description}
+                  </p>
+                )}
+              </div>
+              
+              {/* Price and CTA */}
+              <div className="flex items-center justify-between pt-4 border-t">
+                <span className="text-2xl font-bold text-primary">
+                  ₱{selectedProduct.price.toFixed(2)}
+                </span>
+                <Button asChild>
+                  <Link to="/order" onClick={() => setSelectedProduct(null)}>
+                    Order Now
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

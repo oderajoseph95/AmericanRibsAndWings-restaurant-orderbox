@@ -88,27 +88,9 @@ export function Gallery() {
   const row2Images = [...scrollImages].reverse();
 
   return (
-    <section className="py-12 bg-background overflow-hidden">
-      <div className="container px-4 mb-8">
-        {/* Section header */}
-        <div className="text-center">
-          <Badge variant="outline" className="mb-3 border-primary/30 text-primary bg-primary/5">
-            <ImageIcon className="h-3 w-3 mr-1" />
-            Gallery
-          </Badge>
-          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-3">
-            {content.title || "Our Food Gallery"}
-          </h2>
-          {content.subtitle && (
-            <p className="text-base text-muted-foreground max-w-xl mx-auto">
-              {content.subtitle}
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* Scrolling gallery - Both mobile and desktop: 2 rows */}
-      <div className="space-y-2 md:space-y-3">
+    <section className="pb-8 bg-background overflow-hidden">
+      {/* Scrolling gallery - Both mobile and desktop: 2 rows - No header, seamless with hero */}
+      <div className="space-y-2">
         {/* Row 1 - scrolls left */}
         <div className="relative">
           <div className="flex gap-2 md:gap-3 animate-scroll-left">
