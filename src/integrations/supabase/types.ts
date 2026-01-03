@@ -138,6 +138,7 @@ export type Database = {
         Row: {
           archived_at: string | null
           created_at: string | null
+          flavor_category: string | null
           flavor_type: Database["public"]["Enums"]["flavor_type"] | null
           id: string
           is_active: boolean | null
@@ -149,6 +150,7 @@ export type Database = {
         Insert: {
           archived_at?: string | null
           created_at?: string | null
+          flavor_category?: string | null
           flavor_type?: Database["public"]["Enums"]["flavor_type"] | null
           id?: string
           is_active?: boolean | null
@@ -160,6 +162,7 @@ export type Database = {
         Update: {
           archived_at?: string | null
           created_at?: string | null
+          flavor_category?: string | null
           flavor_type?: Database["public"]["Enums"]["flavor_type"] | null
           id?: string
           is_active?: boolean | null
