@@ -41,8 +41,21 @@ import {
   Trash2,
   Upload,
   Search,
+  Flame,
+  Clock,
+  Award,
+  Heart,
+  Truck,
+  Users,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface HomepageSection {
   id: string;
@@ -339,7 +352,55 @@ export default function Website() {
     }
   };
 
-  // Handle video upload
+  // Auto-generate thumbnail from video
+  const generateThumbnailFromVideo = async (videoUrl: string): Promise<string | null> => {
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.crossOrigin = 'anonymous';
+      video.src = videoUrl;
+      video.currentTime = 0.5;
+      video.muted = true;
+      
+      video.onloadeddata = async () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth || 720;
+          canvas.height = video.videoHeight || 1280;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const blob = await new Promise<Blob | null>((res) => 
+              canvas.toBlob(res, 'image/jpeg', 0.8)
+            );
+            if (blob) {
+              // Upload the thumbnail
+              const fileName = `thumb_${Date.now()}.jpg`;
+              const filePath = `thumbnails/${fileName}`;
+              const { error: uploadError } = await supabase.storage
+                .from("videos")
+                .upload(filePath, blob);
+              
+              if (!uploadError) {
+                const { data: urlData } = supabase.storage.from("videos").getPublicUrl(filePath);
+                resolve(urlData.publicUrl);
+                return;
+              }
+            }
+          }
+          resolve(null);
+        } catch {
+          resolve(null);
+        }
+      };
+      
+      video.onerror = () => resolve(null);
+      
+      // Timeout after 10 seconds
+      setTimeout(() => resolve(null), 10000);
+    });
+  };
+
+  // Handle video upload with auto-thumbnail
   const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -357,11 +418,21 @@ export default function Website() {
       if (uploadError) throw uploadError;
 
       const { data: urlData } = supabase.storage.from("videos").getPublicUrl(filePath);
+      
+      // Auto-generate thumbnail
+      toast.info("Generating thumbnail...");
+      const thumbnailUrl = await generateThumbnailFromVideo(urlData.publicUrl);
 
       addVideo.mutate({ 
         video_url: urlData.publicUrl,
-        thumbnail_url: newVideoThumbnail || undefined
+        thumbnail_url: thumbnailUrl || undefined
       });
+      
+      if (thumbnailUrl) {
+        toast.success("Video uploaded with auto-generated thumbnail!");
+      } else {
+        toast.success("Video uploaded!");
+      }
     } catch (error) {
       console.error("Upload error:", error);
       toast.error("Failed to upload video");
@@ -1127,6 +1198,33 @@ function SectionEditor({
       );
 
     case "about":
+      const iconOptions = [
+        { value: "Flame", label: "Flame", icon: Flame },
+        { value: "Clock", label: "Clock", icon: Clock },
+        { value: "Award", label: "Award", icon: Award },
+        { value: "Heart", label: "Heart", icon: Heart },
+        { value: "Truck", label: "Truck", icon: Truck },
+        { value: "Users", label: "Users", icon: Users },
+      ];
+      
+      const features = (content.features as { icon: string; title: string; description: string }[]) || [];
+      
+      const updateFeature = (index: number, field: 'icon' | 'title' | 'description', value: string) => {
+        const newFeatures = [...features];
+        newFeatures[index] = { ...newFeatures[index], [field]: value };
+        updateField('features', newFeatures);
+      };
+      
+      const addFeature = () => {
+        const newFeatures = [...features, { icon: 'Flame', title: '', description: '' }];
+        updateField('features', newFeatures);
+      };
+      
+      const removeFeature = (index: number) => {
+        const newFeatures = features.filter((_, i) => i !== index);
+        updateField('features', newFeatures);
+      };
+      
       return (
         <div className="space-y-4">
           <div>
@@ -1135,6 +1233,14 @@ function SectionEditor({
               value={(content.title as string) || ""}
               onChange={(e) => updateField("title", e.target.value)}
               placeholder="Our Story"
+            />
+          </div>
+          <div>
+            <Label>Title Accent</Label>
+            <Input
+              value={(content.titleAccent as string) || ""}
+              onChange={(e) => updateField("titleAccent", e.target.value)}
+              placeholder="BBQ Experience"
             />
           </div>
           <div>
@@ -1166,6 +1272,90 @@ function SectionEditor({
                 value={(content.happyCustomers as string) || ""}
                 onChange={(e) => updateField("happyCustomers", e.target.value)}
               />
+            </div>
+          </div>
+          
+          {/* Features Editor */}
+          <div className="border-t pt-4 mt-4">
+            <div className="flex items-center justify-between mb-3">
+              <Label className="text-base font-semibold">Feature Cards (6 shown on homepage)</Label>
+              <Button type="button" variant="outline" size="sm" onClick={addFeature}>
+                <Plus className="h-3 w-3 mr-1" /> Add Feature
+              </Button>
+            </div>
+            <div className="space-y-3">
+              {features.map((feature, index) => {
+                const SelectedIcon = iconOptions.find(o => o.value === feature.icon)?.icon || Flame;
+                return (
+                  <div key={index} className="p-3 border rounded-lg space-y-2 bg-muted/30">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Feature {index + 1}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-destructive"
+                        onClick={() => removeFeature(index)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2">
+                      <div>
+                        <Label className="text-xs">Icon</Label>
+                        <Select
+                          value={feature.icon}
+                          onValueChange={(value) => updateFeature(index, 'icon', value)}
+                        >
+                          <SelectTrigger className="h-9">
+                            <SelectValue>
+                              <div className="flex items-center gap-1">
+                                <SelectedIcon className="h-4 w-4" />
+                              </div>
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {iconOptions.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                <div className="flex items-center gap-2">
+                                  <opt.icon className="h-4 w-4" />
+                                  <span>{opt.label}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="col-span-3">
+                        <Label className="text-xs">Title</Label>
+                        <Input
+                          value={feature.title}
+                          onChange={(e) => updateFeature(index, 'title', e.target.value)}
+                          placeholder="Feature title"
+                          className="h-9"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Description</Label>
+                      <Textarea
+                        value={feature.description}
+                        onChange={(e) => updateFeature(index, 'description', e.target.value)}
+                        placeholder="Feature description"
+                        rows={2}
+                        className="resize-none"
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+              {features.length === 0 && (
+                <div className="text-center py-4 text-muted-foreground text-sm">
+                  No features configured. Default features will be shown.
+                  <br />
+                  Click "Add Feature" to customize.
+                </div>
+              )}
             </div>
           </div>
         </div>

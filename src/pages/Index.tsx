@@ -45,10 +45,11 @@ const Index = () => {
       />
       <Navbar />
       {isVisible("hero") && <Hero />}
+      {/* Gallery directly below hero - no gap */}
+      {isVisible("gallery") && <Gallery />}
       {isVisible("featured_menu") && <FeaturedMenu />}
       {isVisible("category_showcase") && <CategoryShowcase />}
       {isVisible("videos") && <VideoSection />}
-      {isVisible("gallery") && <Gallery />}
       {isVisible("about") && (
         <section id="about">
           <About />

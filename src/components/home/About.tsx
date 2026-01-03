@@ -2,8 +2,14 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Flame, Clock, Award, Heart, Truck, Users } from "lucide-react";
+import { Flame, Clock, Award, Heart, Truck, Users, LucideIcon } from "lucide-react";
 import { Loader2 } from "lucide-react";
+
+interface FeatureItem {
+  icon: string;
+  title: string;
+  description: string;
+}
 
 interface AboutContent {
   title?: string;
@@ -12,36 +18,48 @@ interface AboutContent {
   yearsInBusiness?: string;
   menuItems?: string;
   happyCustomers?: string;
+  features?: FeatureItem[];
 }
 
-const features = [
+// Icon mapping
+const iconMap: Record<string, LucideIcon> = {
+  Flame,
+  Clock,
+  Award,
+  Heart,
+  Truck,
+  Users,
+};
+
+// Default features if none configured
+const defaultFeatures: FeatureItem[] = [
   {
-    icon: Flame,
+    icon: "Flame",
     title: "Slow-Smoked",
     description: "Our ribs are smoked for hours to achieve that perfect fall-off-the-bone tenderness.",
   },
   {
-    icon: Award,
+    icon: "Award",
     title: "Premium Quality",
     description: "We source only the finest cuts and freshest ingredients for our dishes.",
   },
   {
-    icon: Heart,
+    icon: "Heart",
     title: "Made with Love",
     description: "Every dish is prepared with passion and attention to detail.",
   },
   {
-    icon: Clock,
+    icon: "Clock",
     title: "Fast Service",
     description: "Quick preparation without compromising on quality or taste.",
   },
   {
-    icon: Truck,
+    icon: "Truck",
     title: "Delivery Available",
     description: "Enjoy our BBQ at home with our reliable delivery service.",
   },
   {
-    icon: Users,
+    icon: "Users",
     title: "Group Orders",
     description: "Perfect for parties, events, and family gatherings.",
   },
@@ -75,6 +93,7 @@ export function About() {
   if (!sectionConfig) return null;
 
   const content = (sectionConfig.content as AboutContent) || {};
+  const features = content.features && content.features.length > 0 ? content.features : defaultFeatures;
 
   return (
     <section id="about" className="py-12 bg-background">
@@ -114,24 +133,27 @@ export function About() {
 
           {/* Right side - Features grid */}
           <div className="grid grid-cols-2 gap-3">
-            {features.map((feature, index) => (
-              <Card 
-                key={index} 
-                className="border-border/50 hover:border-primary/50 hover:shadow-md transition-all duration-300"
-              >
-                <CardContent className="p-4">
-                  <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center mb-3">
-                    <feature.icon className="h-5 w-5 text-primary" />
-                  </div>
-                  <h3 className="font-semibold text-foreground mb-1 text-sm">
-                    {feature.title}
-                  </h3>
-                  <p className="text-xs text-muted-foreground">
-                    {feature.description}
-                  </p>
-                </CardContent>
-              </Card>
-            ))}
+            {features.map((feature, index) => {
+              const IconComponent = iconMap[feature.icon] || Flame;
+              return (
+                <Card 
+                  key={index} 
+                  className="border-border/50 hover:border-primary/50 hover:shadow-md transition-all duration-300"
+                >
+                  <CardContent className="p-4">
+                    <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center mb-3">
+                      <IconComponent className="h-5 w-5 text-primary" />
+                    </div>
+                    <h3 className="font-semibold text-foreground mb-1 text-sm">
+                      {feature.title}
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      {feature.description}
+                    </p>
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         </div>
       </div>

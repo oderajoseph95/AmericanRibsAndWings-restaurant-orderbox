@@ -113,9 +113,14 @@ export function VideoSection() {
                   loop
                   playsInline
                   autoPlay
-                  preload="metadata"
+                  preload="auto"
                   poster={video.thumbnail_url || undefined}
                   className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  onLoadedData={(e) => {
+                    // Ensure video starts playing as soon as data loads
+                    const videoEl = e.currentTarget;
+                    videoEl.play().catch(() => {});
+                  }}
                 />
                 <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-colors flex items-center justify-center">
                   <div className="w-12 h-12 bg-primary rounded-full flex items-center justify-center transform group-hover:scale-110 transition-transform shadow-lg">
