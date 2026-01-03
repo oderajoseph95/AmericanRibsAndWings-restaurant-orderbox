@@ -6,25 +6,25 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Restaurant location: American Ribs And Wings - Floridablanca (verified from Google Maps)
+// Restaurant location: American Ribs And Wings - Floridablanca
 const RESTAURANT_COORDS = {
   lat: 14.9747,
   lng: 120.5373,
 };
 
+const RATE_PER_KM = 20; // ₱20 per km
+const MINIMUM_FEE = 20; // Minimum ₱20 delivery fee
+const MAX_DELIVERY_DISTANCE_KM = 25; // Maximum delivery radius
+
 // Allowed delivery cities
 const ALLOWED_CITIES = ['Floridablanca', 'Lubao', 'Guagua', 'Porac'];
 
-const RATE_PER_KM = 20; // ₱20 per km
-const MAX_DELIVERY_DISTANCE_KM = 25; // Maximum delivery radius
-
-// Validate coordinates are within Philippines bounds
-const isInPhilippines = (lat: number, lng: number): boolean => {
-  return lat >= 4 && lat <= 22 && lng >= 116 && lng <= 127;
+// Validate coordinates are within Pampanga area (roughly)
+const isInPampangaArea = (lat: number, lng: number): boolean => {
+  return lat >= 14.7 && lat <= 15.3 && lng >= 120.3 && lng <= 120.8;
 };
 
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -41,9 +41,17 @@ serve(async (req) => {
     }
 
     const body = await req.json();
-    const { streetAddress, barangay, city, landmark } = body;
+    const { streetAddress, barangay, city, landmark, customerLat, customerLng } = body;
     
-    console.log('Calculating delivery fee for:', { streetAddress, barangay, city, landmark });
+    console.log('Calculating delivery fee:', { 
+      streetAddress, 
+      barangay, 
+      city, 
+      landmark,
+      customerLat,
+      customerLng,
+      hasDirectCoords: !!(customerLat && customerLng)
+    });
 
     // Validate required fields
     if (!city) {
@@ -60,13 +68,6 @@ serve(async (req) => {
       );
     }
 
-    if (!streetAddress?.trim()) {
-      return new Response(
-        JSON.stringify({ error: 'Please enter your street address' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
     // Validate city is in allowed list
     if (!ALLOWED_CITIES.some(c => c.toLowerCase() === city.toLowerCase())) {
       return new Response(
@@ -77,50 +78,39 @@ serve(async (req) => {
       );
     }
 
-    // Build full address for geocoding - use official barangay name for better accuracy
-    const fullAddress = `${streetAddress}, ${barangay}, ${city}, Pampanga, Philippines`;
-    const encodedAddress = encodeURIComponent(fullAddress);
+    // Use direct coordinates if provided (from GPS or pin drag)
+    let finalLat: number;
+    let finalLng: number;
 
-    console.log('Geocoding address:', fullAddress);
-    
-    // Geocode with proximity bias toward restaurant for better results in the area
-    const geocodeUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedAddress}.json?access_token=${MAPBOX_TOKEN}&country=PH&proximity=${RESTAURANT_COORDS.lng},${RESTAURANT_COORDS.lat}&limit=1`;
-    
-    const geocodeResponse = await fetch(geocodeUrl);
-    const geocodeData = await geocodeResponse.json();
+    if (customerLat && customerLng) {
+      // Direct coordinates provided - skip geocoding!
+      finalLat = customerLat;
+      finalLng = customerLng;
+      console.log('Using direct coordinates:', { lat: finalLat, lng: finalLng });
+    } else {
+      // Fallback: No coordinates provided - return error
+      // (In the new flow, coordinates should always be provided)
+      return new Response(
+        JSON.stringify({ error: 'Please select your location on the map' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
-    if (!geocodeData.features || geocodeData.features.length === 0) {
-      console.error('Address not found:', fullAddress);
+    // Validate coordinates are in Pampanga area
+    if (!isInPampangaArea(finalLat, finalLng)) {
+      console.error('Coordinates outside Pampanga:', { lat: finalLat, lng: finalLng });
       return new Response(
         JSON.stringify({ 
-          error: 'Could not find your address. Please verify your street address is correct.',
-          address: fullAddress 
+          error: 'The selected location is outside our delivery area. Please select a location within Pampanga.',
         }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const customerCoords: [number, number] = geocodeData.features[0].center; // [lng, lat]
-    const geocodedLat = customerCoords[1];
-    const geocodedLng = customerCoords[0];
+    // Get driving distance using Mapbox Directions API
+    const directionsUrl = `https://api.mapbox.com/directions/v5/mapbox/driving/${RESTAURANT_COORDS.lng},${RESTAURANT_COORDS.lat};${finalLng},${finalLat}?access_token=${MAPBOX_TOKEN}&overview=full&geometries=geojson`;
     
-    console.log('Geocoded coordinates:', { lat: geocodedLat, lng: geocodedLng });
-
-    // Validate geocoded coordinates are in Philippines
-    if (!isInPhilippines(geocodedLat, geocodedLng)) {
-      console.error('Geocoded location outside Philippines:', { lat: geocodedLat, lng: geocodedLng });
-      return new Response(
-        JSON.stringify({ 
-          error: 'The address could not be located in the Philippines. Please check your address details.',
-        }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Get driving distance using Mapbox Directions API with route geometry
-    const directionsUrl = `https://api.mapbox.com/directions/v5/mapbox/driving/${RESTAURANT_COORDS.lng},${RESTAURANT_COORDS.lat};${geocodedLng},${geocodedLat}?access_token=${MAPBOX_TOKEN}&overview=full&geometries=geojson`;
-    
-    console.log('Getting driving distance with route geometry...');
+    console.log('Getting driving distance...');
     const directionsResponse = await fetch(directionsUrl);
     const directionsData = await directionsResponse.json();
 
@@ -128,14 +118,13 @@ serve(async (req) => {
       console.error('No route found');
       return new Response(
         JSON.stringify({ 
-          error: 'Unable to calculate route to your address. Please verify your address is correct.',
-          customerCoords: { lat: geocodedLat, lng: geocodedLng }
+          error: 'Unable to calculate route to your location. Please try adjusting the pin.',
+          customerCoords: { lat: finalLat, lng: finalLng }
         }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Distance in meters, convert to km
     const distanceMeters = directionsData.routes[0].distance;
     const distanceKm = distanceMeters / 1000;
     const routeGeometry = directionsData.routes[0].geometry;
@@ -152,28 +141,26 @@ serve(async (req) => {
       );
     }
     
-    // Calculate fee (round up km for pricing)
-    const deliveryFee = Math.ceil(distanceKm) * RATE_PER_KM;
+    // Calculate fee (round up km for pricing, with minimum fee)
+    const calculatedFee = Math.ceil(distanceKm) * RATE_PER_KM;
+    const deliveryFee = Math.max(calculatedFee, MINIMUM_FEE);
 
     console.log('Delivery calculation:', { 
       distanceKm: distanceKm.toFixed(1), 
       deliveryFee,
       restaurantCoords: RESTAURANT_COORDS,
-      customerCoords: { lat: geocodedLat, lng: geocodedLng },
-      geocodedAddress: geocodeData.features[0].place_name
+      customerCoords: { lat: finalLat, lng: finalLng },
+      barangay,
+      city,
     });
 
     return new Response(
       JSON.stringify({
         distanceKm: parseFloat(distanceKm.toFixed(1)),
         deliveryFee,
-        customerCoords: {
-          lat: geocodedLat,
-          lng: geocodedLng,
-        },
+        customerCoords: { lat: finalLat, lng: finalLng },
         restaurantCoords: RESTAURANT_COORDS,
-        geocodedAddress: geocodeData.features[0].place_name,
-        routeGeometry, // Include route geometry for map display
+        routeGeometry,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
