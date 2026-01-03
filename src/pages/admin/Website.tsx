@@ -89,13 +89,12 @@ export default function Website() {
   const [deleteImageId, setDeleteImageId] = useState<string | null>(null);
   const [deleteVideoId, setDeleteVideoId] = useState<string | null>(null);
   const [newImageTitle, setNewImageTitle] = useState("");
-  const [newVideoTitle, setNewVideoTitle] = useState("");
+  const [newVideoThumbnail, setNewVideoThumbnail] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadingVideo, setUploadingVideo] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const thumbnailInputRef = useRef<HTMLInputElement>(null);
-  const [newVideoThumbnail, setNewVideoThumbnail] = useState<string | null>(null);
 
   // Fetch all sections
   const { data: sections, isLoading: sectionsLoading } = useQuery({
@@ -260,10 +259,10 @@ export default function Website() {
 
   // Add video (upload)
   const addVideo = useMutation({
-    mutationFn: async ({ title, video_url, thumbnail_url }: { title: string; video_url: string; thumbnail_url?: string }) => {
+    mutationFn: async ({ video_url, thumbnail_url }: { video_url: string; thumbnail_url?: string }) => {
       const maxOrder = videos?.reduce((max, v) => Math.max(max, v.sort_order || 0), 0) || 0;
       const { error } = await supabase.from("videos").insert({
-        title,
+        title: null,
         video_url,
         video_type: "upload",
         thumbnail_url: thumbnail_url || null,
@@ -275,7 +274,6 @@ export default function Website() {
       queryClient.invalidateQueries({ queryKey: ["admin-videos"] });
       queryClient.invalidateQueries({ queryKey: ["videos"] });
       setAddVideoOpen(false);
-      setNewVideoTitle("");
       setNewVideoThumbnail(null);
       toast.success("Video added successfully");
     },
@@ -361,7 +359,6 @@ export default function Website() {
       const { data: urlData } = supabase.storage.from("videos").getPublicUrl(filePath);
 
       addVideo.mutate({ 
-        title: newVideoTitle, 
         video_url: urlData.publicUrl,
         thumbnail_url: newVideoThumbnail || undefined
       });
@@ -901,14 +898,6 @@ export default function Website() {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Title</Label>
-              <Input
-                value={newVideoTitle}
-                onChange={(e) => setNewVideoTitle(e.target.value)}
-                placeholder="Video title"
-              />
-            </div>
-            <div>
               <Label>Thumbnail (optional)</Label>
               <input
                 ref={thumbnailInputRef}
@@ -953,7 +942,7 @@ export default function Website() {
                 variant="outline"
                 className="w-full h-32 flex flex-col gap-2"
                 onClick={() => videoInputRef.current?.click()}
-                disabled={uploadingVideo || !newVideoTitle}
+                disabled={uploadingVideo}
               >
                 {uploadingVideo ? (
                   <Loader2 className="h-8 w-8 animate-spin" />

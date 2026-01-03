@@ -1,12 +1,56 @@
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ChevronRight, MapPin, Clock, Phone } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+
+interface HeroContent {
+  badge?: string;
+  headline?: string;
+  headlineAccent?: string;
+  tagline?: string;
+  primaryCta?: string;
+  primaryCtaLink?: string;
+  secondaryCta?: string;
+  secondaryCtaLink?: string;
+  address?: string;
+  hours?: string;
+  phone?: string;
+}
 
 export function Hero() {
+  const { data: sectionConfig } = useQuery({
+    queryKey: ["homepage-section", "hero"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("homepage_sections")
+        .select("*")
+        .eq("section_key", "hero")
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const content = (sectionConfig?.content as HeroContent) || {};
+  
+  // Default values
+  const badge = content.badge || "Now Open for Orders";
+  const headline = content.headline || "American Ribs";
+  const headlineAccent = content.headlineAccent || "& Wings";
+  const tagline = content.tagline || "Authentic American BBQ crafted with passion. Smoky ribs, crispy wings, and flavors that'll make you come back for more.";
+  const primaryCta = content.primaryCta || "Order Now";
+  const primaryCtaLink = content.primaryCtaLink || "/order";
+  const secondaryCta = content.secondaryCta || "View Menu";
+  const secondaryCtaLink = content.secondaryCtaLink || "#menu";
+  const address = content.address || "Floridablanca, Pampanga";
+  const hours = content.hours || "12PM - 9PM Daily";
+  const phone = content.phone || "0976 207 4276";
+
   return (
     <section className="relative min-h-[60vh] flex items-center justify-center overflow-hidden">
-      {/* Background with gradient overlay */}
-      <div className="absolute inset-0 bg-gradient-to-br from-primary/90 via-primary/80 to-primary/70" />
+      {/* Background with gradient overlay using brand colors */}
+      <div className="absolute inset-0 bg-gradient-to-br from-primary via-primary/90 to-accent/80" />
       
       {/* Pattern overlay */}
       <div 
@@ -19,24 +63,23 @@ export function Hero() {
       <div className="container relative z-10 px-4 py-20">
         <div className="max-w-4xl mx-auto text-center">
           {/* Badge */}
-          <div className="inline-flex items-center gap-2 bg-accent/20 text-accent px-4 py-2 rounded-full text-sm font-medium mb-6">
+          <div className="inline-flex items-center gap-2 bg-white/20 text-white px-4 py-2 rounded-full text-sm font-medium mb-6">
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-accent"></span>
             </span>
-            Now Open for Orders
+            {badge}
           </div>
 
           {/* Main heading */}
-          <h1 className="text-5xl md:text-7xl font-bold text-primary-foreground mb-6 tracking-tight">
-            American Ribs
-            <span className="block text-accent">&amp; Wings</span>
+          <h1 className="text-5xl md:text-7xl font-bold text-white mb-6 tracking-tight">
+            {headline}
+            <span className="block text-accent">{headlineAccent}</span>
           </h1>
 
           {/* Tagline */}
-          <p className="text-xl md:text-2xl text-primary-foreground/90 mb-8 max-w-2xl mx-auto">
-            Authentic American BBQ crafted with passion. Smoky ribs, crispy wings, 
-            and flavors that'll make you come back for more.
+          <p className="text-xl md:text-2xl text-white/90 mb-8 max-w-2xl mx-auto">
+            {tagline}
           </p>
 
           {/* CTA Buttons */}
@@ -46,8 +89,8 @@ export function Hero() {
               size="lg" 
               className="bg-accent text-accent-foreground hover:bg-accent/90 text-lg px-8 py-6 rounded-full shadow-lg hover:shadow-xl transition-all"
             >
-              <Link to="/order">
-                Order Now
+              <Link to={primaryCtaLink}>
+                {primaryCta}
                 <ChevronRight className="ml-2 h-5 w-5" />
               </Link>
             </Button>
@@ -55,27 +98,27 @@ export function Hero() {
               asChild 
               variant="outline" 
               size="lg"
-              className="border-primary-foreground/30 bg-primary-foreground/10 text-primary-foreground hover:bg-primary-foreground/20 text-lg px-8 py-6 rounded-full"
+              className="border-white/30 bg-white text-foreground hover:bg-white/90 text-lg px-8 py-6 rounded-full"
             >
-              <a href="#menu" className="text-primary-foreground">
-                View Menu
+              <a href={secondaryCtaLink}>
+                {secondaryCta}
               </a>
             </Button>
           </div>
 
           {/* Quick info */}
-          <div className="flex flex-wrap justify-center gap-6 text-primary-foreground/80 text-sm">
+          <div className="flex flex-wrap justify-center gap-6 text-white/80 text-sm">
             <div className="flex items-center gap-2">
               <MapPin className="h-4 w-4" />
-              <span>Floridablanca, Pampanga</span>
+              <span>{address}</span>
             </div>
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4" />
-              <span>12PM - 9PM Daily</span>
+              <span>{hours}</span>
             </div>
             <div className="flex items-center gap-2">
               <Phone className="h-4 w-4" />
-              <span>0976 207 4276</span>
+              <span>{phone}</span>
             </div>
           </div>
         </div>
@@ -83,8 +126,8 @@ export function Hero() {
 
       {/* Scroll indicator */}
       <div className="absolute bottom-8 left-1/2 -translate-x-1/2 animate-bounce">
-        <div className="w-6 h-10 border-2 border-primary-foreground/30 rounded-full flex justify-center">
-          <div className="w-1 h-3 bg-primary-foreground/50 rounded-full mt-2" />
+        <div className="w-6 h-10 border-2 border-white/30 rounded-full flex justify-center">
+          <div className="w-1 h-3 bg-white/50 rounded-full mt-2" />
         </div>
       </div>
     </section>

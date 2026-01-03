@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { Menu, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { Menu, ShoppingBag } from "lucide-react";
 
 export function Navbar() {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -10,105 +10,86 @@ export function Navbar() {
 
   useEffect(() => {
     const handleScroll = () => {
-      setIsScrolled(window.scrollY > 50);
+      setIsScrolled(window.scrollY > 10);
     };
-
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   const navLinks = [
-    { href: "#menu", label: "Menu" },
-    { href: "#about", label: "About" },
-    { href: "#location", label: "Location" },
+    { name: "Home", href: "/" },
+    { name: "Menu", href: "#menu" },
+    { name: "About", href: "#about" },
+    { name: "Location", href: "#location" },
   ];
 
   return (
-    <nav 
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        isScrolled 
-          ? "bg-card/95 backdrop-blur-md shadow-md" 
-          : "bg-transparent"
+    <nav
+      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 bg-white shadow-sm ${
+        isScrolled ? "py-2" : "py-3"
       }`}
     >
-      <div className="container px-4">
-        <div className="flex items-center justify-between h-16 md:h-20">
-          {/* Logo */}
-          <Link 
-            to="/" 
-            className="flex items-center"
-          >
-            <img 
-              src="/images/logo.jpg" 
-              alt="American Ribs & Wings" 
-              className="h-12 md:h-14 w-auto object-contain"
-            />
-          </Link>
+      <div className="container px-4 flex items-center justify-between">
+        {/* Logo */}
+        <Link to="/" className="flex items-center gap-2">
+          <img 
+            src="/images/logo.jpg" 
+            alt="American Ribs & Wings" 
+            className="h-12 w-auto object-contain"
+          />
+        </Link>
 
-          {/* Desktop nav */}
-          <div className="hidden md:flex items-center gap-8">
-            {navLinks.map((link) => (
-              <a
-                key={link.href}
-                href={link.href}
-                className={`text-sm font-medium transition-colors hover:text-accent ${
-                  isScrolled ? "text-foreground" : "text-primary-foreground"
-                }`}
-              >
-                {link.label}
-              </a>
-            ))}
-          </div>
-
-          {/* CTA */}
-          <div className="flex items-center gap-3">
-            <Button 
-              asChild 
-              size="sm"
-              className="hidden md:inline-flex bg-accent text-accent-foreground hover:bg-accent/90"
+        {/* Desktop Nav */}
+        <div className="hidden md:flex items-center gap-8">
+          {navLinks.map((link) => (
+            <a
+              key={link.name}
+              href={link.href}
+              className="text-foreground hover:text-primary transition-colors font-medium"
             >
-              <Link to="/order">
-                <ShoppingBag className="h-4 w-4 mr-2" />
-                Order Now
-              </Link>
-            </Button>
-
-            {/* Mobile menu */}
-            <Sheet open={isOpen} onOpenChange={setIsOpen}>
-              <SheetTrigger asChild>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className={`md:hidden ${
-                    isScrolled ? "text-foreground" : "text-primary-foreground"
-                  }`}
-                >
-                  <Menu className="h-6 w-6" />
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="w-[280px]">
-                <div className="flex flex-col gap-6 mt-8">
-                  {navLinks.map((link) => (
-                    <a
-                      key={link.href}
-                      href={link.href}
-                      onClick={() => setIsOpen(false)}
-                      className="text-lg font-medium text-foreground hover:text-primary transition-colors"
-                    >
-                      {link.label}
-                    </a>
-                  ))}
-                  <Button asChild className="mt-4">
-                    <Link to="/order" onClick={() => setIsOpen(false)}>
-                      <ShoppingBag className="h-4 w-4 mr-2" />
-                      Order Now
-                    </Link>
-                  </Button>
-                </div>
-              </SheetContent>
-            </Sheet>
-          </div>
+              {link.name}
+            </a>
+          ))}
         </div>
+
+        {/* CTA Button */}
+        <div className="hidden md:block">
+          <Button asChild className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-full px-6">
+            <Link to="/order">
+              <ShoppingBag className="mr-2 h-4 w-4" />
+              Order Now
+            </Link>
+          </Button>
+        </div>
+
+        {/* Mobile Menu */}
+        <Sheet open={isOpen} onOpenChange={setIsOpen}>
+          <SheetTrigger asChild className="md:hidden">
+            <Button variant="ghost" size="icon" className="text-foreground">
+              <Menu className="h-6 w-6" />
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="right" className="w-[280px] bg-white">
+            <div className="flex flex-col gap-6 mt-8">
+              {navLinks.map((link) => (
+                <a
+                  key={link.name}
+                  href={link.href}
+                  onClick={() => setIsOpen(false)}
+                  className="text-lg font-medium text-foreground hover:text-primary transition-colors"
+                >
+                  {link.name}
+                </a>
+              ))}
+              <Button asChild className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-full mt-4">
+                <Link to="/order" onClick={() => setIsOpen(false)}>
+                  <ShoppingBag className="mr-2 h-4 w-4" />
+                  Order Now
+                </Link>
+              </Button>
+            </div>
+          </SheetContent>
+        </Sheet>
       </div>
     </nav>
   );
