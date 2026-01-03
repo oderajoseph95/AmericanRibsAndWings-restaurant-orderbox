@@ -66,10 +66,9 @@ export function FlavorModal({
     }, 0);
   }, [selectedFlavors, flavors, unitsPerFlavor]);
 
-  // Filter to matching flavor category (e.g., "wings")
+  // Filter to only wing flavors for Ala Carte products
   const availableFlavors = useMemo(() => {
-    // For now, show all active flavors
-    return flavors.filter((f) => f.is_active);
+    return flavors.filter((f) => f.is_active && f.flavor_category === 'wings');
   }, [flavors]);
 
   const handleFlavorChange = (flavorId: string, delta: number) => {
