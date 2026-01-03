@@ -339,10 +339,15 @@ export type Database = {
         Row: {
           created_at: string | null
           customer_id: string | null
+          delivery_address: string | null
+          delivery_distance_km: number | null
+          delivery_fee: number | null
           id: string
           internal_notes: string | null
           order_number: string | null
           order_type: Database["public"]["Enums"]["order_type"] | null
+          pickup_date: string | null
+          pickup_time: string | null
           status: Database["public"]["Enums"]["order_status"] | null
           status_changed_at: string | null
           subtotal: number | null
@@ -352,10 +357,15 @@ export type Database = {
         Insert: {
           created_at?: string | null
           customer_id?: string | null
+          delivery_address?: string | null
+          delivery_distance_km?: number | null
+          delivery_fee?: number | null
           id?: string
           internal_notes?: string | null
           order_number?: string | null
           order_type?: Database["public"]["Enums"]["order_type"] | null
+          pickup_date?: string | null
+          pickup_time?: string | null
           status?: Database["public"]["Enums"]["order_status"] | null
           status_changed_at?: string | null
           subtotal?: number | null
@@ -365,10 +375,15 @@ export type Database = {
         Update: {
           created_at?: string | null
           customer_id?: string | null
+          delivery_address?: string | null
+          delivery_distance_km?: number | null
+          delivery_fee?: number | null
           id?: string
           internal_notes?: string | null
           order_number?: string | null
           order_type?: Database["public"]["Enums"]["order_type"] | null
+          pickup_date?: string | null
+          pickup_time?: string | null
           status?: Database["public"]["Enums"]["order_status"] | null
           status_changed_at?: string | null
           subtotal?: number | null

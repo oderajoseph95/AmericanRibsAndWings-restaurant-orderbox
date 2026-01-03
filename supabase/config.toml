@@ -1,1 +1,4 @@
 project_id = "saxwbdwmuzkmxztagfot"
+
+[functions.calculate-delivery-fee]
+verify_jwt = false

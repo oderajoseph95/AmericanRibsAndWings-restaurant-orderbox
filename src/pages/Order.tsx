@@ -34,7 +34,13 @@ const Order = () => {
   const [isFlavorModalOpen, setIsFlavorModalOpen] = useState(false);
   const [isBundleWizardOpen, setIsBundleWizardOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
-  const [confirmedOrder, setConfirmedOrder] = useState<{ orderNumber: string; orderId: string } | null>(null);
+  const [confirmedOrder, setConfirmedOrder] = useState<{ 
+    orderNumber: string; 
+    orderId: string; 
+    orderType: OrderType;
+    pickupDate?: string;
+    pickupTime?: string;
+  } | null>(null);
   const [isCartOpen, setIsCartOpen] = useState(false);
 
   const activeCategory = searchParams.get("category") || "all";
@@ -201,8 +207,14 @@ const Order = () => {
   };
 
   // Handle order confirmation
-  const handleOrderConfirmed = (orderNumber: string, orderId: string) => {
-    setConfirmedOrder({ orderNumber, orderId });
+  const handleOrderConfirmed = (
+    orderNumber: string, 
+    orderId: string, 
+    orderType: OrderType,
+    pickupDate?: string,
+    pickupTime?: string
+  ) => {
+    setConfirmedOrder({ orderNumber, orderId, orderType, pickupDate, pickupTime });
     setIsCheckoutOpen(false);
     clearCart();
   };
@@ -217,6 +229,9 @@ const Order = () => {
     return (
       <OrderConfirmation
         orderNumber={confirmedOrder.orderNumber}
+        orderType={confirmedOrder.orderType}
+        pickupDate={confirmedOrder.pickupDate}
+        pickupTime={confirmedOrder.pickupTime}
         onNewOrder={handleNewOrder}
       />
     );
