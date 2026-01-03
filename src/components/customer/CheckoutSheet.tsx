@@ -23,18 +23,46 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Loader2, Upload, X, Check } from "lucide-react";
+import { Loader2, Upload, X, Check, Store, Package, Truck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import type { CartItem, OrderType } from "@/pages/Order";
 
 const checkoutSchema = z.object({
+  orderType: z.enum(["dine_in", "pickup", "delivery"]),
   name: z.string().min(2, "Name must be at least 2 characters").max(100),
   phone: z.string().min(10, "Phone number is required").max(15),
   email: z.string().email("Invalid email").optional().or(z.literal("")),
-  address: z.string().optional(),
+  streetAddress: z.string().optional(),
+  barangay: z.string().optional(),
+  city: z.string().optional(),
+  landmark: z.string().optional(),
   notes: z.string().max(500).optional(),
   paymentMethod: z.enum(["cash", "gcash", "bank"]),
+}).superRefine((data, ctx) => {
+  if (data.orderType === "delivery") {
+    if (!data.streetAddress?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Street address is required for delivery",
+        path: ["streetAddress"],
+      });
+    }
+    if (!data.barangay?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Barangay is required for delivery",
+        path: ["barangay"],
+      });
+    }
+    if (!data.city?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "City is required for delivery",
+        path: ["city"],
+      });
+    }
+  }
 });
 
 type CheckoutFormData = z.infer<typeof checkoutSchema>;
@@ -44,7 +72,6 @@ interface CheckoutSheetProps {
   onOpenChange: (open: boolean) => void;
   cart: CartItem[];
   total: number;
-  orderType: OrderType;
   onOrderConfirmed: (orderNumber: string, orderId: string) => void;
 }
 
@@ -53,7 +80,6 @@ export function CheckoutSheet({
   onOpenChange,
   cart,
   total,
-  orderType,
   onOrderConfirmed,
 }: CheckoutSheetProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -63,16 +89,21 @@ export function CheckoutSheet({
   const form = useForm<CheckoutFormData>({
     resolver: zodResolver(checkoutSchema),
     defaultValues: {
+      orderType: "pickup",
       name: "",
       phone: "",
       email: "",
-      address: "",
+      streetAddress: "",
+      barangay: "",
+      city: "",
+      landmark: "",
       notes: "",
       paymentMethod: "cash",
     },
   });
 
   const paymentMethod = form.watch("paymentMethod");
+  const orderType = form.watch("orderType");
 
   const handlePaymentProofChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -115,15 +146,20 @@ export function CheckoutSheet({
 
       if (customerError) throw customerError;
 
+      // Build delivery address string
+      const deliveryAddress = data.orderType === "delivery"
+        ? `${data.streetAddress}, ${data.barangay}, ${data.city}${data.landmark ? ` (Landmark: ${data.landmark})` : ""}`
+        : null;
+
       // 2. Create order
       const orderData = {
         customer_id: customer.id,
-        order_type: orderType === "pickup" ? "pickup" as const : "delivery" as const,
+        order_type: data.orderType as OrderType,
         status: "pending" as const,
         subtotal: total,
         total_amount: total,
-        internal_notes: data.address
-          ? `Delivery to: ${data.address}${data.notes ? `\n\nNotes: ${data.notes}` : ""}`
+        internal_notes: deliveryAddress
+          ? `Delivery to: ${deliveryAddress}${data.notes ? `\n\nNotes: ${data.notes}` : ""}`
           : data.notes || null,
       };
 
@@ -247,6 +283,132 @@ export function CheckoutSheet({
                 </div>
               </div>
 
+              {/* Order type selection */}
+              <div className="space-y-4">
+                <h3 className="font-medium">Order Type</h3>
+                <FormField
+                  control={form.control}
+                  name="orderType"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormControl>
+                        <RadioGroup
+                          onValueChange={field.onChange}
+                          value={field.value}
+                          className="grid grid-cols-3 gap-2"
+                        >
+                          <div>
+                            <RadioGroupItem
+                              value="dine_in"
+                              id="dine_in"
+                              className="peer sr-only"
+                            />
+                            <Label
+                              htmlFor="dine_in"
+                              className="flex flex-col items-center justify-center rounded-lg border-2 border-muted bg-popover p-3 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer"
+                            >
+                              <Store className="h-5 w-5 mb-1" />
+                              <span className="text-xs font-medium">Dine-in</span>
+                            </Label>
+                          </div>
+                          <div>
+                            <RadioGroupItem
+                              value="pickup"
+                              id="pickup"
+                              className="peer sr-only"
+                            />
+                            <Label
+                              htmlFor="pickup"
+                              className="flex flex-col items-center justify-center rounded-lg border-2 border-muted bg-popover p-3 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer"
+                            >
+                              <Package className="h-5 w-5 mb-1" />
+                              <span className="text-xs font-medium">Pickup</span>
+                            </Label>
+                          </div>
+                          <div>
+                            <RadioGroupItem
+                              value="delivery"
+                              id="delivery"
+                              className="peer sr-only"
+                            />
+                            <Label
+                              htmlFor="delivery"
+                              className="flex flex-col items-center justify-center rounded-lg border-2 border-muted bg-popover p-3 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer"
+                            >
+                              <Truck className="h-5 w-5 mb-1" />
+                              <span className="text-xs font-medium">Delivery</span>
+                            </Label>
+                          </div>
+                        </RadioGroup>
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              {/* Delivery address fields */}
+              {orderType === "delivery" && (
+                <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
+                  <h3 className="font-medium">Delivery Address</h3>
+
+                  <FormField
+                    control={form.control}
+                    name="streetAddress"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Street Address *</FormLabel>
+                        <FormControl>
+                          <Input placeholder="House/Unit #, Street Name" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="barangay"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Barangay *</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Barangay" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="city"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>City *</FormLabel>
+                        <FormControl>
+                          <Input placeholder="City/Municipality" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="landmark"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Landmark (optional)</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Near school, beside sari-sari store, etc." {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              )}
+
               {/* Customer info */}
               <div className="space-y-4">
                 <h3 className="font-medium">Customer Information</h3>
@@ -297,25 +459,6 @@ export function CheckoutSheet({
                   )}
                 />
 
-                {orderType === "delivery" && (
-                  <FormField
-                    control={form.control}
-                    name="address"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Delivery Address</FormLabel>
-                        <FormControl>
-                          <Textarea
-                            placeholder="Complete delivery address"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
-
                 <FormField
                   control={form.control}
                   name="notes"
@@ -354,7 +497,7 @@ export function CheckoutSheet({
                             <Label htmlFor="cash" className="flex-1 cursor-pointer">
                               <span className="font-medium">Cash</span>
                               <p className="text-xs text-muted-foreground">
-                                Pay upon {orderType === "delivery" ? "delivery" : "pickup"}
+                                Pay upon {orderType === "delivery" ? "delivery" : orderType === "pickup" ? "pickup" : "order"}
                               </p>
                             </Label>
                           </div>

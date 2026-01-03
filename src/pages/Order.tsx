@@ -7,7 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowLeft, ShoppingCart, Home, MapPin } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ArrowLeft, ShoppingCart } from "lucide-react";
 import { ProductCard } from "@/components/customer/ProductCard";
 import { Cart } from "@/components/customer/Cart";
 import { FlavorModal } from "@/components/customer/FlavorModal";
@@ -24,12 +25,11 @@ export type CartItem = {
   lineTotal: number;
 };
 
-export type OrderType = "pickup" | "delivery";
+export type OrderType = "dine_in" | "pickup" | "delivery";
 
 const Order = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [orderType, setOrderType] = useState<OrderType>("pickup");
   const [selectedProduct, setSelectedProduct] = useState<Tables<"products"> | null>(null);
   const [isFlavorModalOpen, setIsFlavorModalOpen] = useState(false);
   const [isBundleWizardOpen, setIsBundleWizardOpen] = useState(false);
@@ -239,32 +239,6 @@ const Order = () => {
             </div>
           </div>
 
-          {/* Order type toggle */}
-          <div className="hidden sm:flex items-center gap-2 bg-secondary rounded-full p-1">
-            <button
-              onClick={() => setOrderType("pickup")}
-              className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                orderType === "pickup"
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <Home className="h-4 w-4 inline mr-1" />
-              Pickup
-            </button>
-            <button
-              onClick={() => setOrderType("delivery")}
-              className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                orderType === "delivery"
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <MapPin className="h-4 w-4 inline mr-1" />
-              Delivery
-            </button>
-          </div>
-
           {/* Mobile cart button */}
           <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
             <SheetTrigger asChild>
@@ -295,8 +269,28 @@ const Order = () => {
           </Sheet>
         </div>
 
-        {/* Category tabs */}
-        <div className="border-t border-border">
+        {/* Category selector - Mobile dropdown */}
+        <div className="sm:hidden border-t border-border px-4 py-3">
+          <Select 
+            value={activeCategory} 
+            onValueChange={(v) => setSearchParams({ category: v })}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select Category" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              {categories?.map((cat) => (
+                <SelectItem key={cat.id} value={cat.name.toLowerCase()}>
+                  {cat.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Category tabs - Desktop */}
+        <div className="hidden sm:block border-t border-border">
           <ScrollArea className="w-full">
             <div className="container px-4">
               <Tabs
@@ -430,7 +424,6 @@ const Order = () => {
         onOpenChange={setIsCheckoutOpen}
         cart={cart}
         total={cartTotal}
-        orderType={orderType}
         onOrderConfirmed={handleOrderConfirmed}
       />
     </div>
