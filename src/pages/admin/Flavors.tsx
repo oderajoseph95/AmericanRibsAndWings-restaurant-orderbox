@@ -26,7 +26,7 @@ export default function Flavors() {
   const { data: flavors = [], isLoading } = useQuery({
     queryKey: ['flavors', showArchived],
     queryFn: async () => {
-      let query = supabase.from('flavors').select('*').order('name');
+      let query = supabase.from('flavors').select('*').order('sort_order');
 
       if (showArchived) {
         query = query.not('archived_at', 'is', null);
