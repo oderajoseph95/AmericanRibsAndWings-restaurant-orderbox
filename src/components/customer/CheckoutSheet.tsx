@@ -120,6 +120,8 @@ export function CheckoutSheet({
   const [isCalculatingFee, setIsCalculatingFee] = useState(false);
   const [deliveryFee, setDeliveryFee] = useState<number | null>(null);
   const [deliveryDistance, setDeliveryDistance] = useState<number | null>(null);
+  const [deliveryEta, setDeliveryEta] = useState<string | null>(null);
+  const [travelMinutes, setTravelMinutes] = useState<number | null>(null);
   const [barangay, setBarangay] = useState("");
   const form = useForm<CheckoutFormData>({
     resolver: zodResolver(checkoutSchema),
@@ -147,6 +149,8 @@ export function CheckoutSheet({
     if (orderType === "pickup") {
       setDeliveryFee(null);
       setDeliveryDistance(null);
+      setDeliveryEta(null);
+      setTravelMinutes(null);
       setBarangay("");
     }
   }, [orderType]);
@@ -163,9 +167,11 @@ export function CheckoutSheet({
     form.setValue("city", data.city);
     setGeocodedAddress(data.address);
   };
-  const handleFeeCalculated = (fee: number, distance: number) => {
+  const handleFeeCalculated = (fee: number, distance: number, eta?: string, travel?: number) => {
     setDeliveryFee(fee);
     setDeliveryDistance(distance);
+    setDeliveryEta(eta || null);
+    setTravelMinutes(travel || null);
   };
   const handleCalculating = (calculating: boolean) => {
     setIsCalculatingFee(calculating);
@@ -328,7 +334,8 @@ export function CheckoutSheet({
                   <span>Subtotal</span>
                   <span>₱{total.toFixed(2)}</span>
                 </div>
-                {orderType === "delivery" && <div className="flex justify-between text-sm">
+                {orderType === "delivery" && <>
+                  <div className="flex justify-between text-sm">
                     <span>
                       Delivery Fee
                       {deliveryDistance && ` (${deliveryDistance} km)`}
@@ -337,7 +344,19 @@ export function CheckoutSheet({
                         <Loader2 className="h-3 w-3 animate-spin" />
                         Calculating...
                       </span> : deliveryFee !== null ? <span>₱{deliveryFee.toFixed(2)}</span> : <span className="text-muted-foreground">--</span>}
-                  </div>}
+                  </div>
+                  {deliveryEta && (
+                    <div className="flex justify-between text-sm">
+                      <span>Estimated Delivery</span>
+                      <span className="text-muted-foreground">{deliveryEta}</span>
+                    </div>
+                  )}
+                  {travelMinutes !== null && deliveryEta && (
+                    <div className="text-xs text-muted-foreground text-right">
+                      30 min prep + ~{travelMinutes} min travel
+                    </div>
+                  )}
+                </>}
                 <Separator className="my-2" />
                 <div className="flex justify-between font-semibold">
                   <span>Total</span>
