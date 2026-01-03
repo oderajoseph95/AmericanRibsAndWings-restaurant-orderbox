@@ -11,6 +11,7 @@ interface HoursItem {
 
 interface LocationContent {
   title?: string;
+  subtitle?: string;
   address?: string;
   phone?: string;
   email?: string;
@@ -30,7 +31,7 @@ export function Location() {
         .select("*")
         .eq("section_key", "location")
         .eq("is_visible", true)
-        .single();
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
@@ -38,7 +39,7 @@ export function Location() {
 
   if (isLoading) {
     return (
-      <section className="py-20 bg-secondary/30">
+      <section id="location" className="py-12 bg-gradient-to-b from-muted/30 to-background">
         <div className="container px-4 flex justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -59,34 +60,35 @@ export function Location() {
   const addressLines = content.address?.split("\n") || ["123 Main Street", "City, Province"];
 
   return (
-    <section className="py-20 bg-secondary/30">
+    <section id="location" className="py-12 bg-gradient-to-b from-muted/30 to-background">
       <div className="container px-4">
         {/* Section header */}
-        <div className="text-center mb-12">
-          <Badge variant="outline" className="mb-4">
+        <div className="text-center mb-8">
+          <Badge variant="outline" className="mb-3 border-primary/30 text-primary bg-primary/5">
             <MapPin className="h-3 w-3 mr-1" />
             Visit Us
           </Badge>
-          <h2 className="text-4xl md:text-5xl font-bold text-foreground mb-4">
+          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-3">
             {content.title || "Location & Hours"}
           </h2>
-          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Come visit us or order for pickup. We're located in Floridablanca, 
-            ready to serve you our delicious BBQ.
-          </p>
+          {content.subtitle && (
+            <p className="text-base text-muted-foreground max-w-xl mx-auto">
+              {content.subtitle}
+            </p>
+          )}
         </div>
 
-        <div className="grid lg:grid-cols-3 gap-6">
+        <div className="grid lg:grid-cols-3 gap-4">
           {/* Map */}
           <div className="lg:col-span-2">
             <Card className="h-full overflow-hidden">
-              <div className="relative h-80 lg:h-full min-h-[300px]">
+              <div className="relative h-64 lg:h-full min-h-[280px]">
                 {content.mapEmbedUrl ? (
                   <iframe
                     src={content.mapEmbedUrl}
                     width="100%"
                     height="100%"
-                    style={{ border: 0, minHeight: "300px" }}
+                    style={{ border: 0, minHeight: "280px" }}
                     allowFullScreen
                     loading="lazy"
                     referrerPolicy="no-referrer-when-downgrade"
@@ -94,9 +96,9 @@ export function Location() {
                   />
                 ) : (
                   <div className="w-full h-full bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center">
-                    <div className="text-center p-8">
-                      <MapPin className="h-16 w-16 text-muted-foreground/50 mx-auto mb-4" />
-                      <p className="text-muted-foreground">Map not configured</p>
+                    <div className="text-center p-6">
+                      <MapPin className="h-12 w-12 text-muted-foreground/50 mx-auto mb-3" />
+                      <p className="text-muted-foreground text-sm">Map not configured</p>
                     </div>
                   </div>
                 )}
@@ -105,17 +107,17 @@ export function Location() {
           </div>
 
           {/* Info cards */}
-          <div className="space-y-4">
+          <div className="space-y-3">
             {/* Address */}
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <MapPin className="h-5 w-5 text-primary" />
+              <CardHeader className="pb-2 pt-4">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <MapPin className="h-4 w-4 text-primary" />
                   Address
                 </CardTitle>
               </CardHeader>
-              <CardContent className="pt-0">
-                <p className="text-muted-foreground">
+              <CardContent className="pt-0 pb-4">
+                <p className="text-muted-foreground text-sm">
                   {addressLines.map((line, i) => (
                     <span key={i}>
                       {line}
@@ -128,14 +130,14 @@ export function Location() {
 
             {/* Hours */}
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <Clock className="h-5 w-5 text-primary" />
+              <CardHeader className="pb-2 pt-4">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Clock className="h-4 w-4 text-primary" />
                   Operating Hours
                 </CardTitle>
               </CardHeader>
-              <CardContent className="pt-0">
-                <ul className="space-y-2">
+              <CardContent className="pt-0 pb-4">
+                <ul className="space-y-1">
                   {hours.map((item, index) => (
                     <li key={index} className="flex justify-between text-sm">
                       <span className="text-muted-foreground">{item.day}</span>
@@ -148,40 +150,40 @@ export function Location() {
 
             {/* Contact */}
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <Phone className="h-5 w-5 text-primary" />
+              <CardHeader className="pb-2 pt-4">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Phone className="h-4 w-4 text-primary" />
                   Contact Us
                 </CardTitle>
               </CardHeader>
-              <CardContent className="pt-0 space-y-3">
+              <CardContent className="pt-0 pb-4 space-y-2">
                 {content.phone && (
                   <a 
                     href={`tel:${content.phone.replace(/\s/g, "")}`}
-                    className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors"
+                    className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors text-sm"
                   >
-                    <Phone className="h-4 w-4" />
+                    <Phone className="h-3.5 w-3.5" />
                     {content.phone}
                   </a>
                 )}
                 {content.email && (
                   <a 
                     href={`mailto:${content.email}`}
-                    className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors text-sm break-all"
+                    className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors text-xs break-all"
                   >
-                    <Mail className="h-4 w-4 shrink-0" />
+                    <Mail className="h-3.5 w-3.5 shrink-0" />
                     {content.email}
                   </a>
                 )}
-                <div className="flex gap-3 pt-2">
+                <div className="flex gap-2 pt-1">
                   {content.facebookUrl && (
                     <a 
                       href={content.facebookUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="w-10 h-10 bg-muted rounded-full flex items-center justify-center hover:bg-primary hover:text-primary-foreground transition-colors"
+                      className="w-8 h-8 bg-muted rounded-full flex items-center justify-center hover:bg-primary hover:text-primary-foreground transition-colors"
                     >
-                      <Facebook className="h-5 w-5" />
+                      <Facebook className="h-4 w-4" />
                     </a>
                   )}
                   {content.instagramUrl && (
@@ -189,9 +191,9 @@ export function Location() {
                       href={content.instagramUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="w-10 h-10 bg-muted rounded-full flex items-center justify-center hover:bg-primary hover:text-primary-foreground transition-colors"
+                      className="w-8 h-8 bg-muted rounded-full flex items-center justify-center hover:bg-primary hover:text-primary-foreground transition-colors"
                     >
-                      <Instagram className="h-5 w-5" />
+                      <Instagram className="h-4 w-4" />
                     </a>
                   )}
                 </div>
