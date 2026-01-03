@@ -8,10 +8,18 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Download, Loader2, TrendingUp, ShoppingCart, Users, DollarSign, ShieldX } from 'lucide-react';
+import { Download, Loader2, TrendingUp, ShoppingCart, Users, DollarSign, ShieldX, MapPin } from 'lucide-react';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
-import type { Tables } from '@/integrations/supabase/types';
+import type { Tables, Database } from '@/integrations/supabase/types';
 import { useAuth } from '@/contexts/AuthContext';
+
+type OrderStatus = Database['public']['Enums']['order_status'];
+
+// Valid sales statuses (post-approval)
+const SALES_STATUSES: OrderStatus[] = [
+  'approved', 'preparing', 'ready_for_pickup', 'waiting_for_rider',
+  'picked_up', 'in_transit', 'delivered', 'completed'
+];
 
 type OrderWithItems = Tables<'orders'> & {
   order_items: (Tables<'order_items'> & {
@@ -47,7 +55,7 @@ export default function Reports() {
         .select('*, order_items(*, order_item_flavors(*))')
         .gte('created_at', startOfDay(new Date(dateFrom)).toISOString())
         .lte('created_at', endOfDay(new Date(dateTo)).toISOString())
-        .in('status', ['approved', 'completed']);
+        .in('status', SALES_STATUSES);
       if (error) throw error;
       return data as OrderWithItems[];
     },
@@ -60,7 +68,22 @@ export default function Reports() {
     const avgOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0;
     const uniqueCustomers = new Set(orders.map((o) => o.customer_id).filter(Boolean)).size;
 
-    return { totalSales, totalOrders, avgOrderValue, uniqueCustomers };
+    // Delivery stats
+    const deliveryOrders = orders.filter(o => o.order_type === 'delivery');
+    const totalDeliveryDistance = deliveryOrders.reduce((sum, o) => sum + (o.delivery_distance_km || 0), 0);
+    const totalDeliveryFees = deliveryOrders.reduce((sum, o) => sum + (o.delivery_fee || 0), 0);
+    const avgDeliveryDistance = deliveryOrders.length > 0 ? totalDeliveryDistance / deliveryOrders.length : 0;
+
+    return { 
+      totalSales, 
+      totalOrders, 
+      avgOrderValue, 
+      uniqueCustomers,
+      deliveryOrders: deliveryOrders.length,
+      totalDeliveryDistance,
+      totalDeliveryFees,
+      avgDeliveryDistance,
+    };
   }, [orders]);
 
   // Daily sales chart data
@@ -120,6 +143,28 @@ export default function Reports() {
       name: name.replace('_', ' ').replace(/^\w/, (c) => c.toUpperCase()),
       value,
     }));
+  }, [orders]);
+
+  // Delivery distance breakdown
+  const deliveryDistanceData = useMemo(() => {
+    const deliveryOrders = orders.filter(o => o.order_type === 'delivery' && o.delivery_distance_km);
+    const ranges = [
+      { label: '0-2 km', min: 0, max: 2, count: 0, revenue: 0 },
+      { label: '2-5 km', min: 2, max: 5, count: 0, revenue: 0 },
+      { label: '5-10 km', min: 5, max: 10, count: 0, revenue: 0 },
+      { label: '10+ km', min: 10, max: Infinity, count: 0, revenue: 0 },
+    ];
+    
+    deliveryOrders.forEach((order) => {
+      const distance = order.delivery_distance_km || 0;
+      const range = ranges.find(r => distance >= r.min && distance < r.max);
+      if (range) {
+        range.count++;
+        range.revenue += order.delivery_fee || 0;
+      }
+    });
+    
+    return ranges.filter(r => r.count > 0);
   }, [orders]);
 
   const exportCSV = () => {
@@ -230,6 +275,7 @@ export default function Reports() {
               <TabsTrigger value="sales">Sales</TabsTrigger>
               <TabsTrigger value="products">Products</TabsTrigger>
               <TabsTrigger value="flavors">Flavors</TabsTrigger>
+              <TabsTrigger value="delivery">Delivery</TabsTrigger>
             </TabsList>
 
             {/* Sales Tab */}
@@ -362,6 +408,75 @@ export default function Reports() {
                         ))}
                       </TableBody>
                     </Table>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Delivery Tab */}
+            <TabsContent value="delivery">
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium">Delivery Orders</CardTitle>
+                    <MapPin className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{stats.deliveryOrders}</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium">Total Distance</CardTitle>
+                    <MapPin className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{stats.totalDeliveryDistance.toFixed(1)} km</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium">Avg Distance</CardTitle>
+                    <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{stats.avgDeliveryDistance.toFixed(1)} km</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium">Delivery Fees</CardTitle>
+                    <DollarSign className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">₱{stats.totalDeliveryFees.toFixed(2)}</div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Delivery Distance Breakdown</CardTitle>
+                  <CardDescription>Orders by delivery distance range</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {deliveryDistanceData.length === 0 ? (
+                    <p className="text-center py-8 text-muted-foreground">No delivery orders in this period</p>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={deliveryDistanceData}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="label" fontSize={12} />
+                        <YAxis fontSize={12} />
+                        <Tooltip 
+                          formatter={(value, name) => [
+                            name === 'count' ? `${value} orders` : `₱${value}`,
+                            name === 'count' ? 'Orders' : 'Delivery Fees'
+                          ]} 
+                        />
+                        <Bar dataKey="count" fill="hsl(217, 91%, 60%)" radius={[4, 4, 0, 0]} name="count" />
+                      </BarChart>
+                    </ResponsiveContainer>
                   )}
                 </CardContent>
               </Card>

@@ -1,107 +1,201 @@
-import { useQuery } from '@tanstack/react-query';
+import { useState, useEffect, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useAuth } from '@/contexts/AuthContext';
-import { ShoppingCart, DollarSign, Clock, AlertTriangle, Loader2, TrendingUp } from 'lucide-react';
-import { startOfDay, endOfDay } from 'date-fns';
-import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/contexts/AuthContext';
+import { 
+  ShoppingCart, DollarSign, Clock, AlertTriangle, Loader2, TrendingUp, 
+  MapPin, Activity, Calendar, ChevronRight 
+} from 'lucide-react';
+import { startOfDay, endOfDay, subDays, startOfWeek, startOfMonth, format } from 'date-fns';
+import { Link } from 'react-router-dom';
+import { DashboardChart } from '@/components/admin/DashboardChart';
+import { ActivityFeed } from '@/components/admin/ActivityFeed';
+import { Badge } from '@/components/ui/badge';
+import type { Database } from '@/integrations/supabase/types';
+
+type OrderStatus = Database['public']['Enums']['order_status'];
+
+// Valid sales statuses (post-approval)
+const SALES_STATUSES: OrderStatus[] = [
+  'approved', 'preparing', 'ready_for_pickup', 'waiting_for_rider',
+  'picked_up', 'in_transit', 'delivered', 'completed'
+];
+
+type DateFilter = 'today' | 'yesterday' | 'week' | 'month';
 
 export default function Dashboard() {
   const { role } = useAuth();
-  const today = new Date();
+  const queryClient = useQueryClient();
+  const [dateFilter, setDateFilter] = useState<DateFilter>('today');
+  const [lastUpdate, setLastUpdate] = useState(new Date());
 
-  // Today's sales and order count (approved + completed)
-  const { data: todayStats, isLoading: loadingStats } = useQuery({
-    queryKey: ['dashboard-today-stats'],
+  // Calculate date range based on filter
+  const dateRange = useMemo(() => {
+    const now = new Date();
+    switch (dateFilter) {
+      case 'today':
+        return { start: startOfDay(now), end: endOfDay(now), label: 'Today' };
+      case 'yesterday':
+        const yesterday = subDays(now, 1);
+        return { start: startOfDay(yesterday), end: endOfDay(yesterday), label: 'Yesterday' };
+      case 'week':
+        return { start: startOfWeek(now), end: endOfDay(now), label: 'This Week' };
+      case 'month':
+        return { start: startOfMonth(now), end: endOfDay(now), label: 'This Month' };
+      default:
+        return { start: startOfDay(now), end: endOfDay(now), label: 'Today' };
+    }
+  }, [dateFilter]);
+
+  // Setup realtime subscription
+  useEffect(() => {
+    const channel = supabase
+      .channel('dashboard-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'orders' },
+        () => {
+          // Invalidate all dashboard queries on any order change
+          queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+          setLastUpdate(new Date());
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
+
+  // Filtered sales and order stats
+  const { data: periodStats, isLoading: loadingStats } = useQuery({
+    queryKey: ['dashboard', 'period-stats', dateFilter],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('orders')
-        .select('total_amount, status')
-        .gte('created_at', startOfDay(today).toISOString())
-        .lte('created_at', endOfDay(today).toISOString());
-      
+        .select('id, total_amount, status, order_type, delivery_distance_km, delivery_fee')
+        .gte('created_at', dateRange.start.toISOString())
+        .lte('created_at', dateRange.end.toISOString());
+
       if (error) throw error;
+
+      const salesOrders = data?.filter(o => o.status && SALES_STATUSES.includes(o.status)) || [];
+      const deliveryOrders = salesOrders.filter(o => o.order_type === 'delivery');
       
-      const approvedOrCompleted = data?.filter(o => o.status === 'approved' || o.status === 'completed') || [];
-      const totalSales = approvedOrCompleted.reduce((sum, o) => sum + (o.total_amount || 0), 0);
+      const totalSales = salesOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0);
+      const totalDeliveryDistance = deliveryOrders.reduce((sum, o) => sum + (o.delivery_distance_km || 0), 0);
+      const totalDeliveryFees = deliveryOrders.reduce((sum, o) => sum + (o.delivery_fee || 0), 0);
+      const avgDeliveryDistance = deliveryOrders.length > 0 ? totalDeliveryDistance / deliveryOrders.length : 0;
+      
       const pendingCount = data?.filter(o => o.status === 'pending').length || 0;
+      const forVerificationCount = data?.filter(o => o.status === 'for_verification').length || 0;
       
+      // Order type breakdown
+      const pickupCount = salesOrders.filter(o => o.order_type === 'pickup').length;
+      const dineInCount = salesOrders.filter(o => o.order_type === 'dine_in').length;
+
       return {
         totalSales,
-        orderCount: approvedOrCompleted.length,
+        salesOrderCount: salesOrders.length,
         pendingCount,
-        allOrdersToday: data?.length || 0,
+        forVerificationCount,
+        allOrdersCount: data?.length || 0,
+        deliveryCount: deliveryOrders.length,
+        pickupCount,
+        dineInCount,
+        totalDeliveryDistance,
+        avgDeliveryDistance,
+        totalDeliveryFees,
       };
     },
   });
 
-  // Pending orders count
-  const { data: pendingOrders = 0 } = useQuery({
-    queryKey: ['dashboard-pending'],
+  // Overall pending/verification counts (not filtered by date)
+  const { data: globalCounts } = useQuery({
+    queryKey: ['dashboard', 'global-counts'],
     queryFn: async () => {
-      const { count, error } = await supabase
-        .from('orders')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'pending');
+      const [pendingRes, verificationRes] = await Promise.all([
+        supabase.from('orders').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
+        supabase.from('orders').select('*', { count: 'exact', head: true }).eq('status', 'for_verification'),
+      ]);
       
-      if (error) throw error;
-      return count || 0;
-    },
-  });
-
-  // Awaiting verification count
-  const { data: awaitingVerification = 0 } = useQuery({
-    queryKey: ['dashboard-verification'],
-    queryFn: async () => {
-      const { count, error } = await supabase
-        .from('orders')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'for_verification');
-      
-      if (error) throw error;
-      return count || 0;
+      return {
+        pendingOrders: pendingRes.count || 0,
+        awaitingVerification: verificationRes.count || 0,
+      };
     },
   });
 
   // Low stock alerts
   const { data: lowStockCount = 0 } = useQuery({
-    queryKey: ['dashboard-low-stock'],
+    queryKey: ['dashboard', 'low-stock'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('stock')
         .select('current_stock, low_stock_threshold, is_enabled')
         .eq('is_enabled', true);
-      
+
       if (error) throw error;
-      
       return data?.filter(s => s.current_stock <= s.low_stock_threshold).length || 0;
     },
   });
 
-  // Top 5 selling products today
+  // Last 7 days orders for chart
+  const { data: chartOrders = [] } = useQuery({
+    queryKey: ['dashboard', 'chart-orders'],
+    queryFn: async () => {
+      const sevenDaysAgo = subDays(new Date(), 7);
+      const { data, error } = await supabase
+        .from('orders')
+        .select('id, total_amount, created_at, status')
+        .gte('created_at', startOfDay(sevenDaysAgo).toISOString())
+        .in('status', SALES_STATUSES);
+
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Recent orders for activity feed
+  const { data: recentOrders = [] } = useQuery({
+    queryKey: ['dashboard', 'recent-orders'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('id, order_number, status, status_changed_at, updated_at, created_at, total_amount')
+        .order('status_changed_at', { ascending: false, nullsFirst: false })
+        .limit(10);
+
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Top 5 selling products for the period
   const { data: topProducts = [] } = useQuery({
-    queryKey: ['dashboard-top-products'],
+    queryKey: ['dashboard', 'top-products', dateFilter],
     queryFn: async () => {
       const { data: orders, error } = await supabase
         .from('orders')
         .select('id')
-        .gte('created_at', startOfDay(today).toISOString())
-        .lte('created_at', endOfDay(today).toISOString())
-        .in('status', ['approved', 'completed']);
-      
+        .gte('created_at', dateRange.start.toISOString())
+        .lte('created_at', dateRange.end.toISOString())
+        .in('status', SALES_STATUSES);
+
       if (error) throw error;
       if (!orders?.length) return [];
-      
+
       const orderIds = orders.map(o => o.id);
-      
+
       const { data: items, error: itemsError } = await supabase
         .from('order_items')
         .select('product_name, quantity, line_total')
         .in('order_id', orderIds);
-      
+
       if (itemsError) throw itemsError;
-      
+
       const productMap: Record<string, { name: string; qty: number; revenue: number }> = {};
       items?.forEach((item) => {
         const key = item.product_name;
@@ -111,7 +205,7 @@ export default function Dashboard() {
         productMap[key].qty += item.quantity;
         productMap[key].revenue += item.line_total || 0;
       });
-      
+
       return Object.values(productMap)
         .sort((a, b) => b.revenue - a.revenue)
         .slice(0, 5);
@@ -126,25 +220,56 @@ export default function Dashboard() {
     );
   }
 
+  const pendingOrders = globalCounts?.pendingOrders || 0;
+  const awaitingVerification = globalCounts?.awaitingVerification || 0;
+
   return (
     <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
-        <p className="text-muted-foreground mt-1">
-          Welcome back! Here's your store overview.
-        </p>
+      {/* Header with live indicator */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+              </span>
+              <span className="text-xs font-medium text-green-600 dark:text-green-400">Live</span>
+            </div>
+          </div>
+          <p className="text-muted-foreground mt-1">
+            Last updated: {format(lastUpdate, 'h:mm:ss a')}
+          </p>
+        </div>
+
+        {/* Date filter buttons */}
+        <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-lg">
+          {(['today', 'yesterday', 'week', 'month'] as DateFilter[]).map((filter) => (
+            <Button
+              key={filter}
+              variant={dateFilter === filter ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setDateFilter(filter)}
+              className="capitalize"
+            >
+              {filter === 'week' ? 'This Week' : filter === 'month' ? 'This Month' : filter}
+            </Button>
+          ))}
+        </div>
       </div>
 
+      {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Today's Sales</CardTitle>
+            <CardTitle className="text-sm font-medium">{dateRange.label}'s Sales</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">₱{(todayStats?.totalSales || 0).toFixed(2)}</div>
+            <div className="text-2xl font-bold">₱{(periodStats?.totalSales || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</div>
             <p className="text-xs text-muted-foreground">
-              {todayStats?.orderCount || 0} completed orders
+              {periodStats?.salesOrderCount || 0} completed orders
             </p>
           </CardContent>
         </Card>
@@ -157,7 +282,7 @@ export default function Dashboard() {
           <CardContent>
             <div className="text-2xl font-bold">{pendingOrders}</div>
             <p className="text-xs text-muted-foreground">
-              {todayStats?.allOrdersToday || 0} orders today
+              {periodStats?.allOrdersCount || 0} orders {dateRange.label.toLowerCase()}
             </p>
           </CardContent>
         </Card>
@@ -185,8 +310,79 @@ export default function Dashboard() {
         </Card>
       </div>
 
+      {/* Delivery Metrics - Only show if there are delivery orders */}
+      {(periodStats?.deliveryCount || 0) > 0 && (
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Distance Covered</CardTitle>
+              <MapPin className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{(periodStats?.totalDeliveryDistance || 0).toFixed(1)} km</div>
+              <p className="text-xs text-muted-foreground">
+                {periodStats?.deliveryCount} deliveries
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Avg Delivery Distance</CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{(periodStats?.avgDeliveryDistance || 0).toFixed(1)} km</div>
+              <p className="text-xs text-muted-foreground">Per delivery order</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Delivery Fees Collected</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">₱{(periodStats?.totalDeliveryFees || 0).toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">From {periodStats?.deliveryCount} orders</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Order Type Breakdown */}
+      {(periodStats?.salesOrderCount || 0) > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Order Breakdown ({dateRange.label})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/20">
+                  Delivery
+                </Badge>
+                <span className="font-semibold">{periodStats?.deliveryCount || 0}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/20">
+                  Pickup
+                </Badge>
+                <span className="font-semibold">{periodStats?.pickupCount || 0}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="bg-orange-500/10 text-orange-600 border-orange-500/20">
+                  Dine-in
+                </Badge>
+                <span className="font-semibold">{periodStats?.dineInCount || 0}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Quick Actions */}
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {pendingOrders > 0 && (
           <Card className="border-orange-500/30 bg-orange-500/5">
             <CardContent className="pt-6">
@@ -198,7 +394,9 @@ export default function Dashboard() {
                   <p className="text-sm text-muted-foreground">Review and process orders</p>
                 </div>
                 <Link to="/admin/orders">
-                  <Button size="sm" variant="outline">View Orders</Button>
+                  <Button size="sm" variant="outline">
+                    View <ChevronRight className="h-4 w-4 ml-1" />
+                  </Button>
                 </Link>
               </div>
             </CardContent>
@@ -216,7 +414,9 @@ export default function Dashboard() {
                   <p className="text-sm text-muted-foreground">Review payment proofs</p>
                 </div>
                 <Link to="/admin/orders?status=for_verification">
-                  <Button size="sm" variant="outline">Review</Button>
+                  <Button size="sm" variant="outline">
+                    Review <ChevronRight className="h-4 w-4 ml-1" />
+                  </Button>
                 </Link>
               </div>
             </CardContent>
@@ -234,7 +434,9 @@ export default function Dashboard() {
                   <p className="text-sm text-muted-foreground">Check inventory levels</p>
                 </div>
                 <Link to="/admin/stock">
-                  <Button size="sm" variant="outline">View Stock</Button>
+                  <Button size="sm" variant="outline">
+                    View <ChevronRight className="h-4 w-4 ml-1" />
+                  </Button>
                 </Link>
               </div>
             </CardContent>
@@ -242,11 +444,39 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Top Sellers Today */}
+      {/* Charts and Activity */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        {/* Sales Chart */}
+        <Card className="lg:col-span-2">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>Sales Trend</CardTitle>
+              <p className="text-sm text-muted-foreground">Last 7 days performance</p>
+            </div>
+            <Calendar className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <DashboardChart orders={chartOrders} days={7} />
+          </CardContent>
+        </Card>
+
+        {/* Activity Feed */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle>Recent Activity</CardTitle>
+            <Activity className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <ActivityFeed orders={recentOrders} limit={5} />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Top Sellers */}
       {topProducts.length > 0 && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-lg">Top Sellers Today</CardTitle>
+            <CardTitle className="text-lg">Top Sellers ({dateRange.label})</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -260,7 +490,7 @@ export default function Dashboard() {
                     <span className="font-medium">{product.name}</span>
                   </div>
                   <div className="text-right">
-                    <p className="font-semibold">₱{product.revenue.toFixed(2)}</p>
+                    <p className="font-semibold">₱{product.revenue.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</p>
                     <p className="text-xs text-muted-foreground">{product.qty} sold</p>
                   </div>
                 </div>
@@ -270,20 +500,25 @@ export default function Dashboard() {
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Getting Started</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm text-muted-foreground">
-          <p>✅ Database schema created with all tables</p>
-          <p>✅ Authentication system ready</p>
-          <p>✅ All triggers configured</p>
-          <p>⏳ Add your first admin user via Settings</p>
-          <p>⏳ Import products from CSV</p>
-          <p>⏳ Configure flavors and rules</p>
-          <p className="text-xs mt-4">Your role: <span className="font-semibold capitalize text-foreground">{role}</span></p>
-        </CardContent>
-      </Card>
+      {/* Getting Started - Only show if no orders */}
+      {(periodStats?.allOrdersCount || 0) === 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Getting Started</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            <p>✅ Database schema created with all tables</p>
+            <p>✅ Authentication system ready</p>
+            <p>✅ All triggers configured</p>
+            <p>⏳ Add your first admin user via Settings</p>
+            <p>⏳ Import products from CSV</p>
+            <p>⏳ Configure flavors and rules</p>
+            <p className="text-xs mt-4">
+              Your role: <span className="font-semibold capitalize text-foreground">{role}</span>
+            </p>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
