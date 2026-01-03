@@ -6,11 +6,14 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Restaurant location: Floridablanca, Pampanga
+// Restaurant location: American Ribs And Wings - Floridablanca (from Google Maps)
 const RESTAURANT_COORDS = {
-  lat: 14.9968,
-  lng: 120.4843,
+  lat: 14.972486785559141,
+  lng: 120.52905357511342,
 };
+
+// Allowed delivery cities
+const ALLOWED_CITIES = ['Floridablanca', 'Lubao', 'Guagua', 'Porac'];
 
 const RATE_PER_KM = 20; // ₱20 per km
 
@@ -31,36 +34,54 @@ serve(async (req) => {
       );
     }
 
-    const { streetAddress, barangay, city, landmark } = await req.json();
+    const body = await req.json();
+    const { streetAddress, barangay, city, landmark, customerLat, customerLng } = body;
     
-    console.log('Calculating delivery fee for:', { streetAddress, barangay, city, landmark });
+    console.log('Calculating delivery fee for:', body);
 
-    // Build full address for geocoding
-    const fullAddress = `${streetAddress}, ${barangay}, ${city}, Pampanga, Philippines`;
-    const encodedAddress = encodeURIComponent(fullAddress);
-
-    // Step 1: Geocode customer address
-    const geocodeUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedAddress}.json?access_token=${MAPBOX_TOKEN}&country=PH&limit=1`;
-    
-    console.log('Geocoding address...');
-    const geocodeResponse = await fetch(geocodeUrl);
-    const geocodeData = await geocodeResponse.json();
-
-    if (!geocodeData.features || geocodeData.features.length === 0) {
-      console.error('Address not found:', fullAddress);
+    // Validate city is in allowed list
+    if (city && !ALLOWED_CITIES.some(c => c.toLowerCase() === city.toLowerCase())) {
       return new Response(
         JSON.stringify({ 
-          error: 'Address not found. Please check your address details.',
-          address: fullAddress 
+          error: `We only deliver to ${ALLOWED_CITIES.join(', ')}. Please select a valid city.` 
         }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const customerCoords = geocodeData.features[0].center; // [lng, lat]
-    console.log('Customer coordinates:', customerCoords);
+    let customerCoords: [number, number]; // [lng, lat]
 
-    // Step 2: Get driving distance using Mapbox Directions API
+    // If customer coordinates are provided directly (from pin drop), use them
+    if (customerLat && customerLng) {
+      customerCoords = [customerLng, customerLat];
+      console.log('Using provided coordinates:', customerCoords);
+    } else {
+      // Fallback: Geocode customer address
+      const fullAddress = `${streetAddress}, ${barangay}, ${city}, Pampanga, Philippines`;
+      const encodedAddress = encodeURIComponent(fullAddress);
+
+      console.log('Geocoding address:', fullAddress);
+      const geocodeUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedAddress}.json?access_token=${MAPBOX_TOKEN}&country=PH&limit=1`;
+      
+      const geocodeResponse = await fetch(geocodeUrl);
+      const geocodeData = await geocodeResponse.json();
+
+      if (!geocodeData.features || geocodeData.features.length === 0) {
+        console.error('Address not found:', fullAddress);
+        return new Response(
+          JSON.stringify({ 
+            error: 'Address not found. Please check your address details or use the pin drop feature.',
+            address: fullAddress 
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      customerCoords = geocodeData.features[0].center; // [lng, lat]
+      console.log('Geocoded coordinates:', customerCoords);
+    }
+
+    // Get driving distance using Mapbox Directions API
     const directionsUrl = `https://api.mapbox.com/directions/v5/mapbox/driving/${RESTAURANT_COORDS.lng},${RESTAURANT_COORDS.lat};${customerCoords[0]},${customerCoords[1]}?access_token=${MAPBOX_TOKEN}&overview=false`;
     
     console.log('Getting driving distance...');
@@ -71,8 +92,8 @@ serve(async (req) => {
       console.error('No route found');
       return new Response(
         JSON.stringify({ 
-          error: 'Unable to calculate route to your address.',
-          customerCoords 
+          error: 'Unable to calculate route to your address. Please try a different location.',
+          customerCoords: { lat: customerCoords[1], lng: customerCoords[0] }
         }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -85,7 +106,12 @@ serve(async (req) => {
     // Calculate fee (round up km for pricing)
     const deliveryFee = Math.ceil(distanceKm) * RATE_PER_KM;
 
-    console.log('Delivery calculation:', { distanceKm, deliveryFee });
+    console.log('Delivery calculation:', { 
+      distanceKm: distanceKm.toFixed(1), 
+      deliveryFee,
+      restaurantCoords: RESTAURANT_COORDS,
+      customerCoords: { lat: customerCoords[1], lng: customerCoords[0] }
+    });
 
     return new Response(
       JSON.stringify({
@@ -95,7 +121,7 @@ serve(async (req) => {
           lat: customerCoords[1],
           lng: customerCoords[0],
         },
-        geocodedAddress: geocodeData.features[0].place_name,
+        restaurantCoords: RESTAURANT_COORDS,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

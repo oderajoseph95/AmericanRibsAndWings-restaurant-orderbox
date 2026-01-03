@@ -41,6 +41,7 @@ import { Loader2, Upload, X, Check, Package, Truck, CalendarIcon, MapPin } from 
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { DeliveryMapPicker } from "./DeliveryMapPicker";
 import type { CartItem, OrderType } from "@/pages/Order";
 
 const checkoutSchema = z.object({
@@ -51,32 +52,33 @@ const checkoutSchema = z.object({
   phone: z.string().min(10, "Phone number is required").max(15),
   email: z.string().email("Invalid email").optional().or(z.literal("")),
   streetAddress: z.string().optional(),
-  barangay: z.string().optional(),
   city: z.string().optional(),
   landmark: z.string().optional(),
+  customerLat: z.number().optional(),
+  customerLng: z.number().optional(),
   notes: z.string().max(500).optional(),
   paymentMethod: z.enum(["cash", "gcash", "bank"]),
 }).superRefine((data, ctx) => {
   if (data.orderType === "delivery") {
+    if (!data.city?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Please select a city",
+        path: ["city"],
+      });
+    }
+    if (!data.customerLat || !data.customerLng) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Please drop a pin on the map for your location",
+        path: ["streetAddress"],
+      });
+    }
     if (!data.streetAddress?.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Street address is required for delivery",
         path: ["streetAddress"],
-      });
-    }
-    if (!data.barangay?.trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Barangay is required for delivery",
-        path: ["barangay"],
-      });
-    }
-    if (!data.city?.trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "City is required for delivery",
-        path: ["city"],
       });
     }
   }
@@ -156,7 +158,6 @@ export function CheckoutSheet({
       phone: "",
       email: "",
       streetAddress: "",
-      barangay: "",
       city: "",
       landmark: "",
       notes: "",
@@ -168,8 +169,8 @@ export function CheckoutSheet({
   const orderType = form.watch("orderType");
   const pickupDate = form.watch("pickupDate");
   const streetAddress = form.watch("streetAddress");
-  const barangay = form.watch("barangay");
   const city = form.watch("city");
+  const [geocodedAddress, setGeocodedAddress] = useState<string>("");
 
   // Reset delivery fee when switching order type
   useEffect(() => {
@@ -179,51 +180,27 @@ export function CheckoutSheet({
     }
   }, [orderType]);
 
-  // Calculate delivery fee when address changes
-  useEffect(() => {
-    const calculateFee = async () => {
-      if (orderType !== "delivery") return;
-      if (!streetAddress?.trim() || !barangay?.trim() || !city?.trim()) {
-        setDeliveryFee(null);
-        setDeliveryDistance(null);
-        return;
-      }
+  // Handle location selection from map picker
+  const handleLocationSelect = (data: {
+    lat: number;
+    lng: number;
+    city: string;
+    address: string;
+  }) => {
+    form.setValue("customerLat", data.lat);
+    form.setValue("customerLng", data.lng);
+    form.setValue("city", data.city);
+    setGeocodedAddress(data.address);
+  };
 
-      setIsCalculatingFee(true);
-      try {
-        const { data, error } = await supabase.functions.invoke('calculate-delivery-fee', {
-          body: {
-            streetAddress: streetAddress.trim(),
-            barangay: barangay.trim(),
-            city: city.trim(),
-            landmark: form.getValues("landmark")?.trim() || "",
-          },
-        });
+  const handleFeeCalculated = (fee: number, distance: number) => {
+    setDeliveryFee(fee);
+    setDeliveryDistance(distance);
+  };
 
-        if (error) throw error;
-        
-        if (data.error) {
-          toast.error(data.error);
-          setDeliveryFee(null);
-          setDeliveryDistance(null);
-        } else {
-          setDeliveryFee(data.deliveryFee);
-          setDeliveryDistance(data.distanceKm);
-        }
-      } catch (error: any) {
-        console.error("Error calculating delivery fee:", error);
-        toast.error("Could not calculate delivery fee. Please try again.");
-        setDeliveryFee(null);
-        setDeliveryDistance(null);
-      } finally {
-        setIsCalculatingFee(false);
-      }
-    };
-
-    // Debounce the calculation
-    const timer = setTimeout(calculateFee, 1000);
-    return () => clearTimeout(timer);
-  }, [orderType, streetAddress, barangay, city]);
+  const handleCalculating = (calculating: boolean) => {
+    setIsCalculatingFee(calculating);
+  };
 
   const handlePaymentProofChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -276,7 +253,7 @@ export function CheckoutSheet({
 
       // Build delivery address string
       const deliveryAddress = data.orderType === "delivery"
-        ? `${data.streetAddress}, ${data.barangay}, ${data.city}${data.landmark ? ` (Landmark: ${data.landmark})` : ""}`
+        ? `${data.streetAddress}, ${data.city}, Pampanga${data.landmark ? ` (Landmark: ${data.landmark})` : ""} [GPS: ${data.customerLat?.toFixed(5)}, ${data.customerLng?.toFixed(5)}]`
         : null;
 
       // 2. Create order
@@ -591,68 +568,22 @@ export function CheckoutSheet({
                 </div>
               )}
 
-              {/* Delivery address fields */}
+              {/* Delivery address with map picker */}
               {orderType === "delivery" && (
                 <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
                   <h3 className="font-medium">Delivery Address</h3>
                   <p className="text-sm text-muted-foreground">
-                    Delivery fee: ₱20 per kilometer
+                    We deliver to Floridablanca, Lubao, Guagua, and Porac only. Fee: ₱20/km
                   </p>
 
-                  <FormField
-                    control={form.control}
-                    name="streetAddress"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Street Address *</FormLabel>
-                        <FormControl>
-                          <Input placeholder="House/Unit #, Street Name" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="barangay"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Barangay *</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Barangay" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="city"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>City *</FormLabel>
-                        <FormControl>
-                          <Input placeholder="City/Municipality" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="landmark"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Landmark (optional)</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Near school, beside sari-sari store, etc." {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
+                  <DeliveryMapPicker
+                    onLocationSelect={handleLocationSelect}
+                    onFeeCalculated={handleFeeCalculated}
+                    onCalculating={handleCalculating}
+                    streetAddress={streetAddress || ""}
+                    onStreetAddressChange={(value) => form.setValue("streetAddress", value)}
+                    landmark={form.watch("landmark") || ""}
+                    onLandmarkChange={(value) => form.setValue("landmark", value)}
                   />
 
                   {/* Delivery fee display */}
