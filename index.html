@@ -19,7 +19,7 @@
     <meta name="twitter:site" content="@Lovable" />
     <meta name="twitter:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
 
-    <!-- Meta Pixel Code -->
+    <!-- Meta Pixel Code - Customer facing only (excludes /admin routes) -->
     <script>
       !function(f,b,e,v,n,t,s)
       {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
@@ -29,8 +29,12 @@
       t.src=v;s=b.getElementsByTagName(e)[0];
       s.parentNode.insertBefore(t,s)}(window, document,'script',
       'https://connect.facebook.net/en_US/fbevents.js');
-      fbq('init', '1903501920228130');
-      fbq('track', 'PageView');
+      
+      // Only track on customer-facing pages (not admin)
+      if (!window.location.pathname.startsWith('/admin') && !window.location.pathname.startsWith('/auth')) {
+        fbq('init', '1903501920228130');
+        fbq('track', 'PageView');
+      }
     </script>
     <!-- End Meta Pixel Code -->
   </head>
