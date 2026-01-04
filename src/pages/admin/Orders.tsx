@@ -26,6 +26,7 @@ import type { Tables, Enums } from '@/integrations/supabase/types';
 
 type Order = Tables<'orders'> & {
   customers: Tables<'customers'> | null;
+  drivers: Tables<'drivers'> | null;
 };
 
 type OrderItem = Tables<'order_items'> & {
@@ -33,6 +34,8 @@ type OrderItem = Tables<'order_items'> & {
 };
 
 type PaymentProof = Tables<'payment_proofs'>;
+
+type DeliveryPhoto = Tables<'delivery_photos'>;
 
 const statusColors: Record<Enums<'order_status'>, string> = {
   pending: 'bg-yellow-500/20 text-yellow-700 border-yellow-500/30',
@@ -75,7 +78,7 @@ export default function Orders() {
     queryFn: async () => {
       let query = supabase
         .from('orders')
-        .select('*, customers(*)')
+        .select('*, customers(*), drivers(*)')
         .order('created_at', { ascending: false });
 
       if (statusFilter !== 'all') {
@@ -85,6 +88,20 @@ export default function Orders() {
       const { data, error } = await query;
       if (error) throw error;
       return data as Order[];
+    },
+  });
+
+  // Fetch available drivers
+  const { data: availableDrivers = [] } = useQuery({
+    queryKey: ['available-drivers'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('drivers')
+        .select('*')
+        .eq('is_active', true)
+        .order('name');
+      if (error) throw error;
+      return data;
     },
   });
 
@@ -118,6 +135,22 @@ export default function Orders() {
     enabled: !!selectedOrder,
   });
 
+  // Fetch delivery photos for selected order
+  const { data: deliveryPhotos = [] } = useQuery({
+    queryKey: ['delivery-photos', selectedOrder?.id],
+    queryFn: async () => {
+      if (!selectedOrder) return [];
+      const { data, error } = await supabase
+        .from('delivery_photos')
+        .select('*')
+        .eq('order_id', selectedOrder.id)
+        .order('taken_at', { ascending: true });
+      if (error) throw error;
+      return data as DeliveryPhoto[];
+    },
+    enabled: !!selectedOrder,
+  });
+
   const updateStatusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: Enums<'order_status'> }) => {
       const { error } = await supabase
@@ -137,6 +170,23 @@ export default function Orders() {
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to update status');
+    },
+  });
+
+  const assignDriverMutation = useMutation({
+    mutationFn: async ({ orderId, driverId }: { orderId: string; driverId: string | null }) => {
+      const { error } = await supabase
+        .from('orders')
+        .update({ driver_id: driverId })
+        .eq('id', orderId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      toast.success('Driver assigned');
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to assign driver');
     },
   });
 
@@ -442,6 +492,77 @@ export default function Orders() {
                       {selectedOrder.delivery_fee && (
                         <p>Delivery Fee: ₱{selectedOrder.delivery_fee.toFixed(2)}</p>
                       )}
+                    </div>
+
+                    {/* Driver Assignment */}
+                    <div className="pt-3 border-t">
+                      <label className="text-sm font-medium block mb-2">Assign Driver</label>
+                      <Select
+                        value={selectedOrder.driver_id || 'unassigned'}
+                        onValueChange={(value) => {
+                          assignDriverMutation.mutate({
+                            orderId: selectedOrder.id,
+                            driverId: value === 'unassigned' ? null : value,
+                          });
+                          // Update local state
+                          const driver = availableDrivers.find(d => d.id === value);
+                          setSelectedOrder(prev => prev ? { 
+                            ...prev, 
+                            driver_id: value === 'unassigned' ? null : value,
+                            drivers: driver || null
+                          } : null);
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a driver" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="unassigned">No driver assigned</SelectItem>
+                          {availableDrivers.map((driver) => (
+                            <SelectItem key={driver.id} value={driver.id}>
+                              {driver.name} - {driver.phone}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {selectedOrder.drivers && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Assigned: {selectedOrder.drivers.name} ({selectedOrder.drivers.phone})
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Delivery Photos */}
+                {deliveryPhotos.length > 0 && (
+                  <div className="space-y-3">
+                    <h4 className="font-medium flex items-center gap-2">
+                      <Image className="h-4 w-4" />
+                      Delivery Photos
+                    </h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      {deliveryPhotos.map((photo) => (
+                        <div key={photo.id} className="border rounded-lg p-2 space-y-1">
+                          <a 
+                            href={photo.image_url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                          >
+                            <img 
+                              src={photo.image_url} 
+                              alt={`${photo.photo_type} photo`} 
+                              className="w-full h-24 object-cover rounded-md border hover:opacity-90 transition-opacity"
+                            />
+                          </a>
+                          <Badge variant="outline" className="text-xs capitalize">
+                            {photo.photo_type}
+                          </Badge>
+                          <p className="text-xs text-muted-foreground">
+                            {photo.taken_at && format(new Date(photo.taken_at), 'h:mm a')}
+                          </p>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}

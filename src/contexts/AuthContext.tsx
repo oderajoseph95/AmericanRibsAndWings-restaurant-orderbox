@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 
-type AppRole = 'owner' | 'manager' | 'cashier';
+type AppRole = 'owner' | 'manager' | 'cashier' | 'driver';
 
 interface AuthContextType {
   user: User | null;
@@ -15,6 +15,7 @@ interface AuthContextType {
   isOwner: boolean;
   isManager: boolean;
   isCashier: boolean;
+  isDriver: boolean;
   canManageProducts: boolean;
   canManageSettings: boolean;
   canManageUsers: boolean;
@@ -109,6 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isOwner = role === 'owner';
   const isManager = role === 'manager';
   const isCashier = role === 'cashier';
+  const isDriver = role === 'driver';
   const canManageProducts = isOwner || isManager;
   const canManageSettings = isOwner;
   const canManageUsers = isOwner;
@@ -126,6 +128,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isOwner,
         isManager,
         isCashier,
+        isDriver,
         canManageProducts,
         canManageSettings,
         canManageUsers,

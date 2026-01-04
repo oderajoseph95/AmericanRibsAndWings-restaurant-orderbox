@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import DriverProtectedRoute from "@/components/driver/DriverProtectedRoute";
 import AuthPage from "./pages/Auth";
 import NoAccess from "./pages/NoAccess";
 import Index from "./pages/Index";
@@ -12,6 +13,7 @@ import Order from "./pages/Order";
 import OrderTracking from "./pages/OrderTracking";
 import MyOrders from "./pages/MyOrders";
 import AdminLayout from "./layouts/AdminLayout";
+import DriverLayout from "./layouts/DriverLayout";
 import Dashboard from "./pages/admin/Dashboard";
 import Orders from "./pages/admin/Orders";
 import Products from "./pages/admin/Products";
@@ -20,9 +22,13 @@ import Flavors from "./pages/admin/Flavors";
 import Bundles from "./pages/admin/Bundles";
 import Stock from "./pages/admin/Stock";
 import Customers from "./pages/admin/Customers";
+import Drivers from "./pages/admin/Drivers";
 import Reports from "./pages/admin/Reports";
 import Settings from "./pages/admin/Settings";
 import Website from "./pages/admin/Website";
+import DriverAuth from "./pages/driver/Auth";
+import DriverDashboard from "./pages/driver/Dashboard";
+import DriverProfile from "./pages/driver/Profile";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -49,6 +55,7 @@ const App = () => (
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/no-access" element={<NoAccess />} />
             
+            {/* Admin Routes */}
             <Route
               path="/admin"
               element={
@@ -65,9 +72,24 @@ const App = () => (
               <Route path="bundles" element={<Bundles />} />
               <Route path="stock" element={<Stock />} />
               <Route path="customers" element={<Customers />} />
+              <Route path="drivers" element={<Drivers />} />
               <Route path="reports" element={<Reports />} />
               <Route path="website" element={<Website />} />
               <Route path="settings" element={<Settings />} />
+            </Route>
+
+            {/* Driver Routes */}
+            <Route path="/driver/auth" element={<DriverAuth />} />
+            <Route
+              path="/driver"
+              element={
+                <DriverProtectedRoute>
+                  <DriverLayout />
+                </DriverProtectedRoute>
+              }
+            >
+              <Route index element={<DriverDashboard />} />
+              <Route path="profile" element={<DriverProfile />} />
             </Route>
 
             <Route path="*" element={<NotFound />} />
