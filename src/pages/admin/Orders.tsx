@@ -20,7 +20,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
-import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package, MoreHorizontal, Link, Share2, Copy } from 'lucide-react';
+import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package, MoreHorizontal, Link, Share2, Copy, User, AlertTriangle, ChevronDown } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Tables, Enums } from '@/integrations/supabase/types';
 
@@ -325,6 +325,24 @@ export default function Orders() {
     }
   };
 
+  // All possible statuses admin can set (for manual override dropdown)
+  const getAllStatuses = (): { label: string; status: Enums<'order_status'>; group: string }[] => {
+    return [
+      { label: 'Pending', status: 'pending', group: 'Initial' },
+      { label: 'For Verification', status: 'for_verification', group: 'Initial' },
+      { label: 'Approved', status: 'approved', group: 'Processing' },
+      { label: 'Preparing', status: 'preparing', group: 'Processing' },
+      { label: 'Ready for Pickup', status: 'ready_for_pickup', group: 'Pickup' },
+      { label: 'Waiting for Rider', status: 'waiting_for_rider', group: 'Delivery' },
+      { label: 'Picked Up', status: 'picked_up', group: 'Delivery' },
+      { label: 'In Transit', status: 'in_transit', group: 'Delivery' },
+      { label: 'Delivered', status: 'delivered', group: 'Delivery' },
+      { label: 'Completed', status: 'completed', group: 'Final' },
+      { label: 'Rejected', status: 'rejected', group: 'Final' },
+      { label: 'Cancelled', status: 'cancelled', group: 'Final' },
+    ];
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
@@ -546,61 +564,83 @@ export default function Orders() {
                       )}
                     </div>
 
-                    {/* Driver Assignment */}
-                    <div className="pt-3 border-t">
-                      <label className="text-sm font-medium block mb-2">Assign Driver</label>
-                      <Select
-                        value={selectedOrder.driver_id || 'unassigned'}
-                        onValueChange={(value) => {
-                          assignDriverMutation.mutate({
-                            orderId: selectedOrder.id,
-                            driverId: value === 'unassigned' ? null : value,
-                          });
-                          // Update local state
-                          const driver = availableDrivers.find(d => d.id === value);
-                          setSelectedOrder(prev => prev ? { 
-                            ...prev, 
-                            driver_id: value === 'unassigned' ? null : value,
-                            drivers: driver || null
-                          } : null);
-                        }}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a driver" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="unassigned">No driver assigned</SelectItem>
-                          {availableDrivers
-                            .sort((a, b) => {
-                              // Sort: online first, then busy, then offline/unavailable
-                              const order = { online: 0, busy: 1, offline: 2, unavailable: 3 };
-                              const aOrder = order[a.availability_status || 'offline'] ?? 2;
-                              const bOrder = order[b.availability_status || 'offline'] ?? 2;
-                              return aOrder - bOrder;
-                            })
-                            .map((driver) => {
-                              const status = driver.availability_status || 'offline';
-                              const statusColor = availabilityColors[status] || 'text-gray-400';
-                              return (
-                                <SelectItem key={driver.id} value={driver.id}>
-                                  <span className="flex items-center gap-2">
-                                    <span className={`inline-block w-2 h-2 rounded-full ${status === 'online' ? 'bg-green-500' : status === 'busy' ? 'bg-yellow-500' : 'bg-gray-400'}`} />
-                                    {driver.name}
-                                    <span className={`text-xs ${statusColor}`}>
-                                      ({status})
-                                    </span>
-                                  </span>
-                                </SelectItem>
-                              );
-                            })}
-                        </SelectContent>
-                      </Select>
-                      {selectedOrder.drivers && (
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Assigned: {selectedOrder.drivers.name} ({selectedOrder.drivers.phone})
-                        </p>
+                  </div>
+                )}
+
+                {/* Driver Assignment - Show prominently for delivery orders */}
+                {selectedOrder.order_type === 'delivery' && (
+                  <div className={`space-y-2 p-4 rounded-lg border-2 ${
+                    selectedOrder.status === 'waiting_for_rider' && !selectedOrder.driver_id 
+                      ? 'border-orange-500 bg-orange-50 dark:bg-orange-950/20' 
+                      : 'border-border bg-muted/30'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      <User className="h-4 w-4" />
+                      <h4 className="font-medium">Assign Delivery Driver</h4>
+                      {selectedOrder.status === 'waiting_for_rider' && !selectedOrder.driver_id && (
+                        <Badge variant="outline" className="bg-orange-500/20 text-orange-700 border-orange-500/30 ml-auto">
+                          <AlertTriangle className="h-3 w-3 mr-1" />
+                          Required
+                        </Badge>
                       )}
                     </div>
+                    <Select
+                      value={selectedOrder.driver_id || 'unassigned'}
+                      onValueChange={(value) => {
+                        assignDriverMutation.mutate({
+                          orderId: selectedOrder.id,
+                          driverId: value === 'unassigned' ? null : value,
+                        });
+                        // Update local state
+                        const driver = availableDrivers.find(d => d.id === value);
+                        setSelectedOrder(prev => prev ? { 
+                          ...prev, 
+                          driver_id: value === 'unassigned' ? null : value,
+                          drivers: driver || null
+                        } : null);
+                      }}
+                    >
+                      <SelectTrigger className={!selectedOrder.driver_id && selectedOrder.status === 'waiting_for_rider' ? 'border-orange-500' : ''}>
+                        <SelectValue placeholder="Select a driver" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="unassigned">No driver assigned</SelectItem>
+                        {availableDrivers
+                          .sort((a, b) => {
+                            // Sort: online first, then busy, then offline/unavailable
+                            const order = { online: 0, busy: 1, offline: 2, unavailable: 3 };
+                            const aOrder = order[a.availability_status || 'offline'] ?? 2;
+                            const bOrder = order[b.availability_status || 'offline'] ?? 2;
+                            return aOrder - bOrder;
+                          })
+                          .map((driver) => {
+                            const status = driver.availability_status || 'offline';
+                            const statusColor = availabilityColors[status] || 'text-gray-400';
+                            return (
+                              <SelectItem key={driver.id} value={driver.id}>
+                                <span className="flex items-center gap-2">
+                                  <span className={`inline-block w-2 h-2 rounded-full ${status === 'online' ? 'bg-green-500' : status === 'busy' ? 'bg-yellow-500' : 'bg-gray-400'}`} />
+                                  {driver.name}
+                                  <span className={`text-xs ${statusColor}`}>
+                                    ({status})
+                                  </span>
+                                </span>
+                              </SelectItem>
+                            );
+                          })}
+                      </SelectContent>
+                    </Select>
+                    {selectedOrder.drivers && (
+                      <p className="text-sm text-muted-foreground flex items-center gap-2">
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                        Assigned: {selectedOrder.drivers.name} ({selectedOrder.drivers.phone})
+                      </p>
+                    )}
+                    {selectedOrder.status === 'waiting_for_rider' && !selectedOrder.driver_id && (
+                      <p className="text-xs text-orange-600">
+                        Assign a driver before marking as picked up
+                      </p>
+                    )}
                   </div>
                 )}
 
@@ -703,31 +743,85 @@ export default function Orders() {
                   />
                 </div>
 
+                {/* Quick Actions */}
                 <div className="flex gap-2 flex-wrap">
-                  {getNextActions(selectedOrder.status, selectedOrder.order_type).map((action) => (
-                    <Button
-                      key={action.status}
-                      variant={action.variant}
-                      onClick={() =>
-                        updateStatusMutation.mutate({
-                          id: selectedOrder.id,
-                          status: action.status,
-                        })
-                      }
-                      disabled={updateStatusMutation.isPending}
-                    >
-                      {action.status === 'approved' && (
-                        <CheckCircle className="h-4 w-4 mr-2" />
-                      )}
-                      {action.status === 'rejected' && (
-                        <XCircle className="h-4 w-4 mr-2" />
-                      )}
-                      {action.status === 'for_verification' && (
-                        <Clock className="h-4 w-4 mr-2" />
-                      )}
-                      {action.label}
-                    </Button>
-                  ))}
+                  {getNextActions(selectedOrder.status, selectedOrder.order_type).map((action) => {
+                    // Block "Picked Up by Rider" if no driver assigned
+                    const isPickedUp = action.status === 'picked_up';
+                    const needsDriver = isPickedUp && !selectedOrder.driver_id;
+                    
+                    return (
+                      <Button
+                        key={action.status}
+                        variant={action.variant}
+                        onClick={() => {
+                          if (needsDriver) {
+                            toast.error('Please assign a driver first');
+                            return;
+                          }
+                          updateStatusMutation.mutate({
+                            id: selectedOrder.id,
+                            status: action.status,
+                          });
+                        }}
+                        disabled={updateStatusMutation.isPending}
+                        className={needsDriver ? 'opacity-50' : ''}
+                      >
+                        {action.status === 'approved' && (
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                        )}
+                        {action.status === 'rejected' && (
+                          <XCircle className="h-4 w-4 mr-2" />
+                        )}
+                        {action.status === 'for_verification' && (
+                          <Clock className="h-4 w-4 mr-2" />
+                        )}
+                        {action.label}
+                      </Button>
+                    );
+                  })}
+                </div>
+
+                {/* Admin Status Override */}
+                <div className="pt-4 border-t">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm" className="w-full">
+                        <ChevronDown className="h-4 w-4 mr-2" />
+                        Change Status (Admin Override)
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="center" className="w-56">
+                      {getAllStatuses().map((item) => (
+                        <DropdownMenuItem
+                          key={item.status}
+                          onClick={() => {
+                            if (item.status !== selectedOrder.status) {
+                              updateStatusMutation.mutate({
+                                id: selectedOrder.id,
+                                status: item.status,
+                              });
+                            }
+                          }}
+                          disabled={item.status === selectedOrder.status || updateStatusMutation.isPending}
+                          className={item.status === selectedOrder.status ? 'bg-muted' : ''}
+                        >
+                          <Badge
+                            variant="outline"
+                            className={`mr-2 ${statusColors[item.status]}`}
+                          >
+                            {item.label}
+                          </Badge>
+                          {item.status === selectedOrder.status && (
+                            <span className="ml-auto text-xs text-muted-foreground">(current)</span>
+                          )}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <p className="text-xs text-muted-foreground text-center mt-2">
+                    Use this to manually override status if needed
+                  </p>
                 </div>
               </div>
             </>

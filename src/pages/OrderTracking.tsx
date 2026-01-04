@@ -464,8 +464,8 @@ export default function OrderTracking() {
           </Card>
         )}
 
-        {/* Driver Info - Show when driver is assigned and order is in delivery phase */}
-        {trackingData?.driver && ['waiting_for_rider', 'picked_up', 'in_transit', 'delivered'].includes(currentStatus) && (
+        {/* Driver Info - Show when driver is assigned (for any delivery status) */}
+        {trackingData?.driver && order.order_type === 'delivery' && (
           <Card className="border-primary/20 bg-primary/5">
             <CardHeader className="pb-2">
               <CardTitle className="text-lg flex items-center gap-2">
