@@ -35,11 +35,11 @@ import {
 import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
 import { RefundDialog } from '@/components/admin/RefundDialog';
-import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package, MoreHorizontal, Link, Share2, Copy, User, AlertTriangle, ChevronDown, Trash2, Camera, Upload, RefreshCw } from 'lucide-react';
+import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package, MoreHorizontal, Link, Share2, Copy, User, AlertTriangle, ChevronDown, Trash2, Camera, Upload, RefreshCw, Mail } from 'lucide-react';
 import { sendPushNotification } from '@/hooks/usePushNotifications';
 import { createAdminNotification } from '@/hooks/useAdminNotifications';
 import { createDriverNotification } from '@/hooks/useDriverNotifications';
-import { sendEmailNotification } from '@/hooks/useEmailNotifications';
+import { sendEmailNotification, EmailType } from '@/hooks/useEmailNotifications';
 import { ADMIN_EMAIL } from '@/lib/constants';
 import { format } from 'date-fns';
 import type { Tables, Enums } from '@/integrations/supabase/types';
@@ -119,6 +119,7 @@ export default function Orders() {
     newStatus: 'cancelled' | 'rejected';
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [sendingEmail, setSendingEmail] = useState(false);
   const ITEMS_PER_PAGE = 20;
   const queryClient = useQueryClient();
 
@@ -700,6 +701,65 @@ export default function Orders() {
     } finally {
       setUploadingPhoto(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // Map order status to email type
+  const getEmailTypeForStatus = (status: Enums<'order_status'> | null): EmailType | null => {
+    const statusToEmailType: Partial<Record<Enums<'order_status'>, EmailType>> = {
+      approved: 'order_approved',
+      rejected: 'order_rejected',
+      cancelled: 'order_cancelled',
+      preparing: 'order_preparing',
+      ready_for_pickup: 'order_ready_for_pickup',
+      picked_up: 'order_picked_up',
+      in_transit: 'order_in_transit',
+      delivered: 'order_delivered',
+      completed: 'order_completed',
+    };
+    return status ? statusToEmailType[status] || null : null;
+  };
+
+  // Handle sending status email manually
+  const handleSendStatusEmail = async () => {
+    if (!selectedOrder) return;
+    
+    const emailType = getEmailTypeForStatus(selectedOrder.status);
+    if (!emailType) {
+      toast.error('No email template available for this status');
+      return;
+    }
+
+    const customerEmail = selectedOrder.customers?.email;
+    if (!customerEmail) {
+      toast.error('Customer email not available');
+      return;
+    }
+
+    setSendingEmail(true);
+    try {
+      const result = await sendEmailNotification({
+        type: emailType,
+        recipientEmail: customerEmail,
+        orderId: selectedOrder.id,
+        orderNumber: selectedOrder.order_number || '',
+        customerName: selectedOrder.customers?.name || '',
+        totalAmount: selectedOrder.total_amount || 0,
+        orderType: selectedOrder.order_type || '',
+        deliveryAddress: selectedOrder.delivery_address || undefined,
+        driverName: selectedOrder.drivers?.name,
+        driverPhone: selectedOrder.drivers?.phone,
+      });
+
+      if (result.success) {
+        toast.success(`Email sent to ${customerEmail}`);
+      } else {
+        toast.error(result.error || 'Failed to send email');
+      }
+    } catch (error: any) {
+      toast.error('Failed to send email: ' + error.message);
+    } finally {
+      setSendingEmail(false);
     }
   };
 
@@ -1421,6 +1481,34 @@ export default function Orders() {
                     </div>
                   </div>
                 )}
+
+                {/* Send Email Notification */}
+                <div className="space-y-2 pt-4 border-t">
+                  <h4 className="font-medium flex items-center gap-2">
+                    <Mail className="h-4 w-4" />
+                    Email Notification
+                  </h4>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    disabled={sendingEmail || !selectedOrder.customers?.email || !getEmailTypeForStatus(selectedOrder.status)}
+                    onClick={handleSendStatusEmail}
+                  >
+                    {sendingEmail ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Mail className="h-4 w-4 mr-2" />
+                    )}
+                    Send {statusLabels[selectedOrder.status || 'pending']} Email
+                  </Button>
+                  {!selectedOrder.customers?.email && (
+                    <p className="text-xs text-muted-foreground">No customer email available</p>
+                  )}
+                  {selectedOrder.customers?.email && !getEmailTypeForStatus(selectedOrder.status) && (
+                    <p className="text-xs text-muted-foreground">No email template for pending/for_verification status</p>
+                  )}
+                </div>
 
                 {/* Admin Override - All Status Options */}
                 <div className="space-y-2 pt-4 border-t">
