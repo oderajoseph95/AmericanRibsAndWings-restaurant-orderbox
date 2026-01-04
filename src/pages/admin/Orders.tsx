@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -19,9 +21,19 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
-import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package, MoreHorizontal, Link, Share2, Copy, User, AlertTriangle, ChevronDown } from 'lucide-react';
+import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package, MoreHorizontal, Link, Share2, Copy, User, AlertTriangle, ChevronDown, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Tables, Enums } from '@/integrations/supabase/types';
 
@@ -81,10 +93,16 @@ const statusLabels: Record<Enums<'order_status'>, string> = {
 };
 
 export default function Orders() {
+  const { role } = useAuth();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const queryClient = useQueryClient();
+
+  const isOwner = role === 'owner';
 
   const { data: orders = [], isLoading } = useQuery({
     queryKey: ['orders', statusFilter],
@@ -276,6 +294,55 @@ export default function Orders() {
     },
   });
 
+  // Bulk delete mutation
+  const handleBulkDelete = async () => {
+    if (selectedOrderIds.size === 0) return;
+    setIsDeleting(true);
+
+    try {
+      const orderIds = Array.from(selectedOrderIds);
+      
+      for (const orderId of orderIds) {
+        // Get order items first
+        const { data: items } = await supabase
+          .from('order_items')
+          .select('id')
+          .eq('order_id', orderId);
+        
+        const itemIds = items?.map(i => i.id) || [];
+        
+        // Delete in order: flavors -> items -> proofs -> earnings -> photos -> order
+        if (itemIds.length > 0) {
+          await supabase.from('order_item_flavors').delete().in('order_item_id', itemIds);
+        }
+        await supabase.from('order_items').delete().eq('order_id', orderId);
+        await supabase.from('payment_proofs').delete().eq('order_id', orderId);
+        await supabase.from('driver_earnings').delete().eq('order_id', orderId);
+        await supabase.from('delivery_photos').delete().eq('order_id', orderId);
+        await supabase.from('stock_adjustments').delete().eq('order_id', orderId);
+        
+        const { error } = await supabase.from('orders').delete().eq('id', orderId);
+        if (error) throw error;
+      }
+
+      // Log bulk delete
+      await logAdminAction({
+        action: 'bulk_delete',
+        entityType: 'orders',
+        details: `Deleted ${orderIds.length} orders`,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      setSelectedOrderIds(new Set());
+      setShowDeleteDialog(false);
+      toast.success(`Deleted ${orderIds.length} orders`);
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete orders');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const handleCopyTrackingLink = (orderId: string) => {
     const url = `${window.location.origin}/thank-you/${orderId}`;
     navigator.clipboard.writeText(url);
@@ -305,6 +372,26 @@ export default function Orders() {
       order.order_number?.toLowerCase().includes(search.toLowerCase()) ||
       order.customers?.name?.toLowerCase().includes(search.toLowerCase())
   );
+
+  const toggleSelectOrder = (orderId: string) => {
+    setSelectedOrderIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(orderId)) {
+        newSet.delete(orderId);
+      } else {
+        newSet.add(orderId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedOrderIds.size === filteredOrders.length) {
+      setSelectedOrderIds(new Set());
+    } else {
+      setSelectedOrderIds(new Set(filteredOrders.map(o => o.id)));
+    }
+  };
 
   const getNextActions = (status: Enums<'order_status'> | null, orderType: string | null) => {
     const isDelivery = orderType === 'delivery';
@@ -379,9 +466,17 @@ export default function Orders() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-3xl font-bold text-foreground">Orders</h1>
-        <p className="text-muted-foreground mt-1">Manage customer orders</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Orders</h1>
+          <p className="text-muted-foreground mt-1">Manage customer orders</p>
+        </div>
+        {isOwner && selectedOrderIds.size > 0 && (
+          <Button variant="destructive" onClick={() => setShowDeleteDialog(true)}>
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete ({selectedOrderIds.size})
+          </Button>
+        )}
       </div>
 
       <Card>
@@ -431,6 +526,14 @@ export default function Orders() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  {isOwner && (
+                    <TableHead className="w-[40px]">
+                      <Checkbox 
+                        checked={selectedOrderIds.size === filteredOrders.length && filteredOrders.length > 0}
+                        onCheckedChange={toggleSelectAll}
+                      />
+                    </TableHead>
+                  )}
                   <TableHead>Order #</TableHead>
                   <TableHead>Customer</TableHead>
                   <TableHead>Type</TableHead>
@@ -444,6 +547,14 @@ export default function Orders() {
               <TableBody>
                 {filteredOrders.map((order) => (
                   <TableRow key={order.id}>
+                    {isOwner && (
+                      <TableCell>
+                        <Checkbox 
+                          checked={selectedOrderIds.has(order.id)}
+                          onCheckedChange={() => toggleSelectOrder(order.id)}
+                        />
+                      </TableCell>
+                    )}
                     <TableCell className="font-mono text-sm">
                       {order.order_number}
                     </TableCell>
@@ -605,6 +716,29 @@ export default function Orders() {
         </CardContent>
       </Card>
 
+      {/* Bulk Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedOrderIds.size} Orders?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the selected orders and all related data (items, payment proofs, etc.). This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Delete Orders
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <Sheet open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
         <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
           {selectedOrder && (
@@ -648,306 +782,252 @@ export default function Orders() {
 
                 <div className="space-y-2">
                   <h4 className="font-medium">Items</h4>
-                  <div className="space-y-3">
+                  <div className="space-y-2">
                     {orderItems.map((item) => (
-                      <div
-                        key={item.id}
-                        className="flex justify-between text-sm border-b pb-2"
-                      >
-                        <div>
-                          <p className="font-medium">
+                      <div key={item.id} className="space-y-1 p-2 bg-muted rounded">
+                        <div className="flex justify-between text-sm">
+                          <span>
                             {item.quantity}x {item.product_name}
-                          </p>
-                          {item.order_item_flavors.length > 0 && (
-                            <p className="text-xs text-muted-foreground">
-                              Flavors:{' '}
-                              {item.order_item_flavors
-                                .map((f) => f.flavor_name)
-                                .join(', ')}
-                            </p>
-                          )}
+                          </span>
+                          <span>₱{item.line_total?.toFixed(2) || item.subtotal.toFixed(2)}</span>
                         </div>
-                        <span>₱{item.line_total?.toFixed(2)}</span>
+                        {item.order_item_flavors.length > 0 && (
+                          <div className="pl-4 text-xs text-muted-foreground">
+                            {item.order_item_flavors.map((f, idx) => (
+                              <div key={idx} className="flex justify-between">
+                                <span>{f.quantity}x {f.flavor_name}</span>
+                                {f.surcharge_applied && f.surcharge_applied > 0 && (
+                                  <span>+₱{(f.surcharge_applied * (f.quantity || 1)).toFixed(2)}</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
                 </div>
 
-                {/* Delivery Info */}
-                {selectedOrder.order_type === 'delivery' && selectedOrder.delivery_address && (
+                {selectedOrder.order_type === 'delivery' && (
                   <div className="space-y-2">
-                    <h4 className="font-medium flex items-center gap-2">
-                      <Truck className="h-4 w-4" />
-                      Delivery Details
-                    </h4>
+                    <h4 className="font-medium">Delivery Details</h4>
                     <div className="text-sm text-muted-foreground space-y-1">
                       <p>{selectedOrder.delivery_address}</p>
-                      {selectedOrder.delivery_distance_km && (
-                        <p>Distance: {selectedOrder.delivery_distance_km.toFixed(1)} km</p>
-                      )}
-                      {selectedOrder.delivery_fee && (
-                        <p>Delivery Fee: ₱{selectedOrder.delivery_fee.toFixed(2)}</p>
-                      )}
+                      <div className="flex justify-between">
+                        <span>Distance:</span>
+                        <span>{selectedOrder.delivery_distance_km?.toFixed(1)} km</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Delivery Fee:</span>
+                        <span>₱{selectedOrder.delivery_fee?.toFixed(2)}</span>
+                      </div>
                     </div>
-
                   </div>
                 )}
 
-                {/* Driver Assignment - Show prominently for delivery orders */}
-                {selectedOrder.order_type === 'delivery' && (
-                  <div className={`space-y-2 p-4 rounded-lg border-2 ${
-                    selectedOrder.status === 'waiting_for_rider' && !selectedOrder.driver_id 
-                      ? 'border-orange-500 bg-orange-50 dark:bg-orange-950/20' 
-                      : 'border-border bg-muted/30'
-                  }`}>
-                    <div className="flex items-center gap-2">
-                      <User className="h-4 w-4" />
-                      <h4 className="font-medium">Assign Delivery Driver</h4>
-                      {selectedOrder.status === 'waiting_for_rider' && !selectedOrder.driver_id && (
-                        <Badge variant="outline" className="bg-orange-500/20 text-orange-700 border-orange-500/30 ml-auto">
-                          <AlertTriangle className="h-3 w-3 mr-1" />
-                          Required
-                        </Badge>
-                      )}
+                {selectedOrder.order_type === 'pickup' && selectedOrder.pickup_date && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium">Pickup Schedule</h4>
+                    <div className="text-sm text-muted-foreground">
+                      <p>{format(new Date(selectedOrder.pickup_date), 'PPPP')}</p>
+                      {selectedOrder.pickup_time && <p>at {selectedOrder.pickup_time}</p>}
                     </div>
+                  </div>
+                )}
+
+                {/* Assign Driver for Delivery Orders */}
+                {selectedOrder.order_type === 'delivery' && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium">Assign Driver</h4>
                     <Select
                       value={selectedOrder.driver_id || 'unassigned'}
                       onValueChange={(value) => {
                         assignDriverMutation.mutate({
                           orderId: selectedOrder.id,
                           driverId: value === 'unassigned' ? null : value,
+                          orderNumber: selectedOrder.order_number || undefined,
                         });
-                        // Update local state
-                        const driver = availableDrivers.find(d => d.id === value);
-                        setSelectedOrder(prev => prev ? { 
-                          ...prev, 
-                          driver_id: value === 'unassigned' ? null : value,
-                          drivers: driver || null
-                        } : null);
+                        setSelectedOrder(prev => prev ? { ...prev, driver_id: value === 'unassigned' ? null : value } : null);
                       }}
                     >
-                      <SelectTrigger className={!selectedOrder.driver_id && selectedOrder.status === 'waiting_for_rider' ? 'border-orange-500' : ''}>
-                        <SelectValue placeholder="Select a driver" />
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select driver" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="unassigned">No driver assigned</SelectItem>
                         {availableDrivers
                           .sort((a, b) => {
-                            // Sort: online first, then busy, then offline/unavailable
-                            const order = { online: 0, busy: 1, offline: 2, unavailable: 3 };
-                            const aOrder = order[a.availability_status || 'offline'] ?? 2;
-                            const bOrder = order[b.availability_status || 'offline'] ?? 2;
-                            return aOrder - bOrder;
+                            const orderMap = { online: 0, busy: 1, offline: 2, unavailable: 3 };
+                            return (orderMap[a.availability_status || 'offline'] ?? 2) - (orderMap[b.availability_status || 'offline'] ?? 2);
                           })
-                          .map((driver) => {
-                            const status = driver.availability_status || 'offline';
-                            const statusColor = availabilityColors[status] || 'text-gray-400';
-                            return (
-                              <SelectItem key={driver.id} value={driver.id}>
-                                <span className="flex items-center gap-2">
-                                  <span className={`inline-block w-2 h-2 rounded-full ${status === 'online' ? 'bg-green-500' : status === 'busy' ? 'bg-yellow-500' : 'bg-gray-400'}`} />
-                                  {driver.name}
-                                  <span className={`text-xs ${statusColor}`}>
-                                    ({status})
+                          .map((driver) => (
+                            <SelectItem key={driver.id} value={driver.id}>
+                              <span className="flex items-center gap-2">
+                                <span className={`w-2 h-2 rounded-full ${
+                                  driver.availability_status === 'online' ? 'bg-green-500' : 
+                                  driver.availability_status === 'busy' ? 'bg-yellow-500' : 'bg-gray-400'
+                                }`} />
+                                {driver.name}
+                                {driver.availability_status && (
+                                  <span className={`text-xs ${availabilityColors[driver.availability_status]}`}>
+                                    ({driver.availability_status})
                                   </span>
-                                </span>
-                              </SelectItem>
-                            );
-                          })}
+                                )}
+                              </span>
+                            </SelectItem>
+                          ))}
                       </SelectContent>
                     </Select>
-                    {selectedOrder.drivers && (
-                      <p className="text-sm text-muted-foreground flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4 text-green-600" />
-                        Assigned: {selectedOrder.drivers.name} ({selectedOrder.drivers.phone})
-                      </p>
-                    )}
-                    {selectedOrder.status === 'waiting_for_rider' && !selectedOrder.driver_id && (
-                      <p className="text-xs text-orange-600">
-                        Assign a driver before marking as picked up
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {/* Delivery Photos */}
-                {deliveryPhotos.length > 0 && (
-                  <div className="space-y-3">
-                    <h4 className="font-medium flex items-center gap-2">
-                      <Image className="h-4 w-4" />
-                      Delivery Photos
-                    </h4>
-                    <div className="grid grid-cols-2 gap-3">
-                      {deliveryPhotos.map((photo) => (
-                        <div key={photo.id} className="border rounded-lg p-2 space-y-1">
-                          <a 
-                            href={photo.image_url} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                          >
-                            <img 
-                              src={photo.image_url} 
-                              alt={`${photo.photo_type} photo`} 
-                              className="w-full h-24 object-cover rounded-md border hover:opacity-90 transition-opacity"
-                            />
-                          </a>
-                          <Badge variant="outline" className="text-xs capitalize">
-                            {photo.photo_type}
-                          </Badge>
-                          <p className="text-xs text-muted-foreground">
-                            {photo.taken_at && format(new Date(photo.taken_at), 'h:mm a')}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
                   </div>
                 )}
 
                 {/* Payment Proof */}
                 {paymentProofs.length > 0 && (
-                  <div className="space-y-3">
-                    <h4 className="font-medium flex items-center gap-2">
-                      <Image className="h-4 w-4" />
-                      Payment Proof
-                    </h4>
-                    <div className="space-y-3">
+                  <div className="space-y-2">
+                    <h4 className="font-medium">Payment Proof</h4>
+                    <div className="grid grid-cols-2 gap-2">
                       {paymentProofs.map((proof) => (
-                        <div key={proof.id} className="border rounded-lg p-3 space-y-2">
-                          <a 
-                            href={proof.image_url} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="block"
-                          >
-                            <img 
-                              src={proof.image_url} 
-                              alt="Payment proof" 
-                              className="w-full h-48 object-cover rounded-md border hover:opacity-90 transition-opacity"
-                            />
-                          </a>
-                          <div className="flex items-center justify-between text-xs text-muted-foreground">
-                            <span>
-                              Uploaded: {proof.uploaded_at && format(new Date(proof.uploaded_at), 'PPp')}
-                            </span>
-                            <a 
-                              href={proof.image_url} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-1 text-primary hover:underline"
-                            >
-                              <ExternalLink className="h-3 w-3" />
-                              View Full Size
-                            </a>
+                        <a
+                          key={proof.id}
+                          href={proof.image_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="relative aspect-square rounded-lg overflow-hidden border hover:opacity-80 transition-opacity"
+                        >
+                          <img
+                            src={proof.image_url}
+                            alt="Payment proof"
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute bottom-1 right-1 bg-black/50 text-white text-xs px-2 py-0.5 rounded flex items-center gap-1">
+                            <ExternalLink className="h-3 w-3" />
+                            View
                           </div>
-                          {proof.verified_at && (
-                            <Badge variant="outline" className="bg-green-500/20 text-green-700 border-green-500/30">
-                              Verified {format(new Date(proof.verified_at), 'PPp')}
-                            </Badge>
-                          )}
-                        </div>
+                        </a>
                       ))}
                     </div>
                   </div>
                 )}
 
-                <div className="flex justify-between font-medium pt-2 border-t">
-                  <span>Total</span>
-                  <span>₱{selectedOrder.total_amount?.toFixed(2)}</span>
+                {/* Delivery Photos */}
+                {deliveryPhotos.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium">Delivery Photos</h4>
+                    <div className="grid grid-cols-2 gap-2">
+                      {deliveryPhotos.map((photo) => (
+                        <a
+                          key={photo.id}
+                          href={photo.image_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="relative aspect-square rounded-lg overflow-hidden border hover:opacity-80 transition-opacity"
+                        >
+                          <img
+                            src={photo.image_url}
+                            alt={`${photo.photo_type} photo`}
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute bottom-1 left-1 bg-black/50 text-white text-xs px-2 py-0.5 rounded capitalize">
+                            {photo.photo_type}
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Totals */}
+                <div className="space-y-2 pt-4 border-t">
+                  <div className="flex justify-between text-sm">
+                    <span>Subtotal</span>
+                    <span>₱{selectedOrder.subtotal?.toFixed(2)}</span>
+                  </div>
+                  {selectedOrder.delivery_fee && selectedOrder.delivery_fee > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span>Delivery Fee</span>
+                      <span>₱{selectedOrder.delivery_fee.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-bold">
+                    <span>Total</span>
+                    <span>₱{selectedOrder.total_amount?.toFixed(2)}</span>
+                  </div>
                 </div>
 
+                {/* Internal Notes */}
                 <div className="space-y-2">
                   <h4 className="font-medium">Internal Notes</h4>
                   <Textarea
+                    placeholder="Add internal notes..."
                     defaultValue={selectedOrder.internal_notes || ''}
-                    placeholder="Add notes..."
-                    onBlur={(e) =>
-                      updateNotesMutation.mutate({
-                        id: selectedOrder.id,
-                        notes: e.target.value,
-                      })
-                    }
+                    onBlur={(e) => {
+                      if (e.target.value !== (selectedOrder.internal_notes || '')) {
+                        updateNotesMutation.mutate({
+                          id: selectedOrder.id,
+                          notes: e.target.value,
+                        });
+                      }
+                    }}
                   />
                 </div>
 
                 {/* Quick Actions */}
-                <div className="flex gap-2 flex-wrap">
-                  {getNextActions(selectedOrder.status, selectedOrder.order_type).map((action) => {
-                    // Block "Picked Up by Rider" if no driver assigned
-                    const isPickedUp = action.status === 'picked_up';
-                    const needsDriver = isPickedUp && !selectedOrder.driver_id;
-                    
-                    return (
-                      <Button
-                        key={action.status}
-                        variant={action.variant}
-                        onClick={() => {
-                          if (needsDriver) {
-                            toast.error('Please assign a driver first');
-                            return;
-                          }
-                          updateStatusMutation.mutate({
-                            id: selectedOrder.id,
-                            status: action.status,
-                          });
-                        }}
-                        disabled={updateStatusMutation.isPending}
-                        className={needsDriver ? 'opacity-50' : ''}
-                      >
-                        {action.status === 'approved' && (
-                          <CheckCircle className="h-4 w-4 mr-2" />
-                        )}
-                        {action.status === 'rejected' && (
-                          <XCircle className="h-4 w-4 mr-2" />
-                        )}
-                        {action.status === 'for_verification' && (
-                          <Clock className="h-4 w-4 mr-2" />
-                        )}
-                        {action.label}
-                      </Button>
-                    );
-                  })}
-                </div>
+                {getNextActions(selectedOrder.status, selectedOrder.order_type).length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium">Quick Actions</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {getNextActions(selectedOrder.status, selectedOrder.order_type).map(
+                        (action) => (
+                          <Button
+                            key={action.status}
+                            variant={action.variant}
+                            size="sm"
+                            disabled={updateStatusMutation.isPending}
+                            onClick={() =>
+                              handleQuickStatusUpdate(
+                                selectedOrder.id,
+                                action.status,
+                                selectedOrder.order_number || undefined
+                              )
+                            }
+                          >
+                            {action.label}
+                          </Button>
+                        )
+                      )}
+                    </div>
+                  </div>
+                )}
 
-                {/* Admin Status Override */}
-                <div className="pt-4 border-t">
+                {/* Admin Override - All Status Options */}
+                <div className="space-y-2 pt-4 border-t">
+                  <h4 className="font-medium text-sm text-muted-foreground">Admin Override</h4>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="outline" size="sm" className="w-full">
-                        <ChevronDown className="h-4 w-4 mr-2" />
-                        Change Status (Admin Override)
+                        <AlertTriangle className="h-4 w-4 mr-2" />
+                        Set Any Status
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="center" className="w-56">
+                    <DropdownMenuContent className="w-56">
                       {getAllStatuses().map((item) => (
                         <DropdownMenuItem
                           key={item.status}
                           onClick={() => {
                             if (item.status !== selectedOrder.status) {
-                              updateStatusMutation.mutate({
-                                id: selectedOrder.id,
-                                status: item.status,
-                              });
+                              handleQuickStatusUpdate(selectedOrder.id, item.status, selectedOrder.order_number || undefined);
                             }
                           }}
-                          disabled={item.status === selectedOrder.status || updateStatusMutation.isPending}
-                          className={item.status === selectedOrder.status ? 'bg-muted' : ''}
+                          disabled={item.status === selectedOrder.status}
                         >
-                          <Badge
-                            variant="outline"
-                            className={`mr-2 ${statusColors[item.status]}`}
-                          >
+                          <Badge variant="outline" className={`mr-2 ${statusColors[item.status]}`}>
                             {item.label}
                           </Badge>
-                          {item.status === selectedOrder.status && (
-                            <span className="ml-auto text-xs text-muted-foreground">(current)</span>
-                          )}
+                          {item.status === selectedOrder.status && <span className="ml-auto text-xs">(current)</span>}
                         </DropdownMenuItem>
                       ))}
                     </DropdownMenuContent>
                   </DropdownMenu>
-                  <p className="text-xs text-muted-foreground text-center mt-2">
-                    Use this to manually override status if needed
-                  </p>
                 </div>
               </div>
             </>

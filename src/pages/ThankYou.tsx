@@ -206,6 +206,26 @@ export default function ThankYou() {
     }
   }, [orderData]);
 
+  // Fire Meta Pixel Purchase event on page load
+  useEffect(() => {
+    if (trackingData?.order && trackingData.order.total_amount && typeof window !== 'undefined') {
+      const fbq = (window as any).fbq;
+      if (typeof fbq === 'function') {
+        fbq('track', 'Purchase', {
+          currency: 'PHP',
+          value: trackingData.order.total_amount,
+          content_type: 'product',
+          content_ids: trackingData.items?.map(item => item.id) || [],
+          num_items: trackingData.items?.reduce((sum, item) => sum + item.quantity, 0) || 1,
+        });
+        console.log('Meta Pixel Purchase event fired:', {
+          currency: 'PHP',
+          value: trackingData.order.total_amount
+        });
+      }
+    }
+  }, [trackingData]);
+
   // Subscribe to realtime updates
   useEffect(() => {
     if (!orderId) return;
