@@ -187,6 +187,9 @@ export type Database = {
       }
       drivers: {
         Row: {
+          availability_status:
+            | Database["public"]["Enums"]["driver_availability"]
+            | null
           created_at: string | null
           email: string
           id: string
@@ -198,6 +201,9 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          availability_status?:
+            | Database["public"]["Enums"]["driver_availability"]
+            | null
           created_at?: string | null
           email: string
           id?: string
@@ -209,6 +215,9 @@ export type Database = {
           user_id: string
         }
         Update: {
+          availability_status?:
+            | Database["public"]["Enums"]["driver_availability"]
+            | null
           created_at?: string | null
           email?: string
           id?: string
@@ -891,6 +900,7 @@ export type Database = {
         | "order_cancelled"
       app_role: "owner" | "manager" | "cashier" | "driver"
       delivery_photo_type: "pickup" | "delivery"
+      driver_availability: "offline" | "online" | "busy" | "unavailable"
       flavor_type: "all_time" | "special"
       order_status:
         | "pending"
@@ -1042,6 +1052,7 @@ export const Constants = {
       ],
       app_role: ["owner", "manager", "cashier", "driver"],
       delivery_photo_type: ["pickup", "delivery"],
+      driver_availability: ["offline", "online", "busy", "unavailable"],
       flavor_type: ["all_time", "special"],
       order_status: [
         "pending",
