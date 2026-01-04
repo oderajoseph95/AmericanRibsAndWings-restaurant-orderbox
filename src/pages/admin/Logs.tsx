@@ -44,20 +44,49 @@ const actionColors: Record<string, string> = {
 const entityTypes = ['all', 'order', 'delivery_photo', 'payout', 'driver', 'product', 'category', 'flavor', 'user', 'setting', 'stock', 'customer'];
 const actions = ['all', 'create', 'status_change', 'photo_upload', 'approve', 'reject', 'complete', 'update', 'delete', 'assign', 'toggle', 'upload', 'return'];
 
+const ITEMS_PER_PAGE = 50;
+
 export default function Logs() {
   const [search, setSearch] = useState('');
   const [entityFilter, setEntityFilter] = useState('all');
   const [actionFilter, setActionFilter] = useState('all');
   const [selectedLog, setSelectedLog] = useState<AdminLog | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Fetch total count for pagination
+  const { data: totalCount = 0 } = useQuery({
+    queryKey: ['admin-logs-count', entityFilter, actionFilter],
+    queryFn: async () => {
+      let query = supabase
+        .from('admin_logs')
+        .select('*', { count: 'exact', head: true });
+
+      if (entityFilter !== 'all') {
+        query = query.eq('entity_type', entityFilter);
+      }
+      if (actionFilter !== 'all') {
+        query = query.eq('action', actionFilter);
+      }
+
+      const { count, error } = await query;
+      if (error) throw error;
+      return count || 0;
+    },
+  });
+
+  const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE);
 
   const { data: logs = [], isLoading, refetch } = useQuery({
-    queryKey: ['admin-logs', entityFilter, actionFilter],
+    queryKey: ['admin-logs', entityFilter, actionFilter, currentPage],
     queryFn: async () => {
+      const from = (currentPage - 1) * ITEMS_PER_PAGE;
+      const to = from + ITEMS_PER_PAGE - 1;
+
       let query = supabase
         .from('admin_logs')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(500);
+        .range(from, to);
 
       if (entityFilter !== 'all') {
         query = query.eq('entity_type', entityFilter);
@@ -72,12 +101,34 @@ export default function Logs() {
     },
   });
 
+  // Reset page when filters change
+  const handleFilterChange = (setter: (value: string) => void) => (value: string) => {
+    setter(value);
+    setCurrentPage(1);
+  };
+
   const filteredLogs = logs.filter(
     (log) =>
       log.user_email.toLowerCase().includes(search.toLowerCase()) ||
       log.entity_name?.toLowerCase().includes(search.toLowerCase()) ||
       log.details?.toLowerCase().includes(search.toLowerCase())
   );
+
+  const getPageNumbers = () => {
+    const pages: (number | 'ellipsis')[] = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (currentPage > 3) pages.push('ellipsis');
+      for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) {
+        pages.push(i);
+      }
+      if (currentPage < totalPages - 2) pages.push('ellipsis');
+      pages.push(totalPages);
+    }
+    return pages;
+  };
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -105,7 +156,7 @@ export default function Logs() {
               />
             </div>
             <div className="flex gap-2">
-              <Select value={entityFilter} onValueChange={setEntityFilter}>
+              <Select value={entityFilter} onValueChange={handleFilterChange(setEntityFilter)}>
                 <SelectTrigger className="w-[140px]">
                   <Filter className="h-4 w-4 mr-2" />
                   <SelectValue placeholder="Entity" />
@@ -118,7 +169,7 @@ export default function Logs() {
                   ))}
                 </SelectContent>
               </Select>
-              <Select value={actionFilter} onValueChange={setActionFilter}>
+              <Select value={actionFilter} onValueChange={handleFilterChange(setActionFilter)}>
                 <SelectTrigger className="w-[140px]">
                   <SelectValue placeholder="Action" />
                 </SelectTrigger>
@@ -208,14 +259,56 @@ export default function Logs() {
                       </Button>
                     </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
 
-      {/* Log Detail Sheet */}
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-4 border-t mt-4">
+              <p className="text-sm text-muted-foreground">
+                Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} - {Math.min(currentPage * ITEMS_PER_PAGE, totalCount)} of {totalCount} logs
+              </p>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </Button>
+                {getPageNumbers().map((page, idx) => (
+                  page === 'ellipsis' ? (
+                    <span key={`ellipsis-${idx}`} className="px-2 text-muted-foreground">...</span>
+                  ) : (
+                    <Button
+                      key={page}
+                      variant={page === currentPage ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setCurrentPage(page)}
+                      className="min-w-[32px]"
+                    >
+                      {page}
+                    </Button>
+                  )
+                ))}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
+          </CardContent>
+        </Card>
+
+        {/* Log Detail Sheet */}
       <Sheet open={!!selectedLog} onOpenChange={() => setSelectedLog(null)}>
         <SheetContent className="w-full sm:max-w-lg">
           {selectedLog && (

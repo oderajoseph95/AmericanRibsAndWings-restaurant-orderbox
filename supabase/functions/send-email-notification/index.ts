@@ -1,10 +1,11 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { Resend } from "https://esm.sh/resend@2.0.0";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
-const ADMIN_EMAIL = "arwfloridablancapampanga@gmail.com";
-const FROM_EMAIL = "ARW Food Products <onboarding@resend.dev>";
-const BUSINESS_NAME = "ARW Food Products";
+const FROM_EMAIL = "American Ribs & Wings <team@updates.arwfloridablanca.shop>";
+const BUSINESS_NAME = "American Ribs & Wings";
+const BUSINESS_ADDRESS = "Floridablanca, Pampanga";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,7 +29,36 @@ interface EmailPayload {
   reason?: string;
 }
 
-function getEmailSubject(type: string, orderNumber?: string): string {
+// Replace template variables with actual values
+function replaceVariables(text: string, payload: EmailPayload): string {
+  let result = text;
+  
+  // Replace simple variables
+  result = result.replace(/\{\{order_number\}\}/g, payload.orderNumber || '');
+  result = result.replace(/\{\{customer_name\}\}/g, payload.customerName || '');
+  result = result.replace(/\{\{customer_phone\}\}/g, payload.customerPhone || '');
+  result = result.replace(/\{\{customer_email\}\}/g, payload.customerEmail || '');
+  result = result.replace(/\{\{total_amount\}\}/g, payload.totalAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 }) || '0.00');
+  result = result.replace(/\{\{delivery_address\}\}/g, payload.deliveryAddress || '');
+  result = result.replace(/\{\{order_type\}\}/g, payload.orderType === 'delivery' ? 'Delivery' : 'Pickup');
+  result = result.replace(/\{\{driver_name\}\}/g, payload.driverName || '');
+  result = result.replace(/\{\{driver_phone\}\}/g, payload.driverPhone || '');
+  result = result.replace(/\{\{payout_amount\}\}/g, payload.payoutAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 }) || '0.00');
+  result = result.replace(/\{\{reason\}\}/g, payload.reason || '');
+  result = result.replace(/\{\{business_name\}\}/g, BUSINESS_NAME);
+  result = result.replace(/\{\{business_address\}\}/g, BUSINESS_ADDRESS);
+  
+  // Handle conditionals {{#if variable}}content{{/if}}
+  const conditionalRegex = /\{\{#if (\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g;
+  result = result.replace(conditionalRegex, (_, variable, content) => {
+    const value = (payload as any)[variable] || (payload as any)[variable.replace(/_([a-z])/g, (g: string) => g[1].toUpperCase())];
+    return value ? content : '';
+  });
+  
+  return result;
+}
+
+function getDefaultSubject(type: string, orderNumber?: string): string {
   const subjects: Record<string, string> = {
     new_order: `🔔 New Order #${orderNumber} Received!`,
     order_approved: `✅ Your Order #${orderNumber} is Approved!`,
@@ -48,7 +78,7 @@ function getEmailSubject(type: string, orderNumber?: string): string {
   return subjects[type] || `Order #${orderNumber} Update`;
 }
 
-function getEmailTemplate(payload: EmailPayload): string {
+function getDefaultTemplate(payload: EmailPayload): string {
   const { type, orderNumber, customerName, totalAmount, deliveryAddress, orderType, driverName, driverPhone, payoutAmount, reason } = payload;
   
   const baseStyles = `
@@ -83,7 +113,7 @@ function getEmailTemplate(payload: EmailPayload): string {
   const footer = `
     <div class="footer">
       <p>Thank you for choosing ${BUSINESS_NAME}!</p>
-      <p>Floridablanca, Pampanga</p>
+      <p>${BUSINESS_ADDRESS}</p>
     </div>
   `;
 
@@ -189,7 +219,7 @@ function getEmailTemplate(payload: EmailPayload): string {
             <span class="status-badge status-approved">Ready for Pickup</span>
           </div>
           <p>Your order is ready and waiting for you at our store.</p>
-          <p><strong>Store Address:</strong> Floridablanca, Pampanga</p>
+          <p><strong>Store Address:</strong> ${BUSINESS_ADDRESS}</p>
         </div>
       `;
       break;
@@ -354,6 +384,41 @@ function getEmailTemplate(payload: EmailPayload): string {
   `;
 }
 
+// Wrap custom content with email wrapper
+function wrapWithEmailLayout(content: string): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5; }
+        .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .header { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); color: white; padding: 30px; text-align: center; }
+        .header h1 { margin: 0; font-size: 24px; }
+        .content { padding: 30px; }
+        .footer { background: #f9fafb; padding: 20px; text-align: center; color: #6b7280; font-size: 14px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>${BUSINESS_NAME}</h1>
+        </div>
+        <div class="content">
+          ${content}
+        </div>
+        <div class="footer">
+          <p>Thank you for choosing ${BUSINESS_NAME}!</p>
+          <p>${BUSINESS_ADDRESS}</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
 const handler = async (req: Request): Promise<Response> => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -370,8 +435,36 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error("Recipient email is required");
     }
 
-    const subject = getEmailSubject(type, orderNumber);
-    const html = getEmailTemplate(payload);
+    let subject: string;
+    let html: string;
+
+    // Try to fetch template from database
+    try {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const supabase = createClient(supabaseUrl, supabaseKey);
+
+      const { data: template, error } = await supabase
+        .from('email_templates')
+        .select('subject, content, is_active')
+        .eq('type', type)
+        .single();
+
+      if (!error && template && template.is_active) {
+        console.log(`Using database template for ${type}`);
+        subject = replaceVariables(template.subject, payload);
+        html = wrapWithEmailLayout(replaceVariables(template.content, payload));
+      } else {
+        console.log(`Using default template for ${type} (no active db template found)`);
+        subject = getDefaultSubject(type, orderNumber);
+        html = getDefaultTemplate(payload);
+      }
+    } catch (dbError) {
+      console.error("Error fetching template from database:", dbError);
+      // Fallback to default templates
+      subject = getDefaultSubject(type, orderNumber);
+      html = getDefaultTemplate(payload);
+    }
 
     console.log(`Sending ${type} email to ${recipientEmail}`);
 
