@@ -13,7 +13,11 @@ export interface NotificationMetadata {
   items?: { name: string; quantity: number; price: number }[];
   delivery_address?: string;
   driver_name?: string;
+  driver_id?: string;
+  driver_phone?: string;
   payout_amount?: number;
+  amount?: number;
+  payment_method?: string;
   action_url?: string;
   action_label?: string;
 }

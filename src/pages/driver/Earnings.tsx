@@ -23,6 +23,10 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { createAdminNotification } from '@/hooks/useAdminNotifications';
+import { logAdminAction } from '@/lib/adminLogger';
+import { sendEmailNotification } from '@/hooks/useEmailNotifications';
+import { OWNER_EMAILS, ADMIN_EMAIL } from '@/lib/constants';
 
 type PaymentInfo = {
   id: string;
@@ -188,6 +192,29 @@ export default function DriverEarnings() {
         .in('id', earningIds);
 
       if (updateError) throw updateError;
+
+      await createAdminNotification({
+        title: "💰 New Payout Request",
+        message: `Driver ${driver.name} requested a payout of ₱${totalAmount.toFixed(2)} via ${paymentInfo.payment_method}`,
+        type: "payout",
+        metadata: {
+          driver_id: driver.id,
+          driver_name: driver.name,
+          amount: totalAmount,
+          payment_method: paymentInfo.payment_method,
+        },
+        action_url: "/admin/payouts",
+      });
+
+      // Send email to admin/owners
+      await sendEmailNotification({
+        type: "payout_requested",
+        recipientEmail: ADMIN_EMAIL,
+        ccEmails: OWNER_EMAILS,
+        payoutAmount: totalAmount,
+        driverName: driver.name,
+        driverPhone: driver.phone,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['driver-earnings'] });

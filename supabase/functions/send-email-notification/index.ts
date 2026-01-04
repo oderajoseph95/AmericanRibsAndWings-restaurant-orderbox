@@ -15,6 +15,7 @@ const corsHeaders = {
 interface EmailPayload {
   type: string;
   recipientEmail: string;
+  ccEmails?: string[]; // CC owner emails
   orderId?: string;
   orderNumber?: string;
   customerName?: string;
@@ -466,14 +467,25 @@ const handler = async (req: Request): Promise<Response> => {
       html = getDefaultTemplate(payload);
     }
 
-    console.log(`Sending ${type} email to ${recipientEmail}`);
+    console.log(`Sending ${type} email to ${recipientEmail}${payload.ccEmails?.length ? ` (CC: ${payload.ccEmails.join(', ')})` : ''}`);
 
-    const emailResponse = await resend.emails.send({
+    // Build email options with optional CC
+    const emailOptions: any = {
       from: FROM_EMAIL,
       to: [recipientEmail],
       subject,
       html,
-    });
+    };
+
+    // Add CC if provided (filter out the main recipient to avoid duplicates)
+    if (payload.ccEmails && payload.ccEmails.length > 0) {
+      const ccList = payload.ccEmails.filter(email => email !== recipientEmail);
+      if (ccList.length > 0) {
+        emailOptions.cc = ccList;
+      }
+    }
+
+    const emailResponse = await resend.emails.send(emailOptions);
 
     console.log("Email sent successfully:", emailResponse);
 
