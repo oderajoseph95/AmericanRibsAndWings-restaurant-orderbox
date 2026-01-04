@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
+import { logAdminAction } from '@/lib/adminLogger';
 import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package, MoreHorizontal, Link, Share2, Copy, User, AlertTriangle, ChevronDown } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Tables, Enums } from '@/integrations/supabase/types';
@@ -204,12 +205,27 @@ export default function Orders() {
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: Enums<'order_status'> }) => {
+    mutationFn: async ({ id, status, orderNumber }: { id: string; status: Enums<'order_status'>; orderNumber?: string }) => {
+      const order = orders.find(o => o.id === id);
+      const oldStatus = order?.status;
+      
       const { error } = await supabase
         .from('orders')
         .update({ status })
         .eq('id', id);
       if (error) throw error;
+
+      // Log the action
+      await logAdminAction({
+        action: 'status_change',
+        entityType: 'order',
+        entityId: id,
+        entityName: orderNumber || order?.order_number || undefined,
+        oldValues: { status: oldStatus },
+        newValues: { status },
+        details: `Changed status from ${oldStatus} to ${status}`,
+      });
+
       return { id, status };
     },
     onSuccess: (_, variables) => {
@@ -226,12 +242,30 @@ export default function Orders() {
   });
 
   const assignDriverMutation = useMutation({
-    mutationFn: async ({ orderId, driverId }: { orderId: string; driverId: string | null }) => {
+    mutationFn: async ({ orderId, driverId, orderNumber }: { orderId: string; driverId: string | null; orderNumber?: string }) => {
+      const order = orders.find(o => o.id === orderId);
+      const oldDriverId = order?.driver_id;
+      const oldDriverName = order?.drivers?.name;
+      const newDriverName = driverId ? availableDrivers.find(d => d.id === driverId)?.name : null;
+
       const { error } = await supabase
         .from('orders')
         .update({ driver_id: driverId })
         .eq('id', orderId);
       if (error) throw error;
+
+      // Log the action
+      await logAdminAction({
+        action: 'assign',
+        entityType: 'order',
+        entityId: orderId,
+        entityName: orderNumber || order?.order_number || undefined,
+        oldValues: oldDriverId ? { driver: oldDriverName || oldDriverId } : undefined,
+        newValues: driverId ? { driver: newDriverName || driverId } : { driver: 'unassigned' },
+        details: driverId 
+          ? `Assigned driver ${newDriverName || driverId}`
+          : `Unassigned driver${oldDriverName ? ` (was ${oldDriverName})` : ''}`,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
@@ -248,8 +282,8 @@ export default function Orders() {
     toast.success('Tracking link copied to clipboard!');
   };
 
-  const handleQuickStatusUpdate = (orderId: string, status: Enums<'order_status'>) => {
-    updateStatusMutation.mutate({ id: orderId, status });
+  const handleQuickStatusUpdate = (orderId: string, status: Enums<'order_status'>, orderNumber?: string) => {
+    updateStatusMutation.mutate({ id: orderId, status, orderNumber });
   };
 
   const updateNotesMutation = useMutation({

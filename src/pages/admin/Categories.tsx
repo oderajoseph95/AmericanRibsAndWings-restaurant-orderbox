@@ -11,6 +11,7 @@ import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import { logAdminAction } from '@/lib/adminLogger';
 import { Plus, Pencil, Archive, ArchiveRestore, GripVertical, Loader2, Upload, ImageIcon } from 'lucide-react';
 import type { Tables } from '@/integrations/supabase/types';
 
@@ -86,15 +87,33 @@ export default function Categories() {
           .update(category)
           .eq('id', editingCategory.id);
         if (error) throw error;
+
+        // Log update
+        await logAdminAction({
+          action: 'update',
+          entityType: 'category',
+          entityId: editingCategory.id,
+          entityName: category.name,
+          oldValues: { name: editingCategory.name, is_active: editingCategory.is_active },
+          newValues: { name: category.name, is_active: category.is_active },
+        });
       } else {
         const maxSort = categories.reduce((max, c) => Math.max(max, c.sort_order || 0), 0);
-        const { error } = await supabase.from('categories').insert({
+        const { data, error } = await supabase.from('categories').insert({
           name: category.name,
           is_active: category.is_active,
           sort_order: maxSort + 1,
           image_url: category.image_url,
-        });
+        }).select().single();
         if (error) throw error;
+
+        // Log create
+        await logAdminAction({
+          action: 'create',
+          entityType: 'category',
+          entityId: data.id,
+          entityName: category.name,
+        });
       }
     },
     onSuccess: () => {
@@ -110,12 +129,21 @@ export default function Categories() {
   });
 
   const archiveMutation = useMutation({
-    mutationFn: async ({ id, archive }: { id: string; archive: boolean }) => {
+    mutationFn: async ({ id, name, archive }: { id: string; name: string; archive: boolean }) => {
       const { error } = await supabase
         .from('categories')
         .update({ archived_at: archive ? new Date().toISOString() : null })
         .eq('id', id);
       if (error) throw error;
+
+      // Log archive/restore
+      await logAdminAction({
+        action: archive ? 'delete' : 'update',
+        entityType: 'category',
+        entityId: id,
+        entityName: name,
+        details: archive ? 'Archived category' : 'Restored category',
+      });
     },
     onSuccess: (_, { archive }) => {
       queryClient.invalidateQueries({ queryKey: ['categories'] });
@@ -335,6 +363,7 @@ export default function Categories() {
                             onClick={() =>
                               archiveMutation.mutate({
                                 id: category.id,
+                                name: category.name,
                                 archive: !category.archived_at,
                               })
                             }

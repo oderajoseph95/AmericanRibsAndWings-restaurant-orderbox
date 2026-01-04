@@ -35,10 +35,12 @@ const actionColors: Record<string, string> = {
   delete: 'bg-red-500/20 text-red-700 border-red-500/30',
   assign: 'bg-purple-500/20 text-purple-700 border-purple-500/30',
   status_change: 'bg-orange-500/20 text-orange-700 border-orange-500/30',
+  toggle: 'bg-cyan-500/20 text-cyan-700 border-cyan-500/30',
+  upload: 'bg-indigo-500/20 text-indigo-700 border-indigo-500/30',
 };
 
-const entityTypes = ['all', 'payout', 'order', 'driver', 'product', 'category', 'flavor'];
-const actions = ['all', 'approve', 'reject', 'complete', 'create', 'update', 'delete', 'assign', 'status_change'];
+const entityTypes = ['all', 'payout', 'order', 'driver', 'product', 'category', 'flavor', 'user', 'setting', 'stock'];
+const actions = ['all', 'approve', 'reject', 'complete', 'create', 'update', 'delete', 'assign', 'status_change', 'toggle', 'upload'];
 
 export default function Logs() {
   const [search, setSearch] = useState('');
