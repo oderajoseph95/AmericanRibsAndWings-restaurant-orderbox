@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowRight, Flame, Loader2, Eye } from "lucide-react";
+import { ArrowRight, Flame, Eye, ShoppingCart } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
@@ -32,6 +32,11 @@ interface Product {
 
 export function FeaturedMenu() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const navigate = useNavigate();
+
+  const handleOrderProduct = (productId: string) => {
+    navigate(`/order?addToCart=${productId}`);
+  };
   
   const { data: sectionConfig } = useQuery({
     queryKey: ["homepage-section", "featured_menu"],
@@ -157,10 +162,13 @@ export function FeaturedMenu() {
                         <Eye className="h-3 w-3 mr-1" />
                         View
                       </Button>
-                      <Button size="sm" variant="secondary" asChild>
-                        <Link to="/order">
-                          Order
-                        </Link>
+                      <Button 
+                        size="sm" 
+                        variant="secondary"
+                        onClick={() => handleOrderProduct(product.id)}
+                      >
+                        <ShoppingCart className="h-3 w-3 mr-1" />
+                        Order
                       </Button>
                     </div>
                   </div>
@@ -221,11 +229,12 @@ export function FeaturedMenu() {
                 <span className="text-2xl font-bold text-primary">
                   ₱{selectedProduct.price.toFixed(2)}
                 </span>
-                <Button asChild>
-                  <Link to="/order" onClick={() => setSelectedProduct(null)}>
-                    Order Now
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Link>
+                <Button onClick={() => {
+                  handleOrderProduct(selectedProduct.id);
+                  setSelectedProduct(null);
+                }}>
+                  <ShoppingCart className="mr-2 h-4 w-4" />
+                  Add to Cart
                 </Button>
               </div>
             </div>
