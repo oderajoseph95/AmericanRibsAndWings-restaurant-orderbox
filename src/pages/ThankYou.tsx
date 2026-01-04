@@ -26,7 +26,11 @@ import {
   CircleDot,
   XCircle,
   User,
-  RefreshCw
+  RefreshCw,
+  Bike,
+  Timer,
+  PackageCheck,
+  CookingPot
 } from "lucide-react";
 import { format } from "date-fns";
 import { SEOHead } from "@/components/SEOHead";
@@ -479,14 +483,66 @@ export default function ThankYou() {
               </p>
             </div>
 
-            {/* Current Status Badge */}
-            <div className={`flex items-center justify-center gap-3 p-4 rounded-lg bg-muted transition-all duration-300 ${statusInfo.color} ${showStatusFlash ? 'scale-105' : ''}`}>
-              <StatusIcon className="h-6 w-6" />
-              <div>
+            {/* Current Status Badge with Animation */}
+            <div className={`relative overflow-hidden flex items-center justify-center gap-3 p-4 rounded-lg bg-muted transition-all duration-300 ${statusInfo.color} ${showStatusFlash ? 'scale-105' : ''}`}>
+              {/* Animated glow ring for current status */}
+              <div className="absolute inset-0 rounded-lg animate-status-pulse opacity-30" style={{ background: `linear-gradient(135deg, currentColor, transparent)` }} />
+              
+              <div className={`relative z-10 p-2 rounded-full bg-current/10 ${
+                currentStatus === 'preparing' ? 'animate-cooking' :
+                currentStatus === 'in_transit' ? 'animate-bike-ride' :
+                ['pending', 'for_verification', 'waiting_for_rider'].includes(currentStatus) ? 'animate-bounce-subtle' :
+                ''
+              }`}>
+                {currentStatus === 'in_transit' ? (
+                  <Bike className="h-6 w-6" />
+                ) : currentStatus === 'preparing' ? (
+                  <CookingPot className="h-6 w-6" />
+                ) : (
+                  <StatusIcon className="h-6 w-6" />
+                )}
+              </div>
+              <div className="relative z-10">
                 <p className="font-semibold">{statusInfo.label}</p>
                 <p className="text-sm opacity-80">{statusInfo.description}</p>
               </div>
             </div>
+
+            {/* Delivery Animation Track - Show for in_transit */}
+            {currentStatus === 'in_transit' && isDelivery && (
+              <div className="mt-4 p-4 rounded-lg bg-gradient-to-r from-blue-50 to-green-50 dark:from-blue-950/30 dark:to-green-950/30 border border-blue-200/50 dark:border-blue-800/50">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
+                    <Package className="h-4 w-4" />
+                    <span className="text-xs font-medium">Restaurant</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                    <span className="text-xs font-medium">Your Location</span>
+                    <MapPin className="h-4 w-4" />
+                  </div>
+                </div>
+                <div className="relative h-8 bg-muted/50 rounded-full overflow-hidden">
+                  {/* Road dashes */}
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-full h-0.5 bg-gradient-to-r from-border via-muted-foreground/30 to-border animate-road-move" 
+                         style={{ backgroundSize: '20px 2px', backgroundRepeat: 'repeat-x' }} />
+                  </div>
+                  {/* Animated biker */}
+                  <div className="absolute left-1/2 top-1/2 -translate-y-1/2 -translate-x-1/2">
+                    <div className="animate-bike-ride bg-primary text-primary-foreground p-1.5 rounded-full shadow-lg">
+                      <Bike className="h-4 w-4" />
+                    </div>
+                  </div>
+                  {/* Start point */}
+                  <div className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 bg-blue-500 rounded-full" />
+                  {/* End point */}
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 bg-green-500 rounded-full animate-pulse" />
+                </div>
+                <p className="text-center text-xs text-muted-foreground mt-2">
+                  🏍️ Your rider is on the way!
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -507,23 +563,50 @@ export default function ThankYou() {
 
                   return (
                     <div key={status} className="flex items-start gap-4">
-                      <div className={`
-                        flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center
-                        ${isCompleted ? 'bg-green-100 text-green-600' : ''}
-                        ${isCurrent ? 'bg-primary text-primary-foreground' : ''}
-                        ${isPending ? 'bg-muted text-muted-foreground' : ''}
-                      `}>
-                        {isCompleted ? (
-                          <CheckCircle className="h-4 w-4" />
-                        ) : isCurrent ? (
-                          <CircleDot className="h-4 w-4 animate-pulse" />
-                        ) : (
-                          <Icon className="h-4 w-4" />
+                      <div className="relative">
+                        {/* Glow ring for current status */}
+                        {isCurrent && (
+                          <div className="absolute inset-0 w-8 h-8 rounded-full bg-primary/30 animate-ping" />
                         )}
+                        <div className={cn(
+                          "relative flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300",
+                          isCompleted && "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400",
+                          isCurrent && "bg-primary text-primary-foreground shadow-lg animate-status-glow",
+                          isPending && "bg-muted text-muted-foreground"
+                        )}>
+                          {isCompleted ? (
+                            <CheckCircle className="h-4 w-4" />
+                          ) : isCurrent ? (
+                            status === 'in_transit' ? (
+                              <Bike className="h-4 w-4 animate-bike-ride" />
+                            ) : status === 'preparing' ? (
+                              <CookingPot className="h-4 w-4 animate-cooking" />
+                            ) : status === 'waiting_for_rider' ? (
+                              <Timer className="h-4 w-4 animate-bounce-subtle" />
+                            ) : (
+                              <CircleDot className="h-4 w-4 animate-pulse" />
+                            )
+                          ) : (
+                            <Icon className="h-4 w-4" />
+                          )}
+                        </div>
                       </div>
-                      <div className="flex-1 pb-4 border-b border-border last:border-0 last:pb-0">
-                        <p className={`font-medium ${isPending ? 'text-muted-foreground' : ''}`}>
+                      <div className={cn(
+                        "flex-1 pb-4 border-b border-border last:border-0 last:pb-0",
+                        isCurrent && "relative"
+                      )}>
+                        <p className={cn(
+                          "font-medium transition-all",
+                          isPending && "text-muted-foreground",
+                          isCurrent && "text-primary font-semibold"
+                        )}>
                           {config.label}
+                          {isCurrent && (
+                            <span className="ml-2 inline-flex items-center gap-1 text-xs font-normal bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                              <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse" />
+                              Current
+                            </span>
+                          )}
                         </p>
                         {(isCompleted || isCurrent) && (
                           <p className="text-sm text-muted-foreground">
