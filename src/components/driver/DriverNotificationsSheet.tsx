@@ -314,13 +314,13 @@ export function DriverNotificationsSheet({ open, onOpenChange, driverId }: Drive
             )}
           </div>
           
-          {getActionLabel(selectedNotification!) && (
+          {selectedNotification && getActionLabel(selectedNotification) && (
             <div className="flex justify-between items-center pt-2">
               <Button variant="outline" size="sm" onClick={() => setSelectedNotification(null)}>
                 Close
               </Button>
               <Button size="sm" onClick={handleViewAction} className="gap-2">
-                {getActionLabel(selectedNotification!)}
+                {getActionLabel(selectedNotification)}
                 <ExternalLink className="h-4 w-4" />
               </Button>
             </div>

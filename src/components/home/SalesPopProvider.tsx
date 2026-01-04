@@ -67,7 +67,7 @@ export function SalesPopProvider({ children }: SalesPopProviderProps) {
         </div>
       ),
       {
-        duration: 10000,
+        duration: 6000,
         position: isMobile ? "top-center" : "bottom-left",
         id: "sales-pop",
         onDismiss: clearMessage,
