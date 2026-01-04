@@ -39,7 +39,7 @@ export function Location() {
 
   if (isLoading) {
     return (
-      <section id="location" className="py-12 bg-gradient-to-b from-muted/30 to-background">
+      <section id="location" className="py-3 md:py-12 bg-gradient-to-b from-muted/30 to-background">
         <div className="container px-4 flex justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -60,7 +60,7 @@ export function Location() {
   const addressLines = content.address?.split("\n") || ["123 Main Street", "City, Province"];
 
   return (
-    <section id="location" className="py-12 bg-gradient-to-b from-muted/30 to-background">
+    <section id="location" className="py-3 md:py-12 bg-gradient-to-b from-muted/30 to-background">
       <div className="container px-4">
         {/* Section header */}
         <div className="text-center mb-8">

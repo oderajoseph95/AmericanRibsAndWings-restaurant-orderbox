@@ -67,7 +67,7 @@ export function CategoryShowcase() {
   const content = (sectionConfig?.content as CategoryShowcaseContent) || {};
 
   return (
-    <section className="py-12 bg-gradient-to-b from-muted/50 to-background">
+    <section className="py-3 md:py-12 bg-gradient-to-b from-muted/50 to-background">
       <div className="container px-4">
         {/* Section header */}
         <div className="text-center mb-8">
