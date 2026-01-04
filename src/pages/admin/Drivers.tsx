@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { toast } from 'sonner';
-import { Plus, Truck, Phone, Mail, Loader2, Search, Edit, Users } from 'lucide-react';
+import { Plus, Truck, Phone, Mail, Loader2, Search, Edit, Circle } from 'lucide-react';
 import { format } from 'date-fns';
 import { z } from 'zod';
 import type { Tables } from '@/integrations/supabase/types';
@@ -23,10 +23,29 @@ const driverSchema = z.object({
   password: z.string().min(6, 'Password must be at least 6 characters').optional(),
 });
 
+// Extended driver type with availability_status (pending types regeneration)
+type Driver = Tables<'drivers'> & {
+  availability_status?: 'offline' | 'online' | 'busy' | 'unavailable' | null;
+};
+
+const availabilityColors: Record<string, string> = {
+  online: 'text-green-500',
+  offline: 'text-gray-400',
+  busy: 'text-yellow-500',
+  unavailable: 'text-red-500',
+};
+
+const availabilityLabels: Record<string, string> = {
+  online: 'Online',
+  offline: 'Offline',
+  busy: 'Busy',
+  unavailable: 'Unavailable',
+};
+
 export default function Drivers() {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingDriver, setEditingDriver] = useState<Tables<'drivers'> | null>(null);
+  const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [formData, setFormData] = useState({
     name: '',
@@ -36,7 +55,7 @@ export default function Drivers() {
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
-  // Fetch drivers
+  // Fetch drivers with realtime subscription
   const { data: drivers = [], isLoading } = useQuery({
     queryKey: ['admin-drivers'],
     queryFn: async () => {
@@ -45,46 +64,62 @@ export default function Drivers() {
         .select('*')
         .order('created_at', { ascending: false });
       if (error) throw error;
-      return data;
+      // Cast to extended Driver type
+      return data as Driver[];
     },
   });
 
-  // Create driver mutation
+  // Setup realtime subscription for drivers
+  useEffect(() => {
+    const channel = supabase
+      .channel('drivers-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'drivers',
+        },
+        (payload) => {
+          console.log('Driver change:', payload);
+          queryClient.invalidateQueries({ queryKey: ['admin-drivers'] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
+
+  // Create driver mutation using edge function
   const createDriverMutation = useMutation({
     mutationFn: async (data: { name: string; email: string; phone: string; password: string }) => {
-      // 1. Create auth user
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: data.email,
-        password: data.password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/driver`,
+      // Get current session for authorization
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) {
+        throw new Error('Not authenticated');
+      }
+
+      // Call the edge function
+      const response = await supabase.functions.invoke('create-driver-auth', {
+        body: {
+          email: data.email,
+          password: data.password,
+          name: data.name,
+          phone: data.phone,
         },
       });
 
-      if (authError) throw authError;
-      if (!authData.user) throw new Error('Failed to create user');
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to create driver');
+      }
 
-      // 2. Create driver record
-      const { error: driverError } = await supabase
-        .from('drivers')
-        .insert({
-          user_id: authData.user.id,
-          name: data.name,
-          email: data.email,
-          phone: data.phone,
-        });
+      if (response.data?.error) {
+        throw new Error(response.data.error);
+      }
 
-      if (driverError) throw driverError;
-
-      // 3. Assign driver role
-      const { error: roleError } = await supabase
-        .from('user_roles')
-        .insert({
-          user_id: authData.user.id,
-          role: 'driver',
-        });
-
-      if (roleError) throw roleError;
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-drivers'] });
@@ -93,7 +128,8 @@ export default function Drivers() {
       resetForm();
     },
     onError: (error: any) => {
-      if (error.message?.includes('already registered')) {
+      console.error('Create driver error:', error);
+      if (error.message?.includes('already registered') || error.message?.includes('already been registered')) {
         toast.error('A user with this email already exists');
       } else {
         toast.error(error.message || 'Failed to create driver');
@@ -149,7 +185,7 @@ export default function Drivers() {
     setEditingDriver(null);
   };
 
-  const handleOpenDialog = (driver?: Tables<'drivers'>) => {
+  const handleOpenDialog = (driver?: Driver) => {
     if (driver) {
       setEditingDriver(driver);
       setFormData({
@@ -207,6 +243,7 @@ export default function Drivers() {
   );
 
   const activeCount = drivers.filter((d) => d.is_active).length;
+  const onlineCount = drivers.filter((d) => d.availability_status === 'online').length;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -214,7 +251,7 @@ export default function Drivers() {
         <div>
           <h1 className="text-3xl font-bold text-foreground">Drivers</h1>
           <p className="text-muted-foreground mt-1">
-            Manage delivery drivers ({activeCount} active)
+            Manage delivery drivers ({activeCount} active, {onlineCount} online)
           </p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -230,7 +267,7 @@ export default function Drivers() {
               <DialogDescription>
                 {editingDriver 
                   ? 'Update driver information' 
-                  : 'Create a new driver account. They will receive an email to verify their account.'}
+                  : 'Create a new driver account. They can login immediately with these credentials.'}
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -354,7 +391,8 @@ export default function Drivers() {
                 <TableRow>
                   <TableHead>Driver</TableHead>
                   <TableHead>Contact</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>Availability</TableHead>
+                  <TableHead>Account Status</TableHead>
                   <TableHead>Joined</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -368,14 +406,21 @@ export default function Drivers() {
                     .toUpperCase()
                     .slice(0, 2);
 
+                  const availability = driver.availability_status || 'offline';
+
                   return (
                     <TableRow key={driver.id}>
                       <TableCell>
                         <div className="flex items-center gap-3">
-                          <Avatar>
-                            <AvatarImage src={driver.profile_photo_url || undefined} />
-                            <AvatarFallback>{initials}</AvatarFallback>
-                          </Avatar>
+                          <div className="relative">
+                            <Avatar>
+                              <AvatarImage src={driver.profile_photo_url || undefined} />
+                              <AvatarFallback>{initials}</AvatarFallback>
+                            </Avatar>
+                            <Circle 
+                              className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 fill-current ${availabilityColors[availability]}`}
+                            />
+                          </div>
                           <span className="font-medium">{driver.name}</span>
                         </div>
                       </TableCell>
@@ -390,6 +435,14 @@ export default function Drivers() {
                             {driver.phone}
                           </div>
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge 
+                          variant="outline" 
+                          className={`${availabilityColors[availability]} border-current`}
+                        >
+                          {availabilityLabels[availability]}
+                        </Badge>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">

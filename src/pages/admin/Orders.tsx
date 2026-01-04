@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -36,6 +36,18 @@ type OrderItem = Tables<'order_items'> & {
 type PaymentProof = Tables<'payment_proofs'>;
 
 type DeliveryPhoto = Tables<'delivery_photos'>;
+
+// Extended driver type with availability_status
+type DriverWithStatus = Tables<'drivers'> & {
+  availability_status?: 'offline' | 'online' | 'busy' | 'unavailable' | null;
+};
+
+const availabilityColors: Record<string, string> = {
+  online: 'text-green-600',
+  offline: 'text-gray-400',
+  busy: 'text-yellow-600',
+  unavailable: 'text-red-600',
+};
 
 const statusColors: Record<Enums<'order_status'>, string> = {
   pending: 'bg-yellow-500/20 text-yellow-700 border-yellow-500/30',
@@ -91,8 +103,8 @@ export default function Orders() {
     },
   });
 
-  // Fetch available drivers
-  const { data: availableDrivers = [] } = useQuery({
+  // Fetch available drivers with status
+  const { data: availableDrivers = [], refetch: refetchDrivers } = useQuery({
     queryKey: ['available-drivers'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -101,9 +113,49 @@ export default function Orders() {
         .eq('is_active', true)
         .order('name');
       if (error) throw error;
-      return data;
+      return data as DriverWithStatus[];
     },
   });
+
+  // Setup realtime subscriptions
+  useEffect(() => {
+    const ordersChannel = supabase
+      .channel('orders-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'orders',
+        },
+        (payload) => {
+          console.log('Order change:', payload);
+          queryClient.invalidateQueries({ queryKey: ['orders'] });
+        }
+      )
+      .subscribe();
+
+    const driversChannel = supabase
+      .channel('drivers-status-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'drivers',
+        },
+        (payload) => {
+          console.log('Driver status change:', payload);
+          refetchDrivers();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(ordersChannel);
+      supabase.removeChannel(driversChannel);
+    };
+  }, [queryClient, refetchDrivers]);
 
   const { data: orderItems = [] } = useQuery({
     queryKey: ['order-items', selectedOrder?.id],
@@ -518,11 +570,29 @@ export default function Orders() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="unassigned">No driver assigned</SelectItem>
-                          {availableDrivers.map((driver) => (
-                            <SelectItem key={driver.id} value={driver.id}>
-                              {driver.name} - {driver.phone}
-                            </SelectItem>
-                          ))}
+                          {availableDrivers
+                            .sort((a, b) => {
+                              // Sort: online first, then busy, then offline/unavailable
+                              const order = { online: 0, busy: 1, offline: 2, unavailable: 3 };
+                              const aOrder = order[a.availability_status || 'offline'] ?? 2;
+                              const bOrder = order[b.availability_status || 'offline'] ?? 2;
+                              return aOrder - bOrder;
+                            })
+                            .map((driver) => {
+                              const status = driver.availability_status || 'offline';
+                              const statusColor = availabilityColors[status] || 'text-gray-400';
+                              return (
+                                <SelectItem key={driver.id} value={driver.id}>
+                                  <span className="flex items-center gap-2">
+                                    <span className={`inline-block w-2 h-2 rounded-full ${status === 'online' ? 'bg-green-500' : status === 'busy' ? 'bg-yellow-500' : 'bg-gray-400'}`} />
+                                    {driver.name}
+                                    <span className={`text-xs ${statusColor}`}>
+                                      ({status})
+                                    </span>
+                                  </span>
+                                </SelectItem>
+                              );
+                            })}
                         </SelectContent>
                       </Select>
                       {selectedOrder.drivers && (
