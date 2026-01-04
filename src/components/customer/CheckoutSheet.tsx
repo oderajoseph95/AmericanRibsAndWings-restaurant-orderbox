@@ -129,9 +129,9 @@ export function CheckoutSheet({
   const [barangay, setBarangay] = useState("");
   const [geocodedAddress, setGeocodedAddress] = useState<string>("");
   
-  // Accordion state
-  const [activeSection, setActiveSection] = useState<SectionId>("order-type");
-  const [completedSections, setCompletedSections] = useState<Set<SectionId>>(new Set());
+  // Accordion state - start with delivery-address since delivery is default
+  const [activeSection, setActiveSection] = useState<SectionId>("delivery-address");
+  const [completedSections, setCompletedSections] = useState<Set<SectionId>>(new Set(["order-type"]));
 
   // Fetch payment settings
   const { data: paymentSettings = [] } = useQuery({
@@ -151,13 +151,16 @@ export function CheckoutSheet({
 
   const getPaymentSetting = (key: string) => {
     const setting = paymentSettings.find((s) => s.key === key);
-    return setting?.value as string | undefined;
+    // Settings value is stored as JSONB, so it may already be a string or need extraction
+    if (!setting?.value) return undefined;
+    // If value is already a string, return it; otherwise it might be wrapped
+    return typeof setting.value === 'string' ? setting.value : String(setting.value);
   };
 
   const form = useForm<CheckoutFormData>({
     resolver: zodResolver(checkoutSchema),
     defaultValues: {
-      orderType: "pickup",
+      orderType: "delivery",
       name: "",
       phone: "",
       email: "",
@@ -417,8 +420,8 @@ export function CheckoutSheet({
       clearPaymentProof();
       setDeliveryFee(null);
       setDeliveryDistance(null);
-      setActiveSection("order-type");
-      setCompletedSections(new Set());
+      setActiveSection("delivery-address");
+      setCompletedSections(new Set(["order-type"]));
     } catch (error: any) {
       console.error("Checkout error:", error);
       toast.error(error.message || "Failed to place order. Please try again.");
@@ -445,53 +448,53 @@ export function CheckoutSheet({
                 grandTotal={grandTotal} 
               />
 
-              {/* Section 1: Order Type */}
-              <AccordionSection
-                id="order-type"
-                title="Order Type"
-                icon={<Package className="h-4 w-4" />}
-                summary={getSectionSummary("order-type")}
-                isActive={activeSection === "order-type"}
-                isCompleted={completedSections.has("order-type")}
-                onToggle={() => setActiveSection("order-type")}
-              >
-                <FormField 
-                  control={form.control} 
-                  name="orderType" 
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormControl>
-                        <RadioGroup 
-                          onValueChange={field.onChange} 
-                          value={field.value} 
-                          className="grid grid-cols-2 gap-2"
-                        >
-                          <div>
-                            <RadioGroupItem value="pickup" id="pickup" className="peer sr-only" />
-                            <Label 
-                              htmlFor="pickup" 
-                              className="flex flex-col items-center justify-center rounded-lg border-2 border-muted bg-popover p-3 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary cursor-pointer"
-                            >
-                              <Package className="h-5 w-5 mb-1" />
-                              <span className="text-xs font-medium">Pickup</span>
-                            </Label>
-                          </div>
-                          <div>
-                            <RadioGroupItem value="delivery" id="delivery" className="peer sr-only" />
-                            <Label 
-                              htmlFor="delivery" 
-                              className="flex flex-col items-center justify-center rounded-lg border-2 border-muted bg-popover p-3 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary cursor-pointer"
-                            >
-                              <Truck className="h-5 w-5 mb-1" />
-                              <span className="text-xs font-medium">Delivery</span>
-                            </Label>
-                          </div>
-                        </RadioGroup>
-                      </FormControl>
-                    </FormItem>
-                  )} 
-                />
-              </AccordionSection>
+              {/* Section 1: Order Type - Always visible, not collapsible */}
+              <div className="border rounded-lg overflow-hidden bg-card">
+                <div className="flex items-center gap-3 p-3 bg-muted/30 border-b">
+                  <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground">
+                    <Package className="h-3.5 w-3.5" />
+                  </div>
+                  <span className="font-medium text-sm">Order Type</span>
+                </div>
+                <div className="p-3">
+                  <FormField 
+                    control={form.control} 
+                    name="orderType" 
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormControl>
+                          <RadioGroup 
+                            onValueChange={field.onChange} 
+                            value={field.value} 
+                            className="grid grid-cols-2 gap-2"
+                          >
+                            <div>
+                              <RadioGroupItem value="pickup" id="pickup" className="peer sr-only" />
+                              <Label 
+                                htmlFor="pickup" 
+                                className="flex flex-col items-center justify-center rounded-lg border-2 border-muted bg-popover p-3 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary cursor-pointer"
+                              >
+                                <Package className="h-5 w-5 mb-1" />
+                                <span className="text-xs font-medium">Pickup</span>
+                              </Label>
+                            </div>
+                            <div>
+                              <RadioGroupItem value="delivery" id="delivery" className="peer sr-only" />
+                              <Label 
+                                htmlFor="delivery" 
+                                className="flex flex-col items-center justify-center rounded-lg border-2 border-muted bg-popover p-3 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary cursor-pointer"
+                              >
+                                <Truck className="h-5 w-5 mb-1" />
+                                <span className="text-xs font-medium">Delivery</span>
+                              </Label>
+                            </div>
+                          </RadioGroup>
+                        </FormControl>
+                      </FormItem>
+                    )} 
+                  />
+                </div>
+              </div>
 
               {/* Section 2a: Pickup Schedule (only for pickup) */}
               {orderType === "pickup" && (
