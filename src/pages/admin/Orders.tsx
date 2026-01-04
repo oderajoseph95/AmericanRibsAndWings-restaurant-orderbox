@@ -37,6 +37,7 @@ import { RefundDialog } from '@/components/admin/RefundDialog';
 import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package, MoreHorizontal, Link, Share2, Copy, User, AlertTriangle, ChevronDown, Trash2, Camera, Upload } from 'lucide-react';
 import { sendPushNotification } from '@/hooks/usePushNotifications';
 import { createAdminNotification } from '@/hooks/useAdminNotifications';
+import { createDriverNotification } from '@/hooks/useDriverNotifications';
 import { format } from 'date-fns';
 import type { Tables, Enums } from '@/integrations/supabase/types';
 
@@ -330,6 +331,15 @@ export default function Orders() {
             driverId,
             userType: "driver",
           });
+          
+          // Create in-app driver notification
+          await createDriverNotification({
+            driverId,
+            title: "Order Ready for Pickup! 📦",
+            message: `Order #${orderNum} is ready. Head to the restaurant to pick it up.`,
+            type: "order",
+            orderId: id,
+          });
         }
       } catch (e) {
         console.error("Failed to send status notification:", e);
@@ -376,21 +386,31 @@ export default function Orders() {
           : `Unassigned driver${oldDriverName ? ` (was ${oldDriverName})` : ''}`,
       });
 
-      // Send push notification to driver when assigned
+      // Send push notification and in-app notification to driver when assigned
       if (driverId) {
+        const orderNum = orderNumber || order?.order_number || '';
         try {
           await sendPushNotification({
             title: "New Delivery Assigned!",
-            body: `You've been assigned Order #${orderNumber || order?.order_number}`,
+            body: `You've been assigned Order #${orderNum}`,
             url: `/driver/orders`,
             driverId: driverId,
             userType: "driver",
             orderId: orderId,
-            orderNumber: orderNumber || order?.order_number || undefined,
+            orderNumber: orderNum,
           });
         } catch (e) {
-          console.error("Failed to send driver notification:", e);
+          console.error("Failed to send driver push notification:", e);
         }
+        
+        // Create in-app driver notification
+        await createDriverNotification({
+          driverId,
+          title: "New Delivery Assigned! 🚗",
+          message: `You've been assigned Order #${orderNum}. Check your orders for details.`,
+          type: "assignment",
+          orderId,
+        });
       }
     },
     onSuccess: () => {

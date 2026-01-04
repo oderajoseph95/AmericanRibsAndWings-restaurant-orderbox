@@ -113,40 +113,40 @@ export function ConversionFunnelCard({ dateFilter }: ConversionFunnelCardProps) 
     : "0";
 
   return (
-    <Card>
-      <CardHeader className="pb-2">
+    <Card className="h-full">
+      <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base font-medium">Conversion Funnel</CardTitle>
-          <span className="text-sm text-muted-foreground">
-            {overallConversion}% overall
+          <span className="text-sm font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded">
+            {overallConversion}% conversion
           </span>
         </div>
       </CardHeader>
-      <CardContent>
-        <div className="flex items-center justify-between gap-2">
+      <CardContent className="pb-4">
+        <div className="flex items-center justify-between gap-1 sm:gap-2">
           {steps.map((step, index) => (
-            <div key={step.key} className="flex items-center gap-2">
-              <div className="flex flex-col items-center min-w-[70px]">
+            <div key={step.key} className="flex items-center gap-1 sm:gap-2 flex-1">
+              <div className="flex flex-col items-center flex-1">
                 <div
                   className={cn(
-                    "p-2 rounded-full text-white mb-1",
+                    "p-2 sm:p-3 rounded-full text-white mb-2",
                     step.color
                   )}
                 >
                   {step.icon}
                 </div>
-                <span className="text-lg font-bold">{step.count}</span>
-                <span className="text-xs text-muted-foreground text-center">
+                <span className="text-xl sm:text-2xl font-bold">{step.count}</span>
+                <span className="text-xs text-muted-foreground text-center leading-tight">
                   {step.label}
                 </span>
                 {index > 0 && (
-                  <span className="text-xs text-muted-foreground/70 mt-0.5">
+                  <span className="text-xs text-primary font-medium mt-1 bg-primary/10 px-1.5 py-0.5 rounded">
                     {getConversionRate(step.count, steps[index - 1].count)}
                   </span>
                 )}
               </div>
               {index < steps.length - 1 && (
-                <ArrowRight className="h-4 w-4 text-muted-foreground/50" />
+                <ArrowRight className="h-4 w-4 text-muted-foreground/50 shrink-0" />
               )}
             </div>
           ))}

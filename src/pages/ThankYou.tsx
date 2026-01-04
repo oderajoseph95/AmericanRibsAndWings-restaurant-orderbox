@@ -38,6 +38,7 @@ import { format } from "date-fns";
 import { SEOHead } from "@/components/SEOHead";
 import { cn } from "@/lib/utils";
 import type { Enums } from "@/integrations/supabase/types";
+import { CustomerNotificationPrompt } from "@/components/customer/CustomerNotificationPrompt";
 
 // Types for the secure RPC response
 interface OrderTrackingCustomer {
@@ -480,6 +481,9 @@ export default function ThankYou() {
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+        {/* Customer Notification Prompt */}
+        <CustomerNotificationPrompt customerPhone={order?.customer?.phone} />
+
         {/* Success Header - Only show on first visit (recent orders) */}
         {['pending', 'for_verification'].includes(currentStatus) && (
           <div className="text-center">

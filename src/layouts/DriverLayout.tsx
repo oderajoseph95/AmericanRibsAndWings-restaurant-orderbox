@@ -6,7 +6,8 @@ import { LogOut, Truck, User, Package, Wallet, Home } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { NotificationBell } from '@/components/NotificationBell';
+import { DriverNotificationBell } from '@/components/driver/DriverNotificationBell';
+import { DriverNotificationPermissionPrompt } from '@/components/driver/DriverNotificationPermissionPrompt';
 
 export default function DriverLayout() {
   const { user, signOut, isDriver } = useAuth();
@@ -70,9 +71,9 @@ export default function DriverLayout() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2">
             {driver && (
-              <NotificationBell userType="driver" driverId={driver.id} />
+              <DriverNotificationBell driverId={driver.id} />
             )}
             <Button variant="ghost" size="icon" onClick={handleSignOut}>
               <LogOut className="h-5 w-5" />
@@ -83,6 +84,7 @@ export default function DriverLayout() {
 
       {/* Main Content */}
       <main className="flex-1 container px-4 py-6">
+        {driver && <DriverNotificationPermissionPrompt driverId={driver.id} />}
         <Outlet />
       </main>
 

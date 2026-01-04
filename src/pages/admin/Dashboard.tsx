@@ -353,9 +353,11 @@ export default function Dashboard() {
 
 
       {/* Live Visitors & Conversion Funnel */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <LiveVisitorsCard />
-        <div className="md:col-span-2">
+      <div className="grid gap-4 grid-cols-1 lg:grid-cols-3 items-stretch">
+        <div className="lg:col-span-1">
+          <LiveVisitorsCard />
+        </div>
+        <div className="lg:col-span-2">
           <ConversionFunnelCard dateFilter={dateFilter} />
         </div>
       </div>
