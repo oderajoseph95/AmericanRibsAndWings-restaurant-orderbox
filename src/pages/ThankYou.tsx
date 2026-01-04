@@ -714,13 +714,13 @@ export default function ThankYou() {
           </Card>
         )}
 
-        {/* Delivery Photos - Show pickup and delivery proof photos */}
-        {isDelivery && deliveryPhotos.length > 0 && (
+        {/* Order Photos - Show pickup and delivery proof photos for ALL order types */}
+        {deliveryPhotos.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <Camera className="h-5 w-5" />
-                Delivery Photos
+                Order Photos
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -741,7 +741,9 @@ export default function ThankYou() {
                             : "bg-green-500/90 text-white"
                         )}
                       >
-                        {photo.photo_type === 'pickup' ? 'Picked Up' : 'Delivered'}
+                        {photo.photo_type === 'pickup' 
+                          ? (isDelivery ? 'Picked Up' : 'Ready') 
+                          : 'Delivered'}
                       </Badge>
                     </div>
                     <p className="text-xs text-muted-foreground text-center">

@@ -16,9 +16,11 @@ import {
   Camera,
   Navigation,
   CheckCircle2,
-  Package
+  Package,
+  Image
 } from 'lucide-react';
 import type { Tables } from '@/integrations/supabase/types';
+import { logDriverAction } from '@/lib/driverLogger';
 
 type Order = Tables<'orders'> & {
   customer: Tables<'customers'> | null;
@@ -84,6 +86,28 @@ export default function DriverOrders() {
     enabled: !!driver?.id,
   });
 
+  // Fetch delivery photos for done orders
+  const doneOrderIds = orders?.filter(o => ['delivered', 'completed'].includes(o.status || '')).map(o => o.id) || [];
+  const { data: deliveryPhotos = [] } = useQuery({
+    queryKey: ['driver-delivery-photos', doneOrderIds],
+    queryFn: async () => {
+      if (doneOrderIds.length === 0) return [];
+      const { data, error } = await supabase
+        .from('delivery_photos')
+        .select('*')
+        .in('order_id', doneOrderIds)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      return data as Tables<'delivery_photos'>[];
+    },
+    enabled: doneOrderIds.length > 0,
+  });
+
+  // Helper to get photos for an order
+  const getOrderPhotos = (orderId: string) => {
+    return deliveryPhotos.filter(p => p.order_id === orderId);
+  };
+
   // Update order status mutation
   const updateOrderMutation = useMutation({
     mutationFn: async ({ orderId, status }: { orderId: string; status: 'picked_up' | 'in_transit' | 'delivered' }) => {
@@ -107,6 +131,9 @@ export default function DriverOrders() {
     const file = e.target.files?.[0];
     if (!file || !uploadingOrderId || !photoAction || !driver) return;
 
+    const order = orders?.find(o => o.id === uploadingOrderId);
+    const oldStatus = order?.status;
+
     try {
       const fileExt = file.name.split('.').pop();
       const fileName = `${uploadingOrderId}/${photoAction}-${Date.now()}.${fileExt}`;
@@ -129,9 +156,33 @@ export default function DriverOrders() {
         image_url: publicUrl,
       });
 
+      // Log photo upload action
+      await logDriverAction({
+        driverId: driver.id,
+        driverName: driver.name,
+        action: 'photo_upload',
+        entityType: 'order',
+        entityId: uploadingOrderId,
+        entityName: order?.order_number || undefined,
+        details: `Uploaded ${photoAction} photo for order ${order?.order_number}`,
+      });
+
       // Update order status
       const newStatus = photoAction === 'pickup' ? 'picked_up' : 'delivered';
       await updateOrderMutation.mutateAsync({ orderId: uploadingOrderId, status: newStatus });
+
+      // Log status change action
+      await logDriverAction({
+        driverId: driver.id,
+        driverName: driver.name,
+        action: 'status_change',
+        entityType: 'order',
+        entityId: uploadingOrderId,
+        entityName: order?.order_number || undefined,
+        oldValues: { status: oldStatus },
+        newValues: { status: newStatus },
+        details: `Changed status from ${oldStatus} to ${newStatus}`,
+      });
 
       toast.success(`${photoAction === 'pickup' ? 'Pickup' : 'Delivery'} photo uploaded`);
     } catch (error: any) {
@@ -149,8 +200,26 @@ export default function DriverOrders() {
     fileInputRef.current?.click();
   };
 
-  const handleStartDelivery = (orderId: string) => {
-    updateOrderMutation.mutate({ orderId, status: 'in_transit' });
+  const handleStartDelivery = async (orderId: string) => {
+    const order = orders?.find(o => o.id === orderId);
+    const oldStatus = order?.status;
+    
+    await updateOrderMutation.mutateAsync({ orderId, status: 'in_transit' });
+    
+    // Log status change
+    if (driver) {
+      await logDriverAction({
+        driverId: driver.id,
+        driverName: driver.name,
+        action: 'status_change',
+        entityType: 'order',
+        entityId: orderId,
+        entityName: order?.order_number || undefined,
+        oldValues: { status: oldStatus },
+        newValues: { status: 'in_transit' },
+        details: `Started delivery - changed status from ${oldStatus} to in_transit`,
+      });
+    }
   };
 
   const handleDelivered = (orderId: string) => {
@@ -320,11 +389,40 @@ export default function DriverOrders() {
                       </Button>
                     )}
 
-                    {order.status === 'delivered' && (
-                      <div className="flex items-center justify-center gap-2 text-green-600 py-2">
-                        <CheckCircle2 className="h-5 w-5" />
-                        <span className="font-medium">Delivered Successfully</span>
-                      </div>
+                    {(order.status === 'delivered' || order.status === 'completed') && (
+                      <>
+                        <div className="flex items-center justify-center gap-2 text-green-600 py-2">
+                          <CheckCircle2 className="h-5 w-5" />
+                          <span className="font-medium">
+                            {order.status === 'delivered' ? 'Delivered Successfully' : 'Completed'}
+                          </span>
+                        </div>
+                        
+                        {/* Show uploaded photos for completed orders */}
+                        {getOrderPhotos(order.id).length > 0 && (
+                          <div className="grid grid-cols-2 gap-2 mt-2">
+                            {getOrderPhotos(order.id).map((photo) => (
+                              <a
+                                key={photo.id}
+                                href={photo.image_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="relative aspect-video rounded-lg overflow-hidden border bg-muted"
+                              >
+                                <img
+                                  src={photo.image_url}
+                                  alt={`${photo.photo_type} photo`}
+                                  className="w-full h-full object-cover"
+                                />
+                                <div className="absolute bottom-1 left-1 bg-black/60 text-white text-xs px-2 py-0.5 rounded capitalize flex items-center gap-1">
+                                  <Image className="h-3 w-3" />
+                                  {photo.photo_type}
+                                </div>
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </CardContent>
