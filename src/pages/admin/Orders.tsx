@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, ChangeEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -33,7 +33,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
-import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package, MoreHorizontal, Link, Share2, Copy, User, AlertTriangle, ChevronDown, Trash2 } from 'lucide-react';
+import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package, MoreHorizontal, Link, Share2, Copy, User, AlertTriangle, ChevronDown, Trash2, Camera, Upload } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Tables, Enums } from '@/integrations/supabase/types';
 
@@ -101,6 +101,8 @@ export default function Orders() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const ITEMS_PER_PAGE = 20;
   const queryClient = useQueryClient();
 
@@ -381,6 +383,53 @@ export default function Orders() {
       toast.success('Notes saved');
     },
   });
+
+  // Handle admin photo upload for pickup orders
+  const handleAdminPhotoUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedOrder) return;
+
+    setUploadingPhoto(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${selectedOrder.id}/admin-pickup-${Date.now()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('driver-photos')
+        .upload(fileName, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('driver-photos')
+        .getPublicUrl(fileName);
+
+      // Save photo record
+      await supabase.from('delivery_photos').insert({
+        order_id: selectedOrder.id,
+        driver_id: null, // Admin uploaded, not driver
+        photo_type: 'pickup',
+        image_url: publicUrl,
+      });
+
+      // Log the action
+      await logAdminAction({
+        action: 'photo_upload',
+        entityType: 'order',
+        entityId: selectedOrder.id,
+        entityName: selectedOrder.order_number || undefined,
+        details: `Uploaded pickup proof photo for order ${selectedOrder.order_number}`,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['delivery-photos', selectedOrder.id] });
+      toast.success('Pickup photo uploaded');
+    } catch (error: any) {
+      toast.error('Upload failed: ' + error.message);
+    } finally {
+      setUploadingPhoto(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const filteredOrders = orders.filter(
     (order) =>
@@ -952,10 +1001,38 @@ export default function Orders() {
                   </div>
                 )}
 
-                {/* Delivery Photos */}
-                {deliveryPhotos.length > 0 && (
-                  <div className="space-y-2">
-                    <h4 className="font-medium">Delivery Photos</h4>
+                {/* Order Photos */}
+                <div className="space-y-2">
+                  <h4 className="font-medium">Order Photos</h4>
+                  
+                  {/* Hidden file input for admin photo upload */}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    ref={fileInputRef}
+                    onChange={handleAdminPhotoUpload}
+                    className="hidden"
+                  />
+
+                  {/* Upload button for pickup orders */}
+                  {selectedOrder.order_type === 'pickup' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploadingPhoto}
+                      className="w-full mb-2"
+                    >
+                      {uploadingPhoto ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Camera className="h-4 w-4 mr-2" />
+                      )}
+                      {uploadingPhoto ? 'Uploading...' : 'Upload Pickup Photo'}
+                    </Button>
+                  )}
+
+                  {deliveryPhotos.length > 0 ? (
                     <div className="grid grid-cols-2 gap-2">
                       {deliveryPhotos.map((photo) => (
                         <a
@@ -976,8 +1053,10 @@ export default function Orders() {
                         </a>
                       ))}
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No photos uploaded yet</p>
+                  )}
+                </div>
 
                 {/* Totals */}
                 <div className="space-y-2 pt-4 border-t">
