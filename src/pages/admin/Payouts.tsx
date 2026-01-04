@@ -10,7 +10,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
+import { logAdminAction } from '@/lib/adminLogger';
 import { 
   Search, 
   Clock, 
@@ -23,9 +27,46 @@ import {
   CreditCard,
   ExternalLink,
   Truck,
-  Wallet
+  Wallet,
+  Package,
+  MapPin,
+  Phone,
+  Camera,
+  AlertTriangle
 } from 'lucide-react';
 import { format } from 'date-fns';
+
+type OrderInfo = {
+  id: string;
+  order_number: string | null;
+  status: string;
+  total_amount: number;
+  delivery_address: string | null;
+  delivery_distance_km: number | null;
+  delivery_fee: number | null;
+  customer?: {
+    name: string;
+    phone: string | null;
+  } | null;
+};
+
+type DeliveryPhoto = {
+  id: string;
+  order_id: string;
+  photo_type: string;
+  image_url: string;
+  taken_at: string;
+};
+
+type EarningWithOrder = {
+  id: string;
+  order_id: string;
+  delivery_fee: number;
+  distance_km: number | null;
+  status: string;
+  order?: OrderInfo | null;
+  photos?: DeliveryPhoto[];
+};
 
 type Payout = {
   id: string;
@@ -43,22 +84,13 @@ type Payout = {
   processed_by: string | null;
   payment_proof_url: string | null;
   admin_notes: string | null;
+  rejection_reason: string | null;
   drivers?: {
     id: string;
     name: string;
     email: string;
     phone: string;
   } | null;
-  // Attached earnings with order info
-  earnings?: {
-    order_id: string;
-    delivery_fee: number;
-    orders?: {
-      order_number: string;
-      status: string;
-      total_amount: number;
-    };
-  }[];
 };
 
 const statusColors: Record<string, string> = {
@@ -76,6 +108,8 @@ export default function Payouts() {
   const [selectedPayout, setSelectedPayout] = useState<Payout | null>(null);
   const [adminNotes, setAdminNotes] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [rejectionDialogOpen, setRejectionDialogOpen] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch payouts
@@ -97,17 +131,77 @@ export default function Payouts() {
     },
   });
 
+  // Fetch earnings and order details when a payout is selected
+  const { data: payoutDetails, isLoading: detailsLoading } = useQuery({
+    queryKey: ['payout-details', selectedPayout?.id, selectedPayout?.driver_id],
+    queryFn: async () => {
+      if (!selectedPayout?.driver_id) return null;
+
+      // Get earnings that are part of this payout request (status = 'requested')
+      const { data: earnings, error: earningsError } = await supabase
+        .from('driver_earnings')
+        .select(`
+          id, order_id, delivery_fee, distance_km, status,
+          orders (
+            id, order_number, status, total_amount, delivery_address, 
+            delivery_distance_km, delivery_fee,
+            customers (name, phone)
+          )
+        `)
+        .eq('driver_id', selectedPayout.driver_id)
+        .eq('status', 'requested');
+
+      if (earningsError) throw earningsError;
+
+      // Get delivery photos for these orders
+      const orderIds = earnings?.map(e => e.order_id) || [];
+      let photos: DeliveryPhoto[] = [];
+      
+      if (orderIds.length > 0) {
+        const { data: photosData } = await supabase
+          .from('delivery_photos')
+          .select('*')
+          .in('order_id', orderIds);
+        photos = photosData || [];
+      }
+
+      // Map photos to earnings
+      const earningsWithPhotos = earnings?.map(e => {
+        const orderData = e.orders as any;
+        return {
+          id: e.id,
+          order_id: e.order_id,
+          delivery_fee: e.delivery_fee,
+          distance_km: e.distance_km,
+          status: e.status,
+          order: orderData ? {
+            id: orderData.id,
+            order_number: orderData.order_number,
+            status: orderData.status,
+            total_amount: orderData.total_amount,
+            delivery_address: orderData.delivery_address,
+            delivery_distance_km: orderData.delivery_distance_km,
+            delivery_fee: orderData.delivery_fee,
+            customer: orderData.customers,
+          } : null,
+          photos: photos.filter(p => p.order_id === e.order_id),
+        };
+      }) || [];
+
+      return earningsWithPhotos as EarningWithOrder[];
+    },
+    enabled: !!selectedPayout?.driver_id && selectedPayout.status === 'pending',
+  });
+
   // Stats
   const { data: stats } = useQuery({
     queryKey: ['payout-stats'],
     queryFn: async () => {
-      // Fetch payout requests
       const { data: payoutData, error: payoutError } = await supabase
         .from('driver_payouts')
         .select('status, amount');
       if (payoutError) throw payoutError;
 
-      // Fetch pending earnings (drivers on delivery)
       const { data: earningsData, error: earningsError } = await supabase
         .from('driver_earnings')
         .select('status, delivery_fee');
@@ -129,13 +223,16 @@ export default function Payouts() {
       id, 
       status, 
       notes, 
-      proofUrl 
+      proofUrl,
+      rejectionReason: reason
     }: { 
       id: string; 
       status: string; 
       notes?: string; 
-      proofUrl?: string 
+      proofUrl?: string;
+      rejectionReason?: string;
     }) => {
+      const payout = payouts.find(p => p.id === id);
       const updateData: any = {
         status,
         processed_at: new Date().toISOString(),
@@ -144,6 +241,7 @@ export default function Payouts() {
 
       if (notes !== undefined) updateData.admin_notes = notes;
       if (proofUrl) updateData.payment_proof_url = proofUrl;
+      if (reason) updateData.rejection_reason = reason;
 
       const { error } = await supabase
         .from('driver_payouts')
@@ -152,28 +250,33 @@ export default function Payouts() {
 
       if (error) throw error;
 
+      // Log the action
+      await logAdminAction({
+        action: status === 'completed' ? 'complete' : status === 'approved' ? 'approve' : 'reject',
+        entityType: 'payout',
+        entityId: id,
+        entityName: `₱${payout?.amount.toFixed(2)} - ${payout?.drivers?.name}`,
+        oldValues: { status: payout?.status },
+        newValues: { status, rejection_reason: reason },
+        details: reason ? `Rejected: ${reason}` : notes || undefined,
+      });
+
       // If completed, update related earnings to 'paid'
-      if (status === 'completed') {
-        const payout = payouts.find(p => p.id === id);
-        if (payout) {
-          await supabase
-            .from('driver_earnings')
-            .update({ status: 'paid' })
-            .eq('driver_id', payout.driver_id)
-            .eq('status', 'requested');
-        }
+      if (status === 'completed' && payout) {
+        await supabase
+          .from('driver_earnings')
+          .update({ status: 'paid' })
+          .eq('driver_id', payout.driver_id)
+          .eq('status', 'requested');
       }
 
       // If rejected, update related earnings back to 'available'
-      if (status === 'rejected') {
-        const payout = payouts.find(p => p.id === id);
-        if (payout) {
-          await supabase
-            .from('driver_earnings')
-            .update({ status: 'available' })
-            .eq('driver_id', payout.driver_id)
-            .eq('status', 'requested');
-        }
+      if (status === 'rejected' && payout) {
+        await supabase
+          .from('driver_earnings')
+          .update({ status: 'available' })
+          .eq('driver_id', payout.driver_id)
+          .eq('status', 'requested');
       }
     },
     onSuccess: () => {
@@ -181,6 +284,8 @@ export default function Payouts() {
       queryClient.invalidateQueries({ queryKey: ['payout-stats'] });
       toast.success('Payout updated');
       setSelectedPayout(null);
+      setRejectionDialogOpen(false);
+      setRejectionReason('');
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update payout');
@@ -205,7 +310,6 @@ export default function Payouts() {
         .from('payout-proofs')
         .getPublicUrl(fileName);
 
-      // Update payout with proof and mark as completed
       await updatePayoutMutation.mutateAsync({
         id: selectedPayout.id,
         status: 'completed',
@@ -217,6 +321,19 @@ export default function Payouts() {
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleReject = () => {
+    if (!selectedPayout || !rejectionReason.trim()) {
+      toast.error('Please provide a rejection reason');
+      return;
+    }
+    updatePayoutMutation.mutate({
+      id: selectedPayout.id,
+      status: 'rejected',
+      notes: adminNotes,
+      rejectionReason: rejectionReason.trim(),
+    });
   };
 
   const filteredPayouts = payouts.filter(
@@ -355,18 +472,16 @@ export default function Payouts() {
                       {format(new Date(payout.requested_at), 'MMM d, h:mm a')}
                     </TableCell>
                     <TableCell>
-                      <div className="flex gap-1">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setSelectedPayout(payout);
-                            setAdminNotes(payout.admin_notes || '');
-                          }}
-                        >
-                          {payout.status === 'pending' ? 'Process' : 'View'}
-                        </Button>
-                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedPayout(payout);
+                          setAdminNotes(payout.admin_notes || '');
+                        }}
+                      >
+                        {payout.status === 'pending' ? 'Process' : 'View'}
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -378,162 +493,327 @@ export default function Payouts() {
 
       {/* Payout Detail Sheet */}
       <Sheet open={!!selectedPayout} onOpenChange={() => setSelectedPayout(null)}>
-        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-2xl p-0">
           {selectedPayout && (
-            <>
-              <SheetHeader>
-                <SheetTitle>Payout Request</SheetTitle>
-              </SheetHeader>
-              <div className="mt-6 space-y-6">
-                <div className="flex items-center justify-between">
-                  <Badge variant="outline" className={statusColors[selectedPayout.status]}>
-                    {selectedPayout.status}
-                  </Badge>
-                  <span className="text-2xl font-bold">₱{selectedPayout.amount.toFixed(2)}</span>
-                </div>
+            <ScrollArea className="h-full">
+              <div className="p-6">
+                <SheetHeader>
+                  <SheetTitle className="flex items-center justify-between">
+                    <span>Payout Request</span>
+                    <Badge variant="outline" className={statusColors[selectedPayout.status]}>
+                      {selectedPayout.status}
+                    </Badge>
+                  </SheetTitle>
+                </SheetHeader>
 
-                {/* Driver Info */}
-                <div className="space-y-2">
-                  <h4 className="font-medium flex items-center gap-2">
-                    <User className="h-4 w-4" />
-                    Driver
-                  </h4>
-                  <div className="bg-muted p-3 rounded-lg text-sm">
-                    <p className="font-medium">{selectedPayout.drivers?.name}</p>
-                    <p className="text-muted-foreground">{selectedPayout.drivers?.email}</p>
-                    <p className="text-muted-foreground">{selectedPayout.drivers?.phone}</p>
+                <div className="mt-6 space-y-6">
+                  {/* Amount */}
+                  <div className="text-center py-4 bg-muted rounded-lg">
+                    <p className="text-sm text-muted-foreground">Total Amount</p>
+                    <p className="text-3xl font-bold">₱{selectedPayout.amount.toFixed(2)}</p>
                   </div>
-                </div>
 
-                {/* Payment Details */}
-                <div className="space-y-2">
-                  <h4 className="font-medium flex items-center gap-2">
-                    <CreditCard className="h-4 w-4" />
-                    Payment Details
-                  </h4>
-                  <div className="bg-muted p-3 rounded-lg text-sm space-y-1">
-                    <p><strong>Method:</strong> {selectedPayout.payment_method.toUpperCase()}</p>
-                    <p><strong>Account Name:</strong> {selectedPayout.account_details?.account_name}</p>
-                    <p><strong>Account Number:</strong> {selectedPayout.account_details?.account_number}</p>
-                    {selectedPayout.account_details?.bank_name && (
-                      <p><strong>Bank:</strong> {selectedPayout.account_details.bank_name}</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Timestamps */}
-                <div className="text-sm text-muted-foreground space-y-1">
-                  <p>Requested: {format(new Date(selectedPayout.requested_at), 'PPp')}</p>
-                  {selectedPayout.processed_at && (
-                    <p>Processed: {format(new Date(selectedPayout.processed_at), 'PPp')}</p>
-                  )}
-                </div>
-
-                {/* Payment Proof */}
-                {selectedPayout.payment_proof_url && (
+                  {/* Driver Info */}
                   <div className="space-y-2">
-                    <h4 className="font-medium">Payment Proof</h4>
-                    <a
-                      href={selectedPayout.payment_proof_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block"
-                    >
-                      <img
-                        src={selectedPayout.payment_proof_url}
-                        alt="Payment proof"
-                        className="w-full h-48 object-cover rounded-lg border hover:opacity-90"
-                      />
-                    </a>
-                    <a
-                      href={selectedPayout.payment_proof_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-primary hover:underline flex items-center gap-1"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      View Full Size
-                    </a>
-                  </div>
-                )}
-
-                {/* Admin Notes */}
-                <div className="space-y-2">
-                  <h4 className="font-medium">Admin Notes</h4>
-                  <Textarea
-                    value={adminNotes}
-                    onChange={(e) => setAdminNotes(e.target.value)}
-                    placeholder="Add notes..."
-                    disabled={selectedPayout.status !== 'pending'}
-                  />
-                </div>
-
-                {/* Actions for pending payouts */}
-                {selectedPayout.status === 'pending' && (
-                  <div className="space-y-3 pt-4 border-t">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handleUploadProof(file);
-                      }}
-                    />
-                    
-                    <Button
-                      className="w-full"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={uploading || updatePayoutMutation.isPending}
-                    >
-                      {uploading ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <Upload className="h-4 w-4 mr-2" />
-                      )}
-                      Upload Proof & Complete
-                    </Button>
-
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        className="flex-1"
-                        onClick={() => {
-                          updatePayoutMutation.mutate({
-                            id: selectedPayout.id,
-                            status: 'approved',
-                            notes: adminNotes,
-                          });
-                        }}
-                        disabled={updatePayoutMutation.isPending}
-                      >
-                        <CheckCircle className="h-4 w-4 mr-2" />
-                        Approve
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        className="flex-1"
-                        onClick={() => {
-                          updatePayoutMutation.mutate({
-                            id: selectedPayout.id,
-                            status: 'rejected',
-                            notes: adminNotes,
-                          });
-                        }}
-                        disabled={updatePayoutMutation.isPending}
-                      >
-                        <XCircle className="h-4 w-4 mr-2" />
-                        Reject
-                      </Button>
+                    <h4 className="font-medium flex items-center gap-2">
+                      <User className="h-4 w-4" />
+                      Driver
+                    </h4>
+                    <div className="bg-muted p-3 rounded-lg text-sm">
+                      <p className="font-medium">{selectedPayout.drivers?.name}</p>
+                      <p className="text-muted-foreground">{selectedPayout.drivers?.email}</p>
+                      <p className="text-muted-foreground">{selectedPayout.drivers?.phone}</p>
                     </div>
                   </div>
-                )}
+
+                  {/* Payment Details */}
+                  <div className="space-y-2">
+                    <h4 className="font-medium flex items-center gap-2">
+                      <CreditCard className="h-4 w-4" />
+                      Payment Details
+                    </h4>
+                    <div className="bg-muted p-3 rounded-lg text-sm space-y-1">
+                      <p><strong>Method:</strong> {selectedPayout.payment_method.toUpperCase()}</p>
+                      <p><strong>Account Name:</strong> {selectedPayout.account_details?.account_name}</p>
+                      <p><strong>Account Number:</strong> {selectedPayout.account_details?.account_number}</p>
+                      {selectedPayout.account_details?.bank_name && (
+                        <p><strong>Bank:</strong> {selectedPayout.account_details.bank_name}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Orders Included - Only show for pending payouts */}
+                  {selectedPayout.status === 'pending' && (
+                    <div className="space-y-2">
+                      <h4 className="font-medium flex items-center gap-2">
+                        <Package className="h-4 w-4" />
+                        Orders Included ({payoutDetails?.length || 0})
+                      </h4>
+                      {detailsLoading ? (
+                        <div className="flex justify-center py-4">
+                          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                        </div>
+                      ) : payoutDetails && payoutDetails.length > 0 ? (
+                        <div className="space-y-3">
+                          {payoutDetails.map((earning) => (
+                            <div key={earning.id} className="border rounded-lg p-4 space-y-3">
+                              {/* Order Header */}
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="font-medium">{earning.order?.order_number || 'Order'}</p>
+                                  <Badge variant="outline" className="text-xs">
+                                    {earning.order?.status}
+                                  </Badge>
+                                </div>
+                                <p className="font-bold text-green-600">₱{earning.delivery_fee.toFixed(2)}</p>
+                              </div>
+
+                              {/* Customer & Address */}
+                              {earning.order && (
+                                <div className="text-sm space-y-1">
+                                  <div className="flex items-start gap-2">
+                                    <User className="h-4 w-4 mt-0.5 text-muted-foreground" />
+                                    <div>
+                                      <p className="font-medium">{earning.order.customer?.name}</p>
+                                      {earning.order.customer?.phone && (
+                                        <p className="text-muted-foreground flex items-center gap-1">
+                                          <Phone className="h-3 w-3" />
+                                          {earning.order.customer.phone}
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {earning.order.delivery_address && (
+                                    <div className="flex items-start gap-2">
+                                      <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground" />
+                                      <p className="text-muted-foreground">{earning.order.delivery_address}</p>
+                                    </div>
+                                  )}
+                                  <div className="flex gap-4 text-muted-foreground">
+                                    <span>Distance: {earning.distance_km?.toFixed(1) || '—'} km</span>
+                                    <span>Order Total: ₱{earning.order.total_amount?.toFixed(2)}</span>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Delivery Photos */}
+                              {earning.photos && earning.photos.length > 0 && (
+                                <div>
+                                  <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+                                    <Camera className="h-3 w-3" />
+                                    Delivery Photos
+                                  </p>
+                                  <div className="flex gap-2">
+                                    {earning.photos.map((photo) => (
+                                      <a
+                                        key={photo.id}
+                                        href={photo.image_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="block"
+                                      >
+                                        <div className="relative">
+                                          <img
+                                            src={photo.image_url}
+                                            alt={photo.photo_type}
+                                            className="w-24 h-24 object-cover rounded-lg border hover:opacity-90"
+                                          />
+                                          <Badge 
+                                            variant="secondary" 
+                                            className="absolute bottom-1 left-1 text-[10px] capitalize"
+                                          >
+                                            {photo.photo_type}
+                                          </Badge>
+                                        </div>
+                                      </a>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {(!earning.photos || earning.photos.length === 0) && (
+                                <p className="text-xs text-orange-600 flex items-center gap-1">
+                                  <AlertTriangle className="h-3 w-3" />
+                                  No delivery photos uploaded
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No orders attached to this payout request</p>
+                      )}
+                    </div>
+                  )}
+
+                  <Separator />
+
+                  {/* Timestamps */}
+                  <div className="text-sm text-muted-foreground space-y-1">
+                    <p>Requested: {format(new Date(selectedPayout.requested_at), 'PPp')}</p>
+                    {selectedPayout.processed_at && (
+                      <p>Processed: {format(new Date(selectedPayout.processed_at), 'PPp')}</p>
+                    )}
+                  </div>
+
+                  {/* Payment Proof (for completed) */}
+                  {selectedPayout.payment_proof_url && (
+                    <div className="space-y-2">
+                      <h4 className="font-medium">Payment Proof</h4>
+                      <a
+                        href={selectedPayout.payment_proof_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block"
+                      >
+                        <img
+                          src={selectedPayout.payment_proof_url}
+                          alt="Payment proof"
+                          className="w-full h-48 object-cover rounded-lg border hover:opacity-90"
+                        />
+                      </a>
+                      <a
+                        href={selectedPayout.payment_proof_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-primary hover:underline flex items-center gap-1"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        View Full Size
+                      </a>
+                    </div>
+                  )}
+
+                  {/* Rejection Reason (for rejected) */}
+                  {selectedPayout.status === 'rejected' && selectedPayout.rejection_reason && (
+                    <div className="space-y-2">
+                      <h4 className="font-medium text-red-600 flex items-center gap-2">
+                        <XCircle className="h-4 w-4" />
+                        Rejection Reason
+                      </h4>
+                      <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 p-3 rounded-lg">
+                        <p className="text-sm text-red-700 dark:text-red-400">
+                          {selectedPayout.rejection_reason}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Admin Notes */}
+                  <div className="space-y-2">
+                    <h4 className="font-medium">Admin Notes (Internal)</h4>
+                    <Textarea
+                      value={adminNotes}
+                      onChange={(e) => setAdminNotes(e.target.value)}
+                      placeholder="Add internal notes..."
+                      disabled={selectedPayout.status !== 'pending'}
+                    />
+                  </div>
+
+                  {/* Actions for pending payouts */}
+                  {selectedPayout.status === 'pending' && (
+                    <div className="space-y-3 pt-4 border-t">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleUploadProof(file);
+                        }}
+                      />
+                      
+                      <Button
+                        className="w-full"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploading || updatePayoutMutation.isPending}
+                      >
+                        {uploading ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Upload className="h-4 w-4 mr-2" />
+                        )}
+                        Upload Proof & Complete
+                      </Button>
+
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() => {
+                            updatePayoutMutation.mutate({
+                              id: selectedPayout.id,
+                              status: 'approved',
+                              notes: adminNotes,
+                            });
+                          }}
+                          disabled={updatePayoutMutation.isPending}
+                        >
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          Approve
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          className="flex-1"
+                          onClick={() => setRejectionDialogOpen(true)}
+                          disabled={updatePayoutMutation.isPending}
+                        >
+                          <XCircle className="h-4 w-4 mr-2" />
+                          Reject
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
-            </>
+            </ScrollArea>
           )}
         </SheetContent>
       </Sheet>
+
+      {/* Rejection Reason Dialog */}
+      <Dialog open={rejectionDialogOpen} onOpenChange={setRejectionDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <XCircle className="h-5 w-5" />
+              Reject Payout Request
+            </DialogTitle>
+            <DialogDescription>
+              Please provide a reason for rejecting this payout. The driver will see this reason.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Textarea
+              value={rejectionReason}
+              onChange={(e) => setRejectionReason(e.target.value)}
+              placeholder="Enter rejection reason (required)..."
+              className="min-h-[100px]"
+            />
+            <p className="text-xs text-muted-foreground">
+              Examples: Missing delivery photos, Order not yet delivered, Invalid payment details
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectionDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleReject}
+              disabled={!rejectionReason.trim() || updatePayoutMutation.isPending}
+            >
+              {updatePayoutMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <XCircle className="h-4 w-4 mr-2" />
+              )}
+              Confirm Rejection
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
