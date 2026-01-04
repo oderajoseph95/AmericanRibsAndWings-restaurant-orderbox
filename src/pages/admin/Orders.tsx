@@ -277,7 +277,7 @@ export default function Orders() {
   });
 
   const handleCopyTrackingLink = (orderId: string) => {
-    const url = `${window.location.origin}/order/${orderId}`;
+    const url = `${window.location.origin}/thank-you/${orderId}`;
     navigator.clipboard.writeText(url);
     toast.success('Tracking link copied to clipboard!');
   };

@@ -328,7 +328,7 @@ export default function MyOrders() {
                 </p>
                 {orders.map((order) => (
                   <Card key={order.id} className="hover:border-primary/50 transition-colors">
-                    <Link to={`/order/${order.id}`}>
+                    <Link to={`/thank-you/${order.id}`}>
                       <CardContent className="pt-4 pb-4">
                         <div className="flex items-start justify-between mb-3">
                           <div>
