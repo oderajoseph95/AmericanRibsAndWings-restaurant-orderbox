@@ -32,9 +32,12 @@ import {
   MapPin,
   Phone,
   Camera,
-  AlertTriangle
+  AlertTriangle,
+  RefreshCw
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { createAdminNotification } from '@/hooks/useAdminNotifications';
+import { createDriverNotification } from '@/hooks/useDriverNotifications';
 
 type OrderInfo = {
   id: string;
@@ -109,7 +112,16 @@ export default function Payouts() {
   const [uploading, setUploading] = useState(false);
   const [rejectionDialogOpen, setRejectionDialogOpen] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await queryClient.invalidateQueries({ queryKey: ['admin-payouts'] });
+    await queryClient.invalidateQueries({ queryKey: ['payout-stats'] });
+    toast.success('Payouts refreshed');
+    setTimeout(() => setIsRefreshing(false), 500);
+  };
 
   // Fetch payouts
   const { data: payouts = [], isLoading } = useQuery({
@@ -276,6 +288,28 @@ export default function Payouts() {
           .update({ status: 'available' })
           .eq('driver_id', payout.driver_id)
           .eq('status', 'requested');
+        
+        // Notify driver about rejection
+        await createDriverNotification({
+          driverId: payout.driver_id,
+          title: "Payout Request Rejected",
+          message: `Your payout request for ₱${payout.amount.toFixed(2)} was rejected. ${reason || ''}`,
+          type: "payout",
+          metadata: { payout_amount: payout.amount },
+          actionUrl: "/driver/earnings",
+        });
+      }
+
+      // Notify driver about completed payout
+      if (status === 'completed' && payout) {
+        await createDriverNotification({
+          driverId: payout.driver_id,
+          title: "Payout Completed! 💰",
+          message: `Your payout of ₱${payout.amount.toFixed(2)} has been processed.`,
+          type: "payout",
+          metadata: { payout_amount: payout.amount },
+          actionUrl: "/driver/earnings",
+        });
       }
     },
     onSuccess: () => {
@@ -343,9 +377,20 @@ export default function Payouts() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-3xl font-bold text-foreground">Driver Payouts</h1>
-        <p className="text-muted-foreground mt-1">Manage driver payout requests</p>
+      <div className="flex items-center gap-3">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Driver Payouts</h1>
+          <p className="text-muted-foreground mt-1">Manage driver payout requests</p>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleRefresh}
+          disabled={isRefreshing}
+          className="h-8 w-8"
+        >
+          <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+        </Button>
       </div>
 
       {/* Stats */}

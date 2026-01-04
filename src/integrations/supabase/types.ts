@@ -58,30 +58,36 @@ export type Database = {
       }
       admin_notifications: {
         Row: {
+          action_url: string | null
           created_at: string | null
           id: string
           is_read: boolean | null
           message: string
+          metadata: Json | null
           order_id: string | null
           title: string
           type: string | null
           user_id: string
         }
         Insert: {
+          action_url?: string | null
           created_at?: string | null
           id?: string
           is_read?: boolean | null
           message: string
+          metadata?: Json | null
           order_id?: string | null
           title: string
           type?: string | null
           user_id: string
         }
         Update: {
+          action_url?: string | null
           created_at?: string | null
           id?: string
           is_read?: boolean | null
           message?: string
+          metadata?: Json | null
           order_id?: string | null
           title?: string
           type?: string | null
@@ -345,31 +351,37 @@ export type Database = {
       }
       driver_notifications: {
         Row: {
+          action_url: string | null
           created_at: string | null
           driver_id: string
           id: string
           is_read: boolean | null
           message: string
+          metadata: Json | null
           order_id: string | null
           title: string
           type: string | null
         }
         Insert: {
+          action_url?: string | null
           created_at?: string | null
           driver_id: string
           id?: string
           is_read?: boolean | null
           message: string
+          metadata?: Json | null
           order_id?: string | null
           title: string
           type?: string | null
         }
         Update: {
+          action_url?: string | null
           created_at?: string | null
           driver_id?: string
           id?: string
           is_read?: boolean | null
           message?: string
+          metadata?: Json | null
           order_id?: string | null
           title?: string
           type?: string | null

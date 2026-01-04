@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Plus, Minus, History, Loader2, AlertTriangle, Search } from 'lucide-react';
+import { Plus, Minus, History, Loader2, AlertTriangle, Search, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Tables } from '@/integrations/supabase/types';
 
@@ -28,7 +28,15 @@ export default function Stock() {
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [selectedStock, setSelectedStock] = useState<StockWithProduct | null>(null);
   const [adjustType, setAdjustType] = useState<'add' | 'deduct'>('add');
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const queryClient = useQueryClient();
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await queryClient.invalidateQueries({ queryKey: ['stocks'] });
+    toast.success('Stock refreshed');
+    setTimeout(() => setIsRefreshing(false), 500);
+  };
 
   const { data: stocks = [], isLoading } = useQuery({
     queryKey: ['stocks'],
@@ -148,11 +156,22 @@ export default function Stock() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-3xl font-bold text-foreground">Stock Management</h1>
-        <p className="text-muted-foreground mt-1">
-          Track and manage inventory levels
-        </p>
+      <div className="flex items-center gap-3">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Stock Management</h1>
+          <p className="text-muted-foreground mt-1">
+            Track and manage inventory levels
+          </p>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleRefresh}
+          disabled={isRefreshing}
+          className="h-8 w-8"
+        >
+          <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+        </Button>
       </div>
 
       {lowStockItems.length > 0 && (

@@ -34,7 +34,7 @@ import {
 import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
 import { RefundDialog } from '@/components/admin/RefundDialog';
-import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package, MoreHorizontal, Link, Share2, Copy, User, AlertTriangle, ChevronDown, Trash2, Camera, Upload } from 'lucide-react';
+import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package, MoreHorizontal, Link, Share2, Copy, User, AlertTriangle, ChevronDown, Trash2, Camera, Upload, RefreshCw } from 'lucide-react';
 import { sendPushNotification } from '@/hooks/usePushNotifications';
 import { createAdminNotification } from '@/hooks/useAdminNotifications';
 import { createDriverNotification } from '@/hooks/useDriverNotifications';
@@ -106,6 +106,7 @@ export default function Orders() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [refundDialog, setRefundDialog] = useState<{
     open: boolean;
     orderId: string;
@@ -118,6 +119,14 @@ export default function Orders() {
   const queryClient = useQueryClient();
 
   const isOwner = role === 'owner';
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await queryClient.invalidateQueries({ queryKey: ['orders'] });
+    await queryClient.invalidateQueries({ queryKey: ['available-drivers'] });
+    toast.success('Orders refreshed');
+    setTimeout(() => setIsRefreshing(false), 500);
+  };
 
   const { data: ordersData, isLoading } = useQuery({
     queryKey: ['orders', statusFilter, currentPage],
@@ -332,13 +341,22 @@ export default function Orders() {
             userType: "driver",
           });
           
-          // Create in-app driver notification
+          // Create in-app driver notification with metadata
           await createDriverNotification({
             driverId,
             title: "Order Ready for Pickup! 📦",
             message: `Order #${orderNum} is ready. Head to the restaurant to pick it up.`,
             type: "order",
             orderId: id,
+            metadata: {
+              order_number: orderNum,
+              customer_name: order?.customers?.name,
+              customer_phone: order?.customers?.phone || undefined,
+              order_type: order?.order_type || undefined,
+              total_amount: order?.total_amount || undefined,
+              delivery_address: order?.delivery_address || undefined,
+            },
+            actionUrl: "/driver/orders",
           });
         }
       } catch (e) {
@@ -403,13 +421,22 @@ export default function Orders() {
           console.error("Failed to send driver push notification:", e);
         }
         
-        // Create in-app driver notification
+        // Create in-app driver notification with metadata
         await createDriverNotification({
           driverId,
           title: "New Delivery Assigned! 🚗",
           message: `You've been assigned Order #${orderNum}. Check your orders for details.`,
           type: "assignment",
           orderId,
+          metadata: {
+            order_number: orderNum,
+            customer_name: order?.customers?.name,
+            customer_phone: order?.customers?.phone || undefined,
+            order_type: order?.order_type || undefined,
+            total_amount: order?.total_amount || undefined,
+            delivery_address: order?.delivery_address || undefined,
+          },
+          actionUrl: "/driver/orders",
         });
       }
     },
@@ -676,9 +703,20 @@ export default function Orders() {
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">Orders</h1>
-          <p className="text-muted-foreground mt-1">Manage customer orders</p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h1 className="text-3xl font-bold text-foreground">Orders</h1>
+            <p className="text-muted-foreground mt-1">Manage customer orders</p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="h-8 w-8"
+          >
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          </Button>
         </div>
         {isOwner && selectedOrderIds.size > 0 && (
           <Button variant="destructive" onClick={() => setShowDeleteDialog(true)}>

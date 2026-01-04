@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
-import { Plus, Pencil, Archive, ArchiveRestore, Search, Loader2, Upload, ImageIcon, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Archive, ArchiveRestore, Search, Loader2, Upload, ImageIcon, Trash2, RefreshCw } from 'lucide-react';
 import type { Tables, Enums } from '@/integrations/supabase/types';
 
 type Product = Tables<'products'> & {
@@ -48,10 +48,19 @@ export default function Products() {
   const [imageUrl, setImageUrl] = useState<string>('');
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const ITEMS_PER_PAGE = 20;
   const imageInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await queryClient.invalidateQueries({ queryKey: ['products'] });
+    await queryClient.invalidateQueries({ queryKey: ['products-archived'] });
+    toast.success('Products refreshed');
+    setTimeout(() => setIsRefreshing(false), 500);
+  };
 
   const { data: products = [], isLoading } = useQuery({
     queryKey: ['products', showArchived],
@@ -319,11 +328,22 @@ export default function Products() {
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">Products</h1>
-          <p className="text-muted-foreground mt-1">
-            {products.length} products {showArchived ? '(archived)' : ''}
-          </p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h1 className="text-3xl font-bold text-foreground">Products</h1>
+            <p className="text-muted-foreground mt-1">
+              {products.length} products {showArchived ? '(archived)' : ''}
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="h-8 w-8"
+          >
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          </Button>
         </div>
         {canEdit && (
           <Dialog open={dialogOpen} onOpenChange={(open) => {

@@ -553,13 +553,27 @@ export function CheckoutSheet({
         console.error("Failed to send admin notification:", e);
       }
 
-      // Create in-app notification for admins
+      // Create in-app notification for admins with rich metadata
       try {
         await createAdminNotification({
           title: "New Order Received! 🔔",
           message: `Order #${order.order_number} from ${data.name} (₱${grandTotal.toLocaleString('en-PH', { minimumFractionDigits: 2 })}) - ${data.orderType === 'delivery' ? 'Delivery' : 'Pickup'}`,
           type: "order",
           order_id: order.id,
+          metadata: {
+            order_number: order.order_number,
+            customer_name: data.name,
+            customer_phone: data.phone,
+            order_type: data.orderType,
+            total_amount: grandTotal,
+            items: cart.map(item => ({
+              name: item.product.name,
+              quantity: item.quantity,
+              price: item.quantity * item.product.price,
+            })),
+            delivery_address: data.orderType === "delivery" ? `${data.streetAddress}, ${barangay}, ${data.city}` : undefined,
+          },
+          action_url: `/admin/orders?search=${order.order_number}`,
         });
       } catch (e) {
         console.error("Failed to create admin notification:", e);
