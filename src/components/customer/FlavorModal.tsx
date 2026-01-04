@@ -66,9 +66,9 @@ export function FlavorModal({
     }, 0);
   }, [selectedFlavors, flavors, unitsPerFlavor]);
 
-  // Filter to only wing flavors for Ala Carte products
+  // Filter to only wing flavors for Ala Carte products (include unavailable ones for display)
   const availableFlavors = useMemo(() => {
-    return flavors.filter((f) => f.is_active && f.flavor_category === 'wings');
+    return flavors.filter((f) => f.is_active && (f as any).flavor_category === 'wings');
   }, [flavors]);
 
   const handleFlavorChange = (flavorId: string, delta: number) => {
@@ -140,34 +140,46 @@ export function FlavorModal({
             {availableFlavors.map((flavor) => {
               const qty = selectedFlavors[flavor.id] || 0;
               const isSelected = qty > 0;
+              const isOutOfStock = (flavor as any).is_available === false;
 
               return (
                 <div
                   key={flavor.id}
                   className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
-                    isSelected
+                    isOutOfStock
+                      ? "border-border bg-muted/50 opacity-60"
+                      : isSelected
                       ? "border-primary bg-primary/5"
                       : "border-border hover:border-primary/50"
                   }`}
                 >
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium">{flavor.name}</span>
-                      {flavor.flavor_type === "special" && (
+                      <span className={`font-medium ${isOutOfStock ? "text-muted-foreground" : ""}`}>
+                        {flavor.name}
+                      </span>
+                      {isOutOfStock && (
+                        <Badge variant="destructive" className="text-xs">
+                          Out of Stock
+                        </Badge>
+                      )}
+                      {!isOutOfStock && flavor.flavor_type === "special" && (
                         <Badge variant="secondary" className="text-xs">
                           Special
                         </Badge>
                       )}
                     </div>
-                    {flavor.surcharge && flavor.surcharge > 0 ? (
-                      <p className="text-xs text-accent">
-                        +₱{flavor.surcharge.toFixed(2)} per {unitsPerFlavor}pcs
-                      </p>
-                    ) : (
-                      <p className="text-xs flex items-center gap-1">
-                        <span className="line-through text-muted-foreground">₱0.00</span>
-                        <Badge variant="secondary" className="text-[10px] px-1 py-0">FREE</Badge>
-                      </p>
+                    {!isOutOfStock && (
+                      flavor.surcharge && flavor.surcharge > 0 ? (
+                        <p className="text-xs text-accent">
+                          +₱{flavor.surcharge.toFixed(2)} per {unitsPerFlavor}pcs
+                        </p>
+                      ) : (
+                        <p className="text-xs flex items-center gap-1">
+                          <span className="line-through text-muted-foreground">₱0.00</span>
+                          <Badge variant="secondary" className="text-[10px] px-1 py-0">FREE</Badge>
+                        </p>
+                      )
                     )}
                   </div>
 
@@ -182,7 +194,7 @@ export function FlavorModal({
                       size="icon"
                       className="h-8 w-8"
                       onClick={() => handleFlavorChange(flavor.id, -1)}
-                      disabled={qty === 0}
+                      disabled={qty === 0 || isOutOfStock}
                     >
                       <Minus className="h-4 w-4" />
                     </Button>
@@ -191,7 +203,7 @@ export function FlavorModal({
                       size="icon"
                       className="h-8 w-8"
                       onClick={() => handleFlavorChange(flavor.id, 1)}
-                      disabled={selectedCount >= totalUnits}
+                      disabled={selectedCount >= totalUnits || isOutOfStock}
                     >
                       <Plus className="h-4 w-4" />
                     </Button>

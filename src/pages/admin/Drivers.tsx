@@ -1,17 +1,19 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
-import { Plus, Truck, Phone, Mail, Loader2, Search, Edit, Circle } from 'lucide-react';
+import { Plus, Truck, Phone, Mail, Loader2, Search, Edit, Circle, Eye, DollarSign, MapPin, Package, TrendingUp, Clock } from 'lucide-react';
 import { format } from 'date-fns';
 import { z } from 'zod';
 import type { Tables } from '@/integrations/supabase/types';
@@ -45,6 +47,8 @@ const availabilityLabels: Record<string, string> = {
 export default function Drivers() {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [profileSheetOpen, setProfileSheetOpen] = useState(false);
+  const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [formData, setFormData] = useState({
@@ -91,6 +95,68 @@ export default function Drivers() {
       supabase.removeChannel(channel);
     };
   }, [queryClient]);
+
+  // Fetch selected driver stats
+  const { data: driverStats, isLoading: loadingStats } = useQuery({
+    queryKey: ['driver-stats', selectedDriver?.id],
+    queryFn: async () => {
+      if (!selectedDriver) return null;
+      
+      // Fetch earnings
+      const { data: earnings, error: earningsErr } = await supabase
+        .from('driver_earnings')
+        .select('delivery_fee, distance_km, status, created_at')
+        .eq('driver_id', selectedDriver.id);
+      if (earningsErr) throw earningsErr;
+
+      // Fetch payouts
+      const { data: payouts, error: payoutsErr } = await supabase
+        .from('driver_payouts')
+        .select('amount, status')
+        .eq('driver_id', selectedDriver.id);
+      if (payoutsErr) throw payoutsErr;
+
+      // Fetch recent orders
+      const { data: recentOrders, error: ordersErr } = await supabase
+        .from('orders')
+        .select('id, order_number, status, total_amount, delivery_fee, delivery_distance_km, created_at')
+        .eq('driver_id', selectedDriver.id)
+        .order('created_at', { ascending: false })
+        .limit(10);
+      if (ordersErr) throw ordersErr;
+
+      // Fetch payment info
+      const { data: paymentInfo, error: paymentErr } = await supabase
+        .from('driver_payment_info')
+        .select('*')
+        .eq('driver_id', selectedDriver.id);
+      if (paymentErr) throw paymentErr;
+
+      // Calculate stats
+      const pendingEarnings = earnings?.filter(e => e.status === 'pending').reduce((sum, e) => sum + Number(e.delivery_fee), 0) || 0;
+      const availableEarnings = earnings?.filter(e => e.status === 'available').reduce((sum, e) => sum + Number(e.delivery_fee), 0) || 0;
+      const totalEarnings = earnings?.reduce((sum, e) => sum + Number(e.delivery_fee), 0) || 0;
+      const totalDistance = earnings?.reduce((sum, e) => sum + Number(e.distance_km || 0), 0) || 0;
+      const totalDeliveries = earnings?.length || 0;
+      const avgDistance = totalDeliveries > 0 ? totalDistance / totalDeliveries : 0;
+      const totalPaidOut = payouts?.filter(p => p.status === 'completed').reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+      const pendingPayouts = payouts?.filter(p => p.status === 'pending').reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+
+      return {
+        pendingEarnings,
+        availableEarnings,
+        totalEarnings,
+        totalDistance,
+        avgDistance,
+        totalDeliveries,
+        totalPaidOut,
+        pendingPayouts,
+        recentOrders: recentOrders || [],
+        paymentInfo: paymentInfo || [],
+      };
+    },
+    enabled: !!selectedDriver,
+  });
 
   // Create driver mutation using edge function
   const createDriverMutation = useMutation({
@@ -461,13 +527,27 @@ export default function Drivers() {
                         {driver.created_at && format(new Date(driver.created_at), 'MMM d, yyyy')}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleOpenDialog(driver)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
+                        <div className="flex gap-1 justify-end">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              setSelectedDriver(driver);
+                              setProfileSheetOpen(true);
+                            }}
+                            title="View Driver Profile"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleOpenDialog(driver)}
+                            title="Edit Driver"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -477,6 +557,183 @@ export default function Drivers() {
           )}
         </CardContent>
       </Card>
+
+      {/* Driver Profile Sheet */}
+      <Sheet open={profileSheetOpen} onOpenChange={setProfileSheetOpen}>
+        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+          {selectedDriver && (
+            <>
+              <SheetHeader>
+                <SheetTitle>Driver Profile</SheetTitle>
+              </SheetHeader>
+              <div className="mt-6 space-y-6">
+                {/* Driver Info */}
+                <div className="flex items-center gap-4">
+                  <Avatar className="h-16 w-16">
+                    <AvatarImage src={selectedDriver.profile_photo_url || undefined} />
+                    <AvatarFallback className="text-lg">
+                      {selectedDriver.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <h3 className="text-xl font-bold">{selectedDriver.name}</h3>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Mail className="h-3 w-3" />
+                      {selectedDriver.email}
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Phone className="h-3 w-3" />
+                      {selectedDriver.phone}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Status Badges */}
+                <div className="flex gap-2 flex-wrap">
+                  <Badge variant={selectedDriver.is_active ? 'default' : 'secondary'}>
+                    {selectedDriver.is_active ? 'Active Account' : 'Inactive Account'}
+                  </Badge>
+                  <Badge 
+                    variant="outline" 
+                    className={`${availabilityColors[selectedDriver.availability_status || 'offline']} border-current`}
+                  >
+                    {availabilityLabels[selectedDriver.availability_status || 'offline']}
+                  </Badge>
+                </div>
+
+                <Separator />
+
+                {/* Earnings Summary */}
+                {loadingStats ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : driverStats && (
+                  <>
+                    <div>
+                      <h4 className="font-medium mb-3 flex items-center gap-2">
+                        <DollarSign className="h-4 w-4" />
+                        Earnings Summary
+                      </h4>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Card>
+                          <CardContent className="pt-4">
+                            <p className="text-xs text-muted-foreground">Pending</p>
+                            <p className="text-lg font-bold text-orange-600">₱{driverStats.pendingEarnings.toFixed(2)}</p>
+                          </CardContent>
+                        </Card>
+                        <Card>
+                          <CardContent className="pt-4">
+                            <p className="text-xs text-muted-foreground">Available</p>
+                            <p className="text-lg font-bold text-green-600">₱{driverStats.availableEarnings.toFixed(2)}</p>
+                          </CardContent>
+                        </Card>
+                        <Card>
+                          <CardContent className="pt-4">
+                            <p className="text-xs text-muted-foreground">Total Earnings</p>
+                            <p className="text-lg font-bold">₱{driverStats.totalEarnings.toFixed(2)}</p>
+                          </CardContent>
+                        </Card>
+                        <Card>
+                          <CardContent className="pt-4">
+                            <p className="text-xs text-muted-foreground">Total Paid Out</p>
+                            <p className="text-lg font-bold text-blue-600">₱{driverStats.totalPaidOut.toFixed(2)}</p>
+                          </CardContent>
+                        </Card>
+                      </div>
+                    </div>
+
+                    <Separator />
+
+                    {/* Delivery Stats */}
+                    <div>
+                      <h4 className="font-medium mb-3 flex items-center gap-2">
+                        <MapPin className="h-4 w-4" />
+                        Delivery Stats
+                      </h4>
+                      <div className="grid grid-cols-3 gap-3">
+                        <Card>
+                          <CardContent className="pt-4 text-center">
+                            <Package className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
+                            <p className="text-lg font-bold">{driverStats.totalDeliveries}</p>
+                            <p className="text-xs text-muted-foreground">Deliveries</p>
+                          </CardContent>
+                        </Card>
+                        <Card>
+                          <CardContent className="pt-4 text-center">
+                            <TrendingUp className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
+                            <p className="text-lg font-bold">{driverStats.totalDistance.toFixed(1)} km</p>
+                            <p className="text-xs text-muted-foreground">Total Distance</p>
+                          </CardContent>
+                        </Card>
+                        <Card>
+                          <CardContent className="pt-4 text-center">
+                            <MapPin className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
+                            <p className="text-lg font-bold">{driverStats.avgDistance.toFixed(1)} km</p>
+                            <p className="text-xs text-muted-foreground">Avg Distance</p>
+                          </CardContent>
+                        </Card>
+                      </div>
+                    </div>
+
+                    <Separator />
+
+                    {/* Payment Methods */}
+                    {driverStats.paymentInfo.length > 0 && (
+                      <div>
+                        <h4 className="font-medium mb-3">Payment Methods</h4>
+                        <div className="space-y-2">
+                          {driverStats.paymentInfo.map((info: any) => (
+                            <div key={info.id} className="bg-muted p-3 rounded-lg text-sm">
+                              <p className="font-medium capitalize">{info.payment_method}</p>
+                              <p className="text-muted-foreground">{info.account_name}</p>
+                              <p className="text-muted-foreground">{info.account_number}</p>
+                              {info.bank_name && <p className="text-muted-foreground">{info.bank_name}</p>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Recent Deliveries */}
+                    {driverStats.recentOrders.length > 0 && (
+                      <div>
+                        <h4 className="font-medium mb-3 flex items-center gap-2">
+                          <Clock className="h-4 w-4" />
+                          Recent Deliveries
+                        </h4>
+                        <div className="space-y-2">
+                          {driverStats.recentOrders.map((order: any) => (
+                            <div key={order.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                              <div>
+                                <p className="font-medium font-mono text-sm">{order.order_number}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {format(new Date(order.created_at), 'MMM d, h:mm a')}
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-sm font-medium text-green-600">+₱{Number(order.delivery_fee || 0).toFixed(2)}</p>
+                                <Badge variant="outline" className="text-xs">
+                                  {order.status?.replace(/_/g, ' ')}
+                                </Badge>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Joined Date */}
+                <div className="text-sm text-muted-foreground">
+                  Joined: {selectedDriver.created_at && format(new Date(selectedDriver.created_at), 'MMMM d, yyyy')}
+                </div>
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

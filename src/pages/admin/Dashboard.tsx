@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { 
   ShoppingCart, DollarSign, Clock, AlertTriangle, Loader2, TrendingUp, 
-  MapPin, Activity, Calendar, ChevronRight 
+  MapPin, Activity, Calendar, ChevronRight, Users, Truck, Package, Award
 } from 'lucide-react';
 import { startOfDay, endOfDay, subDays, startOfWeek, startOfMonth, format } from 'date-fns';
 import { Link } from 'react-router-dom';
@@ -139,6 +139,82 @@ export default function Dashboard() {
 
       if (error) throw error;
       return data?.filter(s => s.current_stock <= s.low_stock_threshold).length || 0;
+    },
+  });
+
+  // Driver stats
+  const { data: driverStats } = useQuery({
+    queryKey: ['dashboard', 'driver-stats'],
+    queryFn: async () => {
+      const { data: drivers, error } = await supabase
+        .from('drivers')
+        .select('id, is_active, availability_status');
+      if (error) throw error;
+
+      // Fetch today's driver earnings
+      const { data: todayEarnings, error: earningsErr } = await supabase
+        .from('driver_earnings')
+        .select('driver_id, delivery_fee, status')
+        .gte('created_at', startOfDay(new Date()).toISOString());
+      if (earningsErr) throw earningsErr;
+
+      const onlineCount = drivers?.filter(d => d.availability_status === 'online').length || 0;
+      const busyCount = drivers?.filter(d => d.availability_status === 'busy').length || 0;
+      const inProgressCount = todayEarnings?.filter(e => e.status === 'pending').length || 0;
+      const todayDeliveries = todayEarnings?.length || 0;
+      const todayDriverEarnings = todayEarnings?.reduce((sum, e) => sum + Number(e.delivery_fee), 0) || 0;
+
+      // Find top driver today
+      const driverEarningsMap: Record<string, number> = {};
+      todayEarnings?.forEach(e => {
+        driverEarningsMap[e.driver_id] = (driverEarningsMap[e.driver_id] || 0) + Number(e.delivery_fee);
+      });
+      const topDriverId = Object.entries(driverEarningsMap).sort((a, b) => b[1] - a[1])[0]?.[0];
+      
+      let topDriverName = null;
+      if (topDriverId) {
+        const topDriver = drivers?.find(d => d.id === topDriverId);
+        if (topDriver) {
+          const { data: driverData } = await supabase.from('drivers').select('name').eq('id', topDriverId).single();
+          topDriverName = driverData?.name;
+        }
+      }
+
+      return {
+        total: drivers?.length || 0,
+        active: drivers?.filter(d => d.is_active).length || 0,
+        online: onlineCount,
+        busy: busyCount,
+        inProgress: inProgressCount,
+        todayDeliveries,
+        todayEarnings: todayDriverEarnings,
+        topDriverName,
+        topDriverEarnings: topDriverId ? driverEarningsMap[topDriverId] : 0,
+      };
+    },
+  });
+
+  // Customer stats
+  const { data: customerStats } = useQuery({
+    queryKey: ['dashboard', 'customer-stats'],
+    queryFn: async () => {
+      // New customers today
+      const { count: newToday, error: newErr } = await supabase
+        .from('customers')
+        .select('*', { count: 'exact', head: true })
+        .gte('created_at', startOfDay(new Date()).toISOString());
+      if (newErr) throw newErr;
+
+      // Total customers
+      const { count: total, error: totalErr } = await supabase
+        .from('customers')
+        .select('*', { count: 'exact', head: true });
+      if (totalErr) throw totalErr;
+
+      return {
+        newToday: newToday || 0,
+        total: total || 0,
+      };
     },
   });
 
@@ -380,6 +456,63 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       )}
+
+      {/* Driver & Customer Stats */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Drivers Online</CardTitle>
+            <Truck className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">{driverStats?.online || 0}</div>
+            <p className="text-xs text-muted-foreground">
+              {driverStats?.busy || 0} busy, {driverStats?.inProgress || 0} in progress
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Today's Deliveries</CardTitle>
+            <Package className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{driverStats?.todayDeliveries || 0}</div>
+            <p className="text-xs text-muted-foreground">
+              ₱{(driverStats?.todayEarnings || 0).toFixed(2)} in fees
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
+            <Users className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{customerStats?.total || 0}</div>
+            <p className="text-xs text-muted-foreground">
+              {customerStats?.newToday || 0} new today
+            </p>
+          </CardContent>
+        </Card>
+
+        {driverStats?.topDriverName && (
+          <Card className="border-amber-500/30 bg-amber-500/5">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Top Driver Today</CardTitle>
+              <Award className="h-4 w-4 text-amber-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-lg font-bold truncate">{driverStats.topDriverName}</div>
+              <p className="text-xs text-muted-foreground">
+                ₱{driverStats.topDriverEarnings.toFixed(2)} earned
+              </p>
+            </CardContent>
+          </Card>
+        )}
+      </div>
 
       {/* Quick Actions */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

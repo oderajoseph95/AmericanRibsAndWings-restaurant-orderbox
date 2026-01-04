@@ -409,13 +409,8 @@ export function CheckoutSheet({
       }
 
       toast.success("Order placed successfully!");
-      onOrderConfirmed(
-        order.order_number || order.id, 
-        order.id, 
-        data.orderType as OrderType, 
-        data.pickupDate ? format(data.pickupDate, "MMMM d, yyyy") : undefined, 
-        data.pickupTime
-      );
+      // Navigate to thank you page
+      window.location.href = `/thank-you/${order.id}`;
       form.reset();
       clearPaymentProof();
       setDeliveryFee(null);
