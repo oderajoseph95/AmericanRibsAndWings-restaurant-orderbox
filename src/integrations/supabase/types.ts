@@ -634,11 +634,17 @@ export type Database = {
           driver_id: string | null
           id: string
           internal_notes: string | null
+          is_refunded: boolean | null
           order_number: string | null
           order_type: Database["public"]["Enums"]["order_type"] | null
           payment_method: string | null
           pickup_date: string | null
           pickup_time: string | null
+          refund_amount: number | null
+          refund_proof_url: string | null
+          refund_reason: string | null
+          refunded_at: string | null
+          refunded_by: string | null
           status: Database["public"]["Enums"]["order_status"] | null
           status_changed_at: string | null
           subtotal: number | null
@@ -654,11 +660,17 @@ export type Database = {
           driver_id?: string | null
           id?: string
           internal_notes?: string | null
+          is_refunded?: boolean | null
           order_number?: string | null
           order_type?: Database["public"]["Enums"]["order_type"] | null
           payment_method?: string | null
           pickup_date?: string | null
           pickup_time?: string | null
+          refund_amount?: number | null
+          refund_proof_url?: string | null
+          refund_reason?: string | null
+          refunded_at?: string | null
+          refunded_by?: string | null
           status?: Database["public"]["Enums"]["order_status"] | null
           status_changed_at?: string | null
           subtotal?: number | null
@@ -674,11 +686,17 @@ export type Database = {
           driver_id?: string | null
           id?: string
           internal_notes?: string | null
+          is_refunded?: boolean | null
           order_number?: string | null
           order_type?: Database["public"]["Enums"]["order_type"] | null
           payment_method?: string | null
           pickup_date?: string | null
           pickup_time?: string | null
+          refund_amount?: number | null
+          refund_proof_url?: string | null
+          refund_reason?: string | null
+          refunded_at?: string | null
+          refunded_by?: string | null
           status?: Database["public"]["Enums"]["order_status"] | null
           status_changed_at?: string | null
           subtotal?: number | null

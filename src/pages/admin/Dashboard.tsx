@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { 
   ShoppingCart, DollarSign, Clock, AlertTriangle, Loader2, TrendingUp, 
-  MapPin, Activity, Calendar, ChevronRight, Users, Truck, Package, Award
+  MapPin, Activity, Calendar, ChevronRight, Users, Truck, Package, Award, XCircle
 } from 'lucide-react';
 import { startOfDay, endOfDay, subDays, startOfWeek, startOfMonth, format } from 'date-fns';
 import { Link } from 'react-router-dom';
@@ -75,7 +75,7 @@ export default function Dashboard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('orders')
-        .select('id, total_amount, status, order_type, delivery_distance_km, delivery_fee')
+        .select('id, total_amount, status, order_type, delivery_distance_km, delivery_fee, is_refunded, refund_amount')
         .gte('created_at', dateRange.start.toISOString())
         .lte('created_at', dateRange.end.toISOString());
 
@@ -92,12 +92,22 @@ export default function Dashboard() {
       const pendingCount = data?.filter(o => o.status === 'pending').length || 0;
       const forVerificationCount = data?.filter(o => o.status === 'for_verification').length || 0;
       
+      // Cancelled/Rejected stats
+      const cancelledOrders = data?.filter(o => o.status === 'cancelled') || [];
+      const rejectedOrders = data?.filter(o => o.status === 'rejected') || [];
+      const refundedOrders = data?.filter(o => o.is_refunded === true) || [];
+      const totalRefunds = refundedOrders.reduce((sum, o) => sum + Number(o.refund_amount || 0), 0);
+      
       // Order type breakdown
       const pickupCount = salesOrders.filter(o => o.order_type === 'pickup').length;
       const dineInCount = salesOrders.filter(o => o.order_type === 'dine_in').length;
 
+      // Net sales = sales - refunds
+      const netSales = totalSales - totalRefunds;
+
       return {
         totalSales,
+        netSales,
         salesOrderCount: salesOrders.length,
         pendingCount,
         forVerificationCount,
@@ -108,6 +118,10 @@ export default function Dashboard() {
         totalDeliveryDistance,
         avgDeliveryDistance,
         totalDeliveryFees,
+        cancelledCount: cancelledOrders.length,
+        rejectedCount: rejectedOrders.length,
+        refundedCount: refundedOrders.length,
+        totalRefunds,
       };
     },
   });
@@ -347,6 +361,11 @@ export default function Dashboard() {
             <p className="text-xs text-muted-foreground">
               {periodStats?.salesOrderCount || 0} completed orders
             </p>
+            {(periodStats?.totalRefunds || 0) > 0 && (
+              <p className="text-xs text-orange-600 mt-1">
+                Net: ₱{(periodStats?.netSales || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+              </p>
+            )}
           </CardContent>
         </Card>
 
@@ -385,6 +404,55 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Cancelled/Refund Stats - only show if there are any */}
+      {((periodStats?.cancelledCount || 0) + (periodStats?.rejectedCount || 0)) > 0 && (
+        <div className="grid gap-4 md:grid-cols-4">
+          <Card className="border-orange-500/20 bg-orange-500/5">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Cancelled</CardTitle>
+              <XCircle className="h-4 w-4 text-orange-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-orange-600">{periodStats?.cancelledCount || 0}</div>
+              <p className="text-xs text-muted-foreground">Orders cancelled</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-red-500/20 bg-red-500/5">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Rejected</CardTitle>
+              <XCircle className="h-4 w-4 text-red-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-red-600">{periodStats?.rejectedCount || 0}</div>
+              <p className="text-xs text-muted-foreground">Orders rejected</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-blue-500/20 bg-blue-500/5">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Refunds Issued</CardTitle>
+              <DollarSign className="h-4 w-4 text-blue-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-blue-600">{periodStats?.refundedCount || 0}</div>
+              <p className="text-xs text-muted-foreground">Orders refunded</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-purple-500/20 bg-purple-500/5">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Total Refunds</CardTitle>
+              <DollarSign className="h-4 w-4 text-purple-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-purple-600">₱{(periodStats?.totalRefunds || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</div>
+              <p className="text-xs text-muted-foreground">Amount refunded</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Delivery Metrics - Only show if there are delivery orders */}
       {(periodStats?.deliveryCount || 0) > 0 && (
