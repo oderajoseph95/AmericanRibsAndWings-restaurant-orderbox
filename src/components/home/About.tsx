@@ -82,7 +82,7 @@ export function About() {
 
   if (isLoading) {
     return (
-      <section id="about" className="py-12 bg-background">
+      <section id="about" className="py-3 md:py-12 bg-background">
         <div className="container px-4 flex justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -96,7 +96,7 @@ export function About() {
   const features = content.features && content.features.length > 0 ? content.features : defaultFeatures;
 
   return (
-    <section id="about" className="py-12 bg-background">
+    <section id="about" className="py-3 md:py-12 bg-background">
       <div className="container px-4">
         <div className="grid lg:grid-cols-2 gap-8 items-center">
           {/* Left side - Story */}

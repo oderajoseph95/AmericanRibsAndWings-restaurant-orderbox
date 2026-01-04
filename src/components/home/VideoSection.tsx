@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { Play, Video as VideoIcon, Loader2, X } from "lucide-react";
+import { Video as VideoIcon, Loader2 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import {
   Dialog,
@@ -63,7 +63,7 @@ export function VideoSection() {
 
   if (isLoading) {
     return (
-      <section className="py-12 bg-gradient-to-b from-muted/30 to-background">
+      <section className="py-3 md:py-12 bg-gradient-to-b from-muted/30 to-background">
         <div className="container px-4 flex justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -76,7 +76,7 @@ export function VideoSection() {
   }
 
   return (
-    <section className="py-12 bg-gradient-to-b from-muted/30 to-background">
+    <section className="py-3 md:py-12 bg-gradient-to-b from-muted/30 to-background">
       <div className="container px-4">
         {/* Section header */}
         <div className="text-center mb-8">
@@ -95,7 +95,7 @@ export function VideoSection() {
         </div>
 
         {/* Video grid - optimized for vertical/reel format */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
           {videos.map((video) => (
             <Card
               key={video.id}
@@ -122,11 +122,6 @@ export function VideoSection() {
                     videoEl.play().catch(() => {});
                   }}
                 />
-                <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-colors flex items-center justify-center">
-                  <div className="w-12 h-12 bg-primary rounded-full flex items-center justify-center transform group-hover:scale-110 transition-transform shadow-lg">
-                    <Play className="h-5 w-5 text-primary-foreground ml-0.5" fill="currentColor" />
-                  </div>
-                </div>
               </div>
             </Card>
           ))}

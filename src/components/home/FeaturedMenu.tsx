@@ -72,7 +72,7 @@ export function FeaturedMenu() {
   const content = (sectionConfig?.content as FeaturedMenuContent) || {};
 
   return (
-    <section id="menu" className="py-12 bg-background">
+    <section id="menu" className="py-3 md:py-12 bg-background">
       <div className="container px-4">
         {/* Section header */}
         <div className="text-center mb-8">
