@@ -140,11 +140,23 @@ export default function DriverEarnings() {
   });
 
   // Request payout mutation
+
+  // Request payout mutation
   const requestPayoutMutation = useMutation({
     mutationFn: async () => {
       if (!driver?.id) throw new Error('No driver');
       const paymentInfo = paymentMethods.find(p => p.payment_method === selectedPaymentMethod);
       if (!paymentInfo) throw new Error('No payment method selected');
+
+      // Double check no pending payouts exist (server-side validation)
+      const { data: existingPending } = await supabase
+        .from('driver_payouts')
+        .select('id')
+        .eq('driver_id', driver.id)
+        .eq('status', 'pending')
+        .maybeSingle();
+
+      if (existingPending) throw new Error('You already have a pending payout request');
 
       const availableEarnings = earnings.filter(e => e.status === 'available');
       const totalAmount = availableEarnings.reduce((sum, e) => sum + e.delivery_fee, 0);
@@ -195,6 +207,11 @@ export default function DriverEarnings() {
   const paidOut = earnings.filter(e => e.status === 'paid').reduce((sum, e) => sum + e.delivery_fee, 0);
   const totalDistance = earnings.reduce((sum, e) => sum + (e.distance_km || 0), 0);
   const deliveryCount = earnings.length;
+
+  // Check if there's a pending payout request (placed after availableBalance is defined)
+  const hasPendingPayout = payouts.some(p => p.status === 'pending');
+  const hasRequestedEarnings = earnings.some(e => e.status === 'requested');
+  const canRequestPayout = !hasPendingPayout && !hasRequestedEarnings && availableBalance > 0 && paymentMethods.length > 0;
 
   // Chart data - group by day
   const chartData = earnings.reduce((acc, earning) => {
@@ -271,13 +288,19 @@ export default function DriverEarnings() {
             </div>
             <Button 
               onClick={() => setPayoutDialogOpen(true)}
-              disabled={availableBalance <= 0 || paymentMethods.length === 0}
+              disabled={!canRequestPayout || paymentMethods.length === 0}
             >
               <ArrowUpRight className="h-4 w-4 mr-2" />
               Request Payout
             </Button>
           </div>
-          {paymentMethods.length === 0 && (
+          {hasPendingPayout && (
+            <p className="text-xs text-yellow-600 mt-2 flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              You have a pending payout request. Please wait for it to be processed.
+            </p>
+          )}
+          {paymentMethods.length === 0 && !hasPendingPayout && (
             <p className="text-xs text-orange-600 mt-2 flex items-center gap-1">
               <AlertCircle className="h-3 w-3" />
               Add payment method in Profile to request payouts

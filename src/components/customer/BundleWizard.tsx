@@ -68,11 +68,12 @@ export function BundleWizard({
     return "wings"; // default
   };
 
-  // Get current step component and filtered flavors
+  // Get current step component and filtered flavors (include unavailable for display)
   const currentComponent = bundleComponents?.[currentStep];
   const stepFlavors = useMemo(() => {
     if (!currentComponent || !flavors) return [];
     const category = getFlavorCategory(currentComponent.component_product.name);
+    // Include unavailable flavors to show as greyed out, filter only by category and active
     return flavors.filter((f) => f.flavor_category === category && f.is_active);
   }, [currentComponent, flavors]);
 
@@ -88,7 +89,9 @@ export function BundleWizard({
     }, 0);
   }, [selections, flavors]);
 
-  const handleFlavorSelect = (flavorId: string) => {
+  const handleFlavorSelect = (flavorId: string, isAvailable: boolean) => {
+    // Don't allow selection of unavailable flavors
+    if (!isAvailable) return;
     setSelections((prev) => ({ ...prev, [currentStep]: flavorId }));
   };
 
@@ -189,46 +192,61 @@ export function BundleWizard({
                 ) : (
                   stepFlavors.map((flavor) => {
                     const isSelected = selections[currentStep] === flavor.id;
+                    const isUnavailable = flavor.is_available === false;
 
                     return (
                       <button
                         key={flavor.id}
-                        onClick={() => handleFlavorSelect(flavor.id)}
+                        onClick={() => handleFlavorSelect(flavor.id, !isUnavailable)}
+                        disabled={isUnavailable}
                         className={`w-full flex items-center justify-between p-3 rounded-lg border transition-colors text-left ${
-                          isSelected
+                          isUnavailable
+                            ? "border-border bg-muted/50 opacity-60 cursor-not-allowed"
+                            : isSelected
                             ? "border-primary bg-primary/5"
                             : "border-border hover:border-primary/50"
                         }`}
                       >
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="font-medium">{flavor.name}</span>
-                            {flavor.flavor_type === "special" && (
+                            <span className={`font-medium ${isUnavailable ? "text-muted-foreground" : ""}`}>
+                              {flavor.name}
+                            </span>
+                            {isUnavailable && (
+                              <Badge variant="destructive" className="text-xs">
+                                Out of Stock
+                              </Badge>
+                            )}
+                            {!isUnavailable && flavor.flavor_type === "special" && (
                               <Badge variant="secondary" className="text-xs">
                                 Special
                               </Badge>
                             )}
                           </div>
-                          {flavor.surcharge && flavor.surcharge > 0 ? (
-                            <p className="text-xs text-accent">
-                              +₱{flavor.surcharge.toFixed(2)}
-                            </p>
-                          ) : (
-                            <p className="text-xs flex items-center gap-1">
-                              <span className="line-through text-muted-foreground">₱0.00</span>
-                              <Badge variant="secondary" className="text-[10px] px-1 py-0">FREE</Badge>
-                            </p>
+                          {!isUnavailable && (
+                            flavor.surcharge && flavor.surcharge > 0 ? (
+                              <p className="text-xs text-accent">
+                                +₱{flavor.surcharge.toFixed(2)}
+                              </p>
+                            ) : (
+                              <p className="text-xs flex items-center gap-1">
+                                <span className="line-through text-muted-foreground">₱0.00</span>
+                                <Badge variant="secondary" className="text-[10px] px-1 py-0">FREE</Badge>
+                              </p>
+                            )
                           )}
                         </div>
 
                         <div
                           className={`h-5 w-5 rounded-full border-2 flex items-center justify-center transition-colors ${
-                            isSelected
+                            isUnavailable
+                              ? "border-muted-foreground/50"
+                              : isSelected
                               ? "border-primary bg-primary"
                               : "border-muted-foreground"
                           }`}
                         >
-                          {isSelected && <Check className="h-3 w-3 text-primary-foreground" />}
+                          {isSelected && !isUnavailable && <Check className="h-3 w-3 text-primary-foreground" />}
                         </div>
                       </button>
                     );
