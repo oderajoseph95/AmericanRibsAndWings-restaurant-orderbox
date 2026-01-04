@@ -350,22 +350,22 @@ export function CheckoutSheet({
         ? `${data.streetAddress}, ${barangay}, ${data.city}, Pampanga${data.landmark ? ` (Landmark: ${data.landmark})` : ""} [GPS: ${data.customerLat?.toFixed(5)}, ${data.customerLng?.toFixed(5)}]` 
         : null;
 
-      const orderData = {
-        customer_id: customerId,
-        order_type: data.orderType as OrderType,
-        status: "pending" as const,
-        subtotal: total,
-        total_amount: grandTotal,
-        delivery_address: deliveryAddress,
-        delivery_fee: deliveryFee || 0,
-        delivery_distance_km: deliveryDistance,
-        pickup_date: data.orderType === "pickup" && data.pickupDate ? format(data.pickupDate, "yyyy-MM-dd") : null,
-        pickup_time: data.orderType === "pickup" && data.pickupTime ? data.pickupTime : null,
-        internal_notes: data.notes || null
-      };
-
-      const { data: order, error: orderError } = await supabase.from("orders").insert(orderData).select().single();
+      // Use secure RPC function for order creation (bypasses RLS)
+      const { data: orderResult, error: orderError } = await supabase.rpc('create_checkout_order', {
+        p_customer_id: customerId,
+        p_order_type: data.orderType,
+        p_subtotal: total,
+        p_total_amount: grandTotal,
+        p_delivery_address: deliveryAddress,
+        p_delivery_fee: deliveryFee || 0,
+        p_delivery_distance_km: deliveryDistance,
+        p_pickup_date: data.orderType === "pickup" && data.pickupDate ? format(data.pickupDate, "yyyy-MM-dd") : null,
+        p_pickup_time: data.orderType === "pickup" && data.pickupTime ? data.pickupTime : null,
+        p_internal_notes: data.notes || null
+      });
+      
       if (orderError) throw orderError;
+      const order = orderResult[0];
 
       for (const item of cart) {
         const orderItemData = {
