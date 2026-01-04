@@ -283,7 +283,7 @@ export default function Dashboard() {
       });
 
       return Object.values(productMap)
-        .sort((a, b) => b.qty - a.qty) // Sort by quantity sold (most ordered)
+        .sort((a, b) => b.revenue - a.revenue) // Sort by revenue (top sellers)
         .slice(0, 5);
     },
   });
