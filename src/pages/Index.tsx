@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Navbar } from "@/components/home/Navbar";
@@ -10,6 +11,8 @@ import { About } from "@/components/home/About";
 import { Location } from "@/components/home/Location";
 import { Footer } from "@/components/home/Footer";
 import { SEOHead } from "@/components/SEOHead";
+import { useVisitorPresence } from "@/hooks/useVisitorPresence";
+import { trackAnalyticsEvent } from "@/hooks/useAnalytics";
 
 interface SectionConfig {
   section_key: string;
@@ -18,6 +21,14 @@ interface SectionConfig {
 }
 
 const Index = () => {
+  // Track visitor presence
+  useVisitorPresence("/");
+
+  // Track page view on mount
+  useEffect(() => {
+    trackAnalyticsEvent("page_view", { page: "home" }, "/");
+  }, []);
+
   // Fetch section visibility config
   const { data: sections } = useQuery({
     queryKey: ["homepage-sections-visibility"],

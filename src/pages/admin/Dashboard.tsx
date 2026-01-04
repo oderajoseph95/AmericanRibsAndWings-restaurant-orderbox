@@ -12,6 +12,8 @@ import { startOfDay, endOfDay, subDays, startOfWeek, startOfMonth, format } from
 import { Link } from 'react-router-dom';
 import { DashboardChart } from '@/components/admin/DashboardChart';
 import { ActivityFeed } from '@/components/admin/ActivityFeed';
+import { LiveVisitorsCard } from '@/components/admin/LiveVisitorsCard';
+import { ConversionFunnelCard } from '@/components/admin/ConversionFunnelCard';
 import { Badge } from '@/components/ui/badge';
 import type { Database } from '@/integrations/supabase/types';
 
@@ -346,6 +348,15 @@ export default function Dashboard() {
               {filter === 'week' ? 'This Week' : filter === 'month' ? 'This Month' : filter}
             </Button>
           ))}
+        </div>
+      </div>
+
+
+      {/* Live Visitors & Conversion Funnel */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <LiveVisitorsCard />
+        <div className="md:col-span-2">
+          <ConversionFunnelCard dateFilter={dateFilter} />
         </div>
       </div>
 
