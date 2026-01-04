@@ -19,6 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, Upload, X, Check, Package, Truck, CalendarIcon, MapPin, User, CreditCard, ClipboardList, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { sendPushNotification } from "@/hooks/usePushNotifications";
 import { cn } from "@/lib/utils";
 import { DeliveryMapPicker } from "./DeliveryMapPicker";
 import { AccordionSection } from "./checkout/AccordionSection";
@@ -516,6 +517,20 @@ export function CheckoutSheet({
           image_url: urlData.publicUrl
         });
         await supabase.from("orders").update({ status: "for_verification" }).eq("id", order.id);
+      }
+
+      // Notify admins about new order
+      try {
+        await sendPushNotification({
+          title: "New Order Received! 🔔",
+          body: `Order #${order.order_number} from ${data.name} (₱${grandTotal.toLocaleString()})`,
+          url: `/admin/orders`,
+          userType: "admin",
+          orderId: order.id,
+          orderNumber: order.order_number,
+        });
+      } catch (e) {
+        console.error("Failed to send admin notification:", e);
       }
 
       toast.success("Order placed successfully!");

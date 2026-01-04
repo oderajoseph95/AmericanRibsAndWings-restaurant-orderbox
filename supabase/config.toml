@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.create-driver-auth]
 verify_jwt = false
+
+[functions.send-push-notification]
+verify_jwt = false

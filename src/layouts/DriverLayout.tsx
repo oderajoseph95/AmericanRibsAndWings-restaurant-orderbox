@@ -6,6 +6,7 @@ import { LogOut, Truck, User, Package, Wallet, Home } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { NotificationBell } from '@/components/NotificationBell';
 
 export default function DriverLayout() {
   const { user, signOut, isDriver } = useAuth();
@@ -69,9 +70,14 @@ export default function DriverLayout() {
               )}
             </div>
           </div>
-          <Button variant="ghost" size="icon" onClick={handleSignOut}>
-            <LogOut className="h-5 w-5" />
-          </Button>
+          <div className="flex items-center gap-1">
+            {driver && (
+              <NotificationBell userType="driver" driverId={driver.id} />
+            )}
+            <Button variant="ghost" size="icon" onClick={handleSignOut}>
+              <LogOut className="h-5 w-5" />
+            </Button>
+          </div>
         </div>
       </header>
 
