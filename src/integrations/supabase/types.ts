@@ -1133,7 +1133,7 @@ export type Database = {
         | "order_approved"
         | "order_cancelled"
       app_role: "owner" | "manager" | "cashier" | "driver"
-      delivery_photo_type: "pickup" | "delivery"
+      delivery_photo_type: "pickup" | "delivery" | "return"
       driver_availability: "offline" | "online" | "busy" | "unavailable"
       flavor_type: "all_time" | "special"
       order_status:
@@ -1285,7 +1285,7 @@ export const Constants = {
         "order_cancelled",
       ],
       app_role: ["owner", "manager", "cashier", "driver"],
-      delivery_photo_type: ["pickup", "delivery"],
+      delivery_photo_type: ["pickup", "delivery", "return"],
       driver_availability: ["offline", "online", "busy", "unavailable"],
       flavor_type: ["all_time", "special"],
       order_status: [

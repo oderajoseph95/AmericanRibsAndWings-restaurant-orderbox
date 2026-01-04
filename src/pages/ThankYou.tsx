@@ -168,10 +168,10 @@ const statusConfig: Record<Enums<'order_status'>, {
     description: 'Order completed successfully'
   },
   rejected: { 
-    label: 'Rejected', 
+    label: 'Returned to Restaurant', 
     icon: XCircle, 
     color: 'text-red-600',
-    description: 'Order was rejected'
+    description: 'Order was returned to the restaurant'
   },
   cancelled: { 
     label: 'Cancelled', 
@@ -197,20 +197,23 @@ export default function ThankYou() {
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Fetch delivery photos for the order
+  // Get actual order UUID from tracking data (orderId from URL is order_number, not UUID)
+  const actualOrderId = trackingData?.order?.id;
+
+  // Fetch delivery photos for the order using actual UUID
   const { data: deliveryPhotos = [] } = useQuery({
-    queryKey: ['delivery-photos', orderId],
+    queryKey: ['delivery-photos', actualOrderId],
     queryFn: async () => {
-      if (!orderId) return [];
+      if (!actualOrderId) return [];
       const { data, error } = await supabase
         .from('delivery_photos')
         .select('*')
-        .eq('order_id', orderId)
+        .eq('order_id', actualOrderId)
         .order('created_at', { ascending: true });
       if (error) throw error;
       return data as Tables<'delivery_photos'>[];
     },
-    enabled: !!orderId,
+    enabled: !!actualOrderId,
   });
 
   // Fetch order data using secure RPC function with polling fallback

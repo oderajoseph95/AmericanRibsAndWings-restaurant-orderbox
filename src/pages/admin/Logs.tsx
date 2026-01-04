@@ -37,10 +37,12 @@ const actionColors: Record<string, string> = {
   status_change: 'bg-orange-500/20 text-orange-700 border-orange-500/30',
   toggle: 'bg-cyan-500/20 text-cyan-700 border-cyan-500/30',
   upload: 'bg-indigo-500/20 text-indigo-700 border-indigo-500/30',
+  photo_upload: 'bg-pink-500/20 text-pink-700 border-pink-500/30',
+  return: 'bg-amber-500/20 text-amber-700 border-amber-500/30',
 };
 
-const entityTypes = ['all', 'payout', 'order', 'driver', 'product', 'category', 'flavor', 'user', 'setting', 'stock'];
-const actions = ['all', 'approve', 'reject', 'complete', 'create', 'update', 'delete', 'assign', 'status_change', 'toggle', 'upload'];
+const entityTypes = ['all', 'payout', 'order', 'driver', 'product', 'category', 'flavor', 'user', 'setting', 'stock', 'delivery_photo'];
+const actions = ['all', 'approve', 'reject', 'complete', 'create', 'update', 'delete', 'assign', 'status_change', 'toggle', 'upload', 'photo_upload', 'return'];
 
 export default function Logs() {
   const [search, setSearch] = useState('');
@@ -160,9 +162,16 @@ export default function Logs() {
                       {format(new Date(log.created_at), 'MMM d, h:mm a')}
                     </TableCell>
                     <TableCell>
-                      <span className="text-sm truncate max-w-[200px] block">
-                        {log.user_email}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        {log.user_email.startsWith('driver:') && (
+                          <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/30 text-xs">
+                            Driver
+                          </Badge>
+                        )}
+                        <span className="text-sm truncate max-w-[180px] block">
+                          {log.user_email.replace('driver:', '')}
+                        </span>
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Badge 
