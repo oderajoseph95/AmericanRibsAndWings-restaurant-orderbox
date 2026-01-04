@@ -25,12 +25,31 @@ import { AccordionSection } from "./checkout/AccordionSection";
 import { CompactOrderSummary } from "./checkout/CompactOrderSummary";
 import type { CartItem, OrderType } from "@/pages/Order";
 
+// Philippine phone number validation helper
+const validatePhilippinePhone = (phone: string): boolean => {
+  const cleaned = phone.replace(/[\s-]/g, '');
+  // Valid formats: 09XXXXXXXXX, +639XXXXXXXX, 639XXXXXXXX
+  if (cleaned.startsWith('+63')) {
+    return /^\+639\d{9}$/.test(cleaned);
+  }
+  if (cleaned.startsWith('63')) {
+    return /^639\d{9}$/.test(cleaned);
+  }
+  if (cleaned.startsWith('09')) {
+    return /^09\d{9}$/.test(cleaned);
+  }
+  return false;
+};
+
 const checkoutSchema = z.object({
   orderType: z.enum(["pickup", "delivery"]),
   pickupDate: z.date().optional(),
   pickupTime: z.string().optional(),
   name: z.string().min(2, "Name must be at least 2 characters").max(100),
-  phone: z.string().min(10, "Phone number is required").max(15),
+  phone: z.string()
+    .min(11, "Phone number must be 11 digits")
+    .max(13, "Phone number too long")
+    .refine(validatePhilippinePhone, "Phone must start with 09, +63, or 63 (e.g., 09171234567)"),
   email: z.string().email("Invalid email").optional().or(z.literal("")),
   streetAddress: z.string().optional(),
   city: z.string().optional(),
@@ -501,7 +520,8 @@ export function CheckoutSheet({
                   summary={getSectionSummary("pickup-schedule")}
                   isActive={activeSection === "pickup-schedule"}
                   isCompleted={completedSections.has("pickup-schedule")}
-                  onToggle={() => setActiveSection("pickup-schedule")}
+                  isDisabled={!completedSections.has("order-type")}
+                  onToggle={() => completedSections.has("order-type") && setActiveSection("pickup-schedule")}
                 >
                   <p className="text-sm text-muted-foreground mb-3">
                     Schedule pickup up to 3 days in advance.
@@ -592,7 +612,8 @@ export function CheckoutSheet({
                   summary={getSectionSummary("delivery-address")}
                   isActive={activeSection === "delivery-address"}
                   isCompleted={completedSections.has("delivery-address")}
-                  onToggle={() => setActiveSection("delivery-address")}
+                  isDisabled={!completedSections.has("order-type")}
+                  onToggle={() => completedSections.has("order-type") && setActiveSection("delivery-address")}
                 >
                   <DeliveryMapPicker 
                     onLocationSelect={handleLocationSelect} 
@@ -624,7 +645,11 @@ export function CheckoutSheet({
                 summary={getSectionSummary("customer-info")}
                 isActive={activeSection === "customer-info"}
                 isCompleted={completedSections.has("customer-info")}
-                onToggle={() => setActiveSection("customer-info")}
+                isDisabled={orderType === "pickup" ? !completedSections.has("pickup-schedule") : !completedSections.has("delivery-address")}
+                onToggle={() => {
+                  const canAccess = orderType === "pickup" ? completedSections.has("pickup-schedule") : completedSections.has("delivery-address");
+                  if (canAccess) setActiveSection("customer-info");
+                }}
               >
                 <FormField 
                   control={form.control} 
@@ -647,8 +672,9 @@ export function CheckoutSheet({
                     <FormItem>
                       <FormLabel>Phone *</FormLabel>
                       <FormControl>
-                        <Input placeholder="09XX XXX XXXX" {...field} />
+                        <Input placeholder="09171234567" {...field} />
                       </FormControl>
+                      <p className="text-xs text-muted-foreground">Format: 09XX XXX XXXX or +639XX XXX XXXX</p>
                       <FormMessage />
                     </FormItem>
                   )} 
@@ -703,7 +729,8 @@ export function CheckoutSheet({
                 summary={getSectionSummary("payment")}
                 isActive={activeSection === "payment"}
                 isCompleted={completedSections.has("payment")}
-                onToggle={() => setActiveSection("payment")}
+                isDisabled={!completedSections.has("customer-info")}
+                onToggle={() => completedSections.has("customer-info") && setActiveSection("payment")}
               >
                 <FormField 
                   control={form.control} 
@@ -895,7 +922,8 @@ export function CheckoutSheet({
                 summary={getSectionSummary("review")}
                 isActive={activeSection === "review"}
                 isCompleted={false}
-                onToggle={() => setActiveSection("review")}
+                isDisabled={!completedSections.has("payment")}
+                onToggle={() => completedSections.has("payment") && setActiveSection("review")}
               >
                 <div className="space-y-3">
                   {/* Detailed Order Items */}

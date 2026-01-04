@@ -8,9 +8,17 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
-import { Shield, Loader2, Upload, CreditCard, X } from 'lucide-react';
+import { Shield, Loader2, Upload, CreditCard, X, Trash2, AlertTriangle } from 'lucide-react';
 import type { Json } from '@/integrations/supabase/types';
 import type { Enums } from '@/integrations/supabase/types';
 
@@ -18,6 +26,9 @@ export default function Settings() {
   const { role, user } = useAuth();
   const [uploadingGcash, setUploadingGcash] = useState(false);
   const [uploadingBank, setUploadingBank] = useState(false);
+  const [wipeDialogOpen, setWipeDialogOpen] = useState(false);
+  const [masterPassword, setMasterPassword] = useState('');
+  const [isWiping, setIsWiping] = useState(false);
   const queryClient = useQueryClient();
 
   // Fetch settings
@@ -156,6 +167,71 @@ export default function Settings() {
       toast.success('QR code removed');
     } catch (error: any) {
       toast.error(error.message || 'Failed to remove QR code');
+    }
+  };
+
+  // Data wipe handler
+  const handleDataWipe = async () => {
+    if (masterPassword !== 'WTF') {
+      toast.error('Invalid master password');
+      return;
+    }
+
+    setIsWiping(true);
+
+    try {
+      // Delete in order to respect foreign keys
+      // 1. Delete order item flavors (via order items)
+      const { data: orderItems } = await supabase.from('order_items').select('id');
+      const orderItemIds = orderItems?.map(oi => oi.id) || [];
+      if (orderItemIds.length > 0) {
+        await supabase.from('order_item_flavors').delete().in('order_item_id', orderItemIds);
+      }
+
+      // 2. Delete order items
+      await supabase.from('order_items').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+      // 3. Delete payment proofs
+      await supabase.from('payment_proofs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+      // 4. Delete delivery photos
+      await supabase.from('delivery_photos').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+      // 5. Delete driver earnings
+      await supabase.from('driver_earnings').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+      // 6. Delete driver payouts
+      await supabase.from('driver_payouts').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+      // 7. Delete stock adjustments
+      await supabase.from('stock_adjustments').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+      // 8. Delete orders
+      await supabase.from('orders').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+      // 9. Delete customers
+      await supabase.from('customers').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+      // Log the wipe action
+      await logAdminAction({
+        action: 'data_wipe',
+        entityType: 'system',
+        details: 'Performed complete data wipe: orders, customers, driver earnings/payouts, stock adjustments',
+      });
+
+      // Invalidate all related queries
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-drivers'] });
+
+      setWipeDialogOpen(false);
+      setMasterPassword('');
+      toast.success('Data wipe completed successfully');
+    } catch (error: any) {
+      console.error('Data wipe error:', error);
+      toast.error(error.message || 'Failed to wipe data');
+    } finally {
+      setIsWiping(false);
     }
   };
 
@@ -447,6 +523,109 @@ export default function Settings() {
                 {role?.charAt(0).toUpperCase() + (role?.slice(1) || '')}
               </Badge>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Separator />
+
+      {/* Danger Zone */}
+      <Card className="border-destructive/50">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-destructive">
+            <AlertTriangle className="h-5 w-5" />
+            Danger Zone
+          </CardTitle>
+          <CardDescription>
+            Irreversible actions. Use with extreme caution.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="p-4 border border-destructive/30 rounded-lg bg-destructive/5">
+            <h4 className="font-medium mb-2">Wipe All Data</h4>
+            <p className="text-sm text-muted-foreground mb-4">
+              Delete ALL orders, customers, driver earnings, payouts, and stock adjustments. 
+              Products, categories, flavors, drivers, and settings will remain intact.
+            </p>
+            <Dialog open={wipeDialogOpen} onOpenChange={setWipeDialogOpen}>
+              <DialogTrigger asChild>
+                <Button variant="destructive">
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Wipe All Data
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2 text-destructive">
+                    <AlertTriangle className="h-5 w-5" />
+                    Confirm Data Wipe
+                  </DialogTitle>
+                  <DialogDescription>
+                    This will permanently delete ALL orders, customers, driver earnings, payouts, 
+                    and stock adjustments. This action cannot be undone.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="p-3 bg-destructive/10 rounded-lg text-sm">
+                    <p className="font-medium text-destructive mb-2">Will be deleted:</p>
+                    <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                      <li>All orders and order items</li>
+                      <li>All customers</li>
+                      <li>All payment proofs</li>
+                      <li>All delivery photos</li>
+                      <li>All driver earnings</li>
+                      <li>All driver payouts</li>
+                      <li>All stock adjustments</li>
+                    </ul>
+                  </div>
+                  <div className="p-3 bg-muted rounded-lg text-sm">
+                    <p className="font-medium mb-2">Will be preserved:</p>
+                    <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                      <li>Products, categories, flavors</li>
+                      <li>Driver accounts</li>
+                      <li>User accounts and roles</li>
+                      <li>Settings and configurations</li>
+                    </ul>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="master-password">Enter Master Password</Label>
+                    <Input
+                      id="master-password"
+                      type="password"
+                      value={masterPassword}
+                      onChange={(e) => setMasterPassword(e.target.value)}
+                      placeholder="Enter master password"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => {
+                        setWipeDialogOpen(false);
+                        setMasterPassword('');
+                      }}
+                      disabled={isWiping}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      className="flex-1"
+                      onClick={handleDataWipe}
+                      disabled={isWiping || !masterPassword}
+                    >
+                      {isWiping ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : (
+                        <Trash2 className="h-4 w-4 mr-2" />
+                      )}
+                      Confirm Wipe
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
         </CardContent>
       </Card>

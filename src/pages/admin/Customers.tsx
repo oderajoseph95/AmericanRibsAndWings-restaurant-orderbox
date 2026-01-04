@@ -6,22 +6,38 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
+import { logAdminAction } from '@/lib/adminLogger';
 import { Plus, Pencil, Trash2, Search, Loader2, Eye } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Tables } from '@/integrations/supabase/types';
 
 export default function Customers() {
   const { role } = useAuth();
+  const isOwner = role === 'owner';
   const canEdit = role === 'owner' || role === 'manager';
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Tables<'customers'> | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<Tables<'customers'> | null>(null);
+  const [selectedCustomerIds, setSelectedCustomerIds] = useState<Set<string>>(new Set());
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: customers = [], isLoading } = useQuery({
@@ -112,12 +128,62 @@ export default function Customers() {
     },
   });
 
+  // Bulk delete handler
+  const handleBulkDelete = async () => {
+    if (selectedCustomerIds.size === 0) return;
+    setIsDeleting(true);
+
+    try {
+      const customerIds = Array.from(selectedCustomerIds);
+      
+      for (const customerId of customerIds) {
+        const { error } = await supabase.from('customers').delete().eq('id', customerId);
+        if (error) throw error;
+      }
+
+      await logAdminAction({
+        action: 'bulk_delete',
+        entityType: 'customers',
+        details: `Deleted ${customerIds.length} customers`,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      setSelectedCustomerIds(new Set());
+      setShowDeleteDialog(false);
+      toast.success(`Deleted ${customerIds.length} customers`);
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete customers');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const filteredCustomers = customers.filter(
     (c) =>
       c.name.toLowerCase().includes(search.toLowerCase()) ||
       c.phone?.toLowerCase().includes(search.toLowerCase()) ||
       c.email?.toLowerCase().includes(search.toLowerCase())
   );
+
+  const toggleSelectCustomer = (customerId: string) => {
+    setSelectedCustomerIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(customerId)) {
+        newSet.delete(customerId);
+      } else {
+        newSet.add(customerId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedCustomerIds.size === filteredCustomers.length) {
+      setSelectedCustomerIds(new Set());
+    } else {
+      setSelectedCustomerIds(new Set(filteredCustomers.map(c => c.id)));
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -148,66 +214,74 @@ export default function Customers() {
             {customers.length} total customers
           </p>
         </div>
-        {canEdit && (
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button onClick={openNewDialog}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Customer
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>
-                  {editingCustomer ? 'Edit Customer' : 'New Customer'}
-                </DialogTitle>
-              </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Name *</Label>
-                  <Input
-                    id="name"
-                    name="name"
-                    defaultValue={editingCustomer?.name || ''}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Phone</Label>
-                  <Input
-                    id="phone"
-                    name="phone"
-                    type="tel"
-                    defaultValue={editingCustomer?.phone || ''}
-                    placeholder="09XX XXX XXXX"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    name="email"
-                    type="email"
-                    defaultValue={editingCustomer?.email || ''}
-                    placeholder="customer@example.com"
-                  />
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setDialogOpen(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button type="submit" disabled={saveMutation.isPending}>
-                    {saveMutation.isPending ? 'Saving...' : 'Save'}
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
-        )}
+        <div className="flex gap-2">
+          {isOwner && selectedCustomerIds.size > 0 && (
+            <Button variant="destructive" onClick={() => setShowDeleteDialog(true)}>
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete ({selectedCustomerIds.size})
+            </Button>
+          )}
+          {canEdit && (
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+              <DialogTrigger asChild>
+                <Button onClick={openNewDialog}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Customer
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>
+                    {editingCustomer ? 'Edit Customer' : 'New Customer'}
+                  </DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Name *</Label>
+                    <Input
+                      id="name"
+                      name="name"
+                      defaultValue={editingCustomer?.name || ''}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">Phone</Label>
+                    <Input
+                      id="phone"
+                      name="phone"
+                      type="tel"
+                      defaultValue={editingCustomer?.phone || ''}
+                      placeholder="09XX XXX XXXX"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email</Label>
+                    <Input
+                      id="email"
+                      name="email"
+                      type="email"
+                      defaultValue={editingCustomer?.email || ''}
+                      placeholder="customer@example.com"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setDialogOpen(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button type="submit" disabled={saveMutation.isPending}>
+                      {saveMutation.isPending ? 'Saving...' : 'Save'}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          )}
+        </div>
       </div>
 
       <Card>
@@ -235,6 +309,14 @@ export default function Customers() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  {isOwner && (
+                    <TableHead className="w-[40px]">
+                      <Checkbox 
+                        checked={selectedCustomerIds.size === filteredCustomers.length && filteredCustomers.length > 0}
+                        onCheckedChange={toggleSelectAll}
+                      />
+                    </TableHead>
+                  )}
                   <TableHead>Name</TableHead>
                   <TableHead>Phone</TableHead>
                   <TableHead>Email</TableHead>
@@ -246,6 +328,14 @@ export default function Customers() {
               <TableBody>
                 {filteredCustomers.map((customer) => (
                   <TableRow key={customer.id}>
+                    {isOwner && (
+                      <TableCell>
+                        <Checkbox 
+                          checked={selectedCustomerIds.has(customer.id)}
+                          onCheckedChange={() => toggleSelectCustomer(customer.id)}
+                        />
+                      </TableCell>
+                    )}
                     <TableCell className="font-medium">{customer.name}</TableCell>
                     <TableCell className="text-muted-foreground">
                       {customer.phone || '-'}
@@ -299,6 +389,29 @@ export default function Customers() {
           )}
         </CardContent>
       </Card>
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedCustomerIds.size} Customers?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the selected customers. Orders associated with these customers will remain but will show "Walk-in Customer".
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Delete Customers
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Customer Detail Sheet */}
       <Sheet open={!!selectedCustomer} onOpenChange={() => setSelectedCustomer(null)}>
