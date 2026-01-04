@@ -760,6 +760,27 @@ export default function ThankYou() {
           </Card>
         )}
 
+        {/* Pickup Notice Banner */}
+        {order.order_type === 'pickup' && (
+          <Card className="bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800">
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900/50 rounded-full flex items-center justify-center flex-shrink-0">
+                  <Package className="h-5 w-5 text-amber-600" />
+                </div>
+                <div>
+                  <p className="font-semibold text-amber-800 dark:text-amber-200">
+                    PLEASE SHOW THIS PAGE TO THE CASHIER
+                  </p>
+                  <p className="text-sm text-amber-600 dark:text-amber-400">
+                    Present this screen at the restaurant for pickup
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Pickup Details */}
         {order.order_type === 'pickup' && (
           <Card>
@@ -789,6 +810,20 @@ export default function ThankYou() {
                 <Phone className="h-4 w-4" />
                 {RESTAURANT_INFO.phone}
               </a>
+              
+              {/* Map Embed */}
+              <div className="mt-4 rounded-lg overflow-hidden border">
+                <iframe
+                  src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3854.3639837208784!2d120.52905357511342!3d14.972486785559141!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x33965f8959158815%3A0x17cf9400a2dfff7e!2sAmerican%20Ribs%20And%20Wings%20-%20Floridablanca!5e0!3m2!1sen!2sph!4v1767465076316!5m2!1sen!2sph"
+                  width="100%"
+                  height="200"
+                  style={{ border: 0 }}
+                  allowFullScreen
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                  title="Pickup Location"
+                />
+              </div>
             </CardContent>
           </Card>
         )}
@@ -837,6 +872,7 @@ export default function ThankYou() {
                   <span>₱{order.delivery_fee.toFixed(2)}</span>
                 </div>
               )}
+              <Separator className="my-2" />
               <div className="flex justify-between font-bold text-lg">
                 <span>Total</span>
                 <span>₱{order.total_amount?.toFixed(2)}</span>

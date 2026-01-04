@@ -152,6 +152,7 @@ export function CheckoutSheet({
   // Accordion state - start with delivery-address since delivery is default
   const [activeSection, setActiveSection] = useState<SectionId>("delivery-address");
   const [completedSections, setCompletedSections] = useState<Set<SectionId>>(new Set(["order-type"]));
+  const [datePopoverOpen, setDatePopoverOpen] = useState(false);
 
   // Fetch payment settings
   const { data: paymentSettings = [] } = useQuery({
@@ -468,7 +469,8 @@ export function CheckoutSheet({
         p_delivery_distance_km: deliveryDistance,
         p_pickup_date: data.orderType === "pickup" && data.pickupDate ? format(data.pickupDate, "yyyy-MM-dd") : null,
         p_pickup_time: data.orderType === "pickup" && data.pickupTime ? data.pickupTime : null,
-        p_internal_notes: data.notes || null
+        p_internal_notes: data.notes || null,
+        p_payment_method: data.paymentMethod
       });
       
       if (orderError) throw orderError;
@@ -622,7 +624,7 @@ export function CheckoutSheet({
                     render={({ field }) => (
                       <FormItem className="flex flex-col">
                         <FormLabel>Pickup Date *</FormLabel>
-                        <Popover>
+                        <Popover open={datePopoverOpen} onOpenChange={setDatePopoverOpen}>
                           <PopoverTrigger asChild>
                             <FormControl>
                               <Button 
@@ -641,6 +643,7 @@ export function CheckoutSheet({
                               onSelect={date => {
                                 field.onChange(date);
                                 form.setValue("pickupTime", undefined);
+                                setDatePopoverOpen(false);
                               }} 
                               disabled={date => isBefore(date, startOfDay(new Date())) || isBefore(addDays(new Date(), 3), date)} 
                               initialFocus 

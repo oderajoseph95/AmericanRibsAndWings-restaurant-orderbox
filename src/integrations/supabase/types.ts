@@ -636,6 +636,7 @@ export type Database = {
           internal_notes: string | null
           order_number: string | null
           order_type: Database["public"]["Enums"]["order_type"] | null
+          payment_method: string | null
           pickup_date: string | null
           pickup_time: string | null
           status: Database["public"]["Enums"]["order_status"] | null
@@ -655,6 +656,7 @@ export type Database = {
           internal_notes?: string | null
           order_number?: string | null
           order_type?: Database["public"]["Enums"]["order_type"] | null
+          payment_method?: string | null
           pickup_date?: string | null
           pickup_time?: string | null
           status?: Database["public"]["Enums"]["order_status"] | null
@@ -674,6 +676,7 @@ export type Database = {
           internal_notes?: string | null
           order_number?: string | null
           order_type?: Database["public"]["Enums"]["order_type"] | null
+          payment_method?: string | null
           pickup_date?: string | null
           pickup_time?: string | null
           status?: Database["public"]["Enums"]["order_status"] | null
@@ -1062,24 +1065,44 @@ export type Database = {
         Args: { p_email?: string; p_name: string; p_phone?: string }
         Returns: string
       }
-      create_checkout_order: {
-        Args: {
-          p_customer_id: string
-          p_delivery_address?: string
-          p_delivery_distance_km?: number
-          p_delivery_fee?: number
-          p_internal_notes?: string
-          p_order_type: string
-          p_pickup_date?: string
-          p_pickup_time?: string
-          p_subtotal: number
-          p_total_amount: number
-        }
-        Returns: {
-          id: string
-          order_number: string
-        }[]
-      }
+      create_checkout_order:
+        | {
+            Args: {
+              p_customer_id: string
+              p_delivery_address?: string
+              p_delivery_distance_km?: number
+              p_delivery_fee?: number
+              p_internal_notes?: string
+              p_order_type: string
+              p_pickup_date?: string
+              p_pickup_time?: string
+              p_subtotal: number
+              p_total_amount: number
+            }
+            Returns: {
+              id: string
+              order_number: string
+            }[]
+          }
+        | {
+            Args: {
+              p_customer_id: string
+              p_delivery_address?: string
+              p_delivery_distance_km?: number
+              p_delivery_fee?: number
+              p_internal_notes?: string
+              p_order_type: string
+              p_payment_method?: string
+              p_pickup_date?: string
+              p_pickup_time?: string
+              p_subtotal: number
+              p_total_amount: number
+            }
+            Returns: {
+              id: string
+              order_number: string
+            }[]
+          }
       create_checkout_order_item: {
         Args: {
           p_flavor_surcharge_total?: number
