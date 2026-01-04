@@ -1,7 +1,8 @@
-import { Outlet, useNavigate, Link } from 'react-router-dom';
+import { Outlet, useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-import { LogOut, Truck, User, Package, Wallet } from 'lucide-react';
+import { LogOut, Truck, User, Package, Wallet, Home } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -58,31 +59,45 @@ export default function DriverLayout() {
       </main>
 
       {/* Bottom Navigation */}
-      <nav className="sticky bottom-0 bg-card border-t border-border">
-        <div className="container px-4 h-16 flex items-center justify-around">
-          <Link
-            to="/driver"
-            className="flex flex-col items-center gap-1 text-muted-foreground hover:text-primary transition-colors"
-          >
-            <Package className="h-5 w-5" />
-            <span className="text-xs">Orders</span>
-          </Link>
-          <Link
-            to="/driver/earnings"
-            className="flex flex-col items-center gap-1 text-muted-foreground hover:text-primary transition-colors"
-          >
-            <Wallet className="h-5 w-5" />
-            <span className="text-xs">Earnings</span>
-          </Link>
-          <Link
-            to="/driver/profile"
-            className="flex flex-col items-center gap-1 text-muted-foreground hover:text-primary transition-colors"
-          >
-            <User className="h-5 w-5" />
-            <span className="text-xs">Profile</span>
-          </Link>
-        </div>
-      </nav>
+      <BottomNav />
     </div>
+  );
+}
+
+function BottomNav() {
+  const location = useLocation();
+  
+  const navItems = [
+    { to: '/driver', icon: Home, label: 'Home', exact: true },
+    { to: '/driver/orders', icon: Package, label: 'Orders' },
+    { to: '/driver/earnings', icon: Wallet, label: 'Earnings' },
+    { to: '/driver/profile', icon: User, label: 'Profile' },
+  ];
+
+  const isActive = (path: string, exact?: boolean) => {
+    if (exact) return location.pathname === path;
+    return location.pathname.startsWith(path);
+  };
+
+  return (
+    <nav className="sticky bottom-0 bg-card border-t border-border">
+      <div className="container px-4 h-16 flex items-center justify-around">
+        {navItems.map(({ to, icon: Icon, label, exact }) => (
+          <Link
+            key={to}
+            to={to}
+            className={cn(
+              "flex flex-col items-center gap-1 transition-colors",
+              isActive(to, exact) 
+                ? "text-primary" 
+                : "text-muted-foreground hover:text-primary"
+            )}
+          >
+            <Icon className="h-5 w-5" />
+            <span className="text-xs">{label}</span>
+          </Link>
+        ))}
+      </div>
+    </nav>
   );
 }
