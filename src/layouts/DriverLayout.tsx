@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Outlet, useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -9,6 +10,8 @@ import { supabase } from '@/integrations/supabase/client';
 export default function DriverLayout() {
   const { user, signOut, isDriver } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const hasNavigated = useRef(false);
 
   // Fetch driver profile
   const { data: driver } = useQuery({
@@ -26,7 +29,26 @@ export default function DriverLayout() {
     enabled: !!user?.id && isDriver,
   });
 
+  // Persist last driver route to localStorage
+  useEffect(() => {
+    if (location.pathname.startsWith('/driver') && location.pathname !== '/driver/auth') {
+      localStorage.setItem('lastDriverRoute', location.pathname);
+    }
+  }, [location.pathname]);
+
+  // Restore last route on mount (only once)
+  useEffect(() => {
+    if (!hasNavigated.current && location.pathname === '/driver') {
+      const lastRoute = localStorage.getItem('lastDriverRoute');
+      if (lastRoute && lastRoute !== '/driver' && lastRoute !== '/driver/auth') {
+        hasNavigated.current = true;
+        navigate(lastRoute, { replace: true });
+      }
+    }
+  }, [location.pathname, navigate]);
+
   const handleSignOut = async () => {
+    localStorage.removeItem('lastDriverRoute');
     await signOut();
     navigate('/driver/auth');
   };

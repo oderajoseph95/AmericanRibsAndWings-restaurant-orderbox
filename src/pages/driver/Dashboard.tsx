@@ -6,10 +6,9 @@ import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { DriverStatsCards } from '@/components/driver/DriverStatsCards';
+import { logDriverAction } from '@/lib/driverLogger';
 import { 
   Package, 
   MapPin, 
@@ -25,7 +24,10 @@ import {
   Coffee,
   Truck,
   Wallet,
-  ArrowRight
+  ArrowRight,
+  TrendingUp,
+  Timer,
+  Route
 } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Tables, Enums } from '@/integrations/supabase/types';
@@ -36,7 +38,6 @@ type Order = Tables<'orders'> & {
 
 type DriverAvailability = 'offline' | 'online' | 'busy' | 'unavailable';
 
-// Extended driver type with availability_status (pending types regeneration)
 type Driver = Tables<'drivers'> & {
   availability_status?: DriverAvailability | null;
 };
@@ -57,18 +58,17 @@ const statusLabels: Record<string, string> = {
   completed: 'Completed',
 };
 
-const availabilityConfig: Record<DriverAvailability, { icon: typeof Power; color: string; label: string; bgColor: string }> = {
-  offline: { icon: Power, color: 'text-gray-500', label: 'Offline', bgColor: 'bg-gray-100' },
-  online: { icon: Truck, color: 'text-green-600', label: 'Online', bgColor: 'bg-green-100' },
-  busy: { icon: Coffee, color: 'text-yellow-600', label: 'Busy', bgColor: 'bg-yellow-100' },
-  unavailable: { icon: AlertCircle, color: 'text-red-600', label: 'Unavailable', bgColor: 'bg-red-100' },
+const availabilityConfig: Record<DriverAvailability, { icon: typeof Power; color: string; label: string; bgColor: string; borderColor: string }> = {
+  offline: { icon: Power, color: 'text-gray-500', label: 'Offline', bgColor: 'bg-gray-100', borderColor: 'border-gray-300' },
+  online: { icon: Truck, color: 'text-green-600', label: 'Online', bgColor: 'bg-green-100', borderColor: 'border-green-500' },
+  busy: { icon: Coffee, color: 'text-yellow-600', label: 'Busy', bgColor: 'bg-yellow-100', borderColor: 'border-yellow-500' },
+  unavailable: { icon: AlertCircle, color: 'text-red-600', label: 'Unavailable', bgColor: 'bg-red-100', borderColor: 'border-red-500' },
 };
 
 export default function DriverDashboard() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('assigned');
   const [photoDialogOpen, setPhotoDialogOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [photoType, setPhotoType] = useState<'pickup' | 'delivery'>('pickup');
@@ -107,6 +107,30 @@ export default function DriverDashboard() {
     enabled: !!driver?.id,
   });
 
+  // Fetch today's earnings
+  const { data: todayEarnings = { total: 0, count: 0 } } = useQuery({
+    queryKey: ['driver-today-earnings', driver?.id],
+    queryFn: async () => {
+      if (!driver?.id) return { total: 0, count: 0 };
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const { data, error } = await supabase
+        .from('driver_earnings')
+        .select('delivery_fee')
+        .eq('driver_id', driver.id)
+        .eq('status', 'available')
+        .gte('created_at', today.toISOString());
+      
+      if (error) throw error;
+      return {
+        total: data?.reduce((sum, e) => sum + e.delivery_fee, 0) || 0,
+        count: data?.length || 0,
+      };
+    },
+    enabled: !!driver?.id,
+  });
+
   // Setup realtime subscription for orders
   useEffect(() => {
     if (!driver?.id) return;
@@ -121,8 +145,7 @@ export default function DriverDashboard() {
           table: 'orders',
           filter: `driver_id=eq.${driver.id}`,
         },
-        (payload) => {
-          console.log('Order change:', payload);
+        () => {
           refetchOrders();
         }
       )
@@ -137,16 +160,31 @@ export default function DriverDashboard() {
   const updateAvailabilityMutation = useMutation({
     mutationFn: async (status: DriverAvailability) => {
       if (!driver?.id) throw new Error('No driver profile');
-      // Use type assertion since availability_status is a new column
       const { error } = await supabase
         .from('drivers')
         .update({ availability_status: status } as any)
         .eq('id', driver.id);
       if (error) throw error;
+      return status;
     },
-    onSuccess: () => {
+    onSuccess: async (newStatus) => {
       refetchDriver();
-      toast.success('Status updated');
+      toast.success(`Status changed to ${newStatus}`);
+      
+      // Log status change
+      if (driver) {
+        await logDriverAction({
+          driverId: driver.id,
+          driverName: driver.name,
+          action: 'status_change',
+          entityType: 'driver',
+          entityId: driver.id,
+          entityName: driver.name,
+          oldValues: { availability_status: driver.availability_status },
+          newValues: { availability_status: newStatus },
+          details: `Changed availability from ${driver.availability_status || 'offline'} to ${newStatus}`,
+        });
+      }
     },
     onError: (error: any) => {
       toast.error(error.message || 'Failed to update status');
@@ -179,20 +217,17 @@ export default function DriverDashboard() {
       const fileExt = file.name.split('.').pop();
       const fileName = `${selectedOrder.id}-${photoType}-${Date.now()}.${fileExt}`;
 
-      // Upload to storage
       const { error: uploadError } = await supabase.storage
         .from('driver-photos')
         .upload(fileName, file);
 
       if (uploadError) throw uploadError;
 
-      // Get public URL
       const { data: urlData } = supabase.storage
         .from('driver-photos')
         .getPublicUrl(fileName);
 
-      // Create delivery photo record
-      const { error: photoError } = await supabase
+      await supabase
         .from('delivery_photos')
         .insert({
           order_id: selectedOrder.id,
@@ -201,11 +236,32 @@ export default function DriverDashboard() {
           image_url: urlData.publicUrl,
         });
 
-      if (photoError) throw photoError;
+      // Log photo upload
+      await logDriverAction({
+        driverId: driver.id,
+        driverName: driver.name,
+        action: 'photo_upload',
+        entityType: 'order',
+        entityId: selectedOrder.id,
+        entityName: selectedOrder.order_number || undefined,
+        details: `Uploaded ${photoType} photo for order ${selectedOrder.order_number}`,
+      });
 
-      // Update order status
       const newStatus = photoType === 'pickup' ? 'picked_up' : 'delivered';
       await updateStatusMutation.mutateAsync({ orderId: selectedOrder.id, status: newStatus });
+
+      // Log status change
+      await logDriverAction({
+        driverId: driver.id,
+        driverName: driver.name,
+        action: 'status_change',
+        entityType: 'order',
+        entityId: selectedOrder.id,
+        entityName: selectedOrder.order_number || undefined,
+        oldValues: { status: selectedOrder.status },
+        newValues: { status: newStatus },
+        details: `Changed status from ${selectedOrder.status} to ${newStatus}`,
+      });
 
       setPhotoDialogOpen(false);
       setSelectedOrder(null);
@@ -225,10 +281,24 @@ export default function DriverDashboard() {
   };
 
   const handleStartDelivery = async (order: Order) => {
-    // Update status to in_transit
+    const oldStatus = order.status;
     await updateStatusMutation.mutateAsync({ orderId: order.id, status: 'in_transit' });
 
-    // Open Google Maps navigation
+    // Log status change
+    if (driver) {
+      await logDriverAction({
+        driverId: driver.id,
+        driverName: driver.name,
+        action: 'status_change',
+        entityType: 'order',
+        entityId: order.id,
+        entityName: order.order_number || undefined,
+        oldValues: { status: oldStatus },
+        newValues: { status: 'in_transit' },
+        details: `Started delivery - changed status from ${oldStatus} to in_transit`,
+      });
+    }
+
     if (order.delivery_address) {
       const address = encodeURIComponent(order.delivery_address.replace(/\s*\[.*?\]\s*/g, ''));
       window.open(`https://www.google.com/maps/dir/?api=1&destination=${address}`, '_blank');
@@ -241,28 +311,17 @@ export default function DriverDashboard() {
     setPhotoDialogOpen(true);
   };
 
-  const filterOrders = (status: string) => {
-    switch (status) {
-      case 'assigned':
-        return orders.filter(o => o.status === 'waiting_for_rider');
-      case 'picked_up':
-        return orders.filter(o => o.status === 'picked_up' || o.status === 'in_transit');
-      case 'delivered':
-        return orders.filter(o => o.status === 'delivered' || o.status === 'completed');
-      default:
-        return orders;
-    }
-  };
-
-  // Quick stats
-  const assignedCount = orders.filter(o => o.status === 'waiting_for_rider').length;
-  const inProgressCount = orders.filter(o => ['picked_up', 'in_transit'].includes(o.status || '')).length;
+  // Categorize orders
+  const assignedOrders = orders.filter(o => o.status === 'waiting_for_rider');
+  const activeOrders = orders.filter(o => ['picked_up', 'in_transit'].includes(o.status || ''));
   const completedToday = orders.filter(o => 
     ['delivered', 'completed'].includes(o.status || '') &&
     o.updated_at && new Date(o.updated_at).toDateString() === new Date().toDateString()
   ).length;
 
   const currentAvailability = (driver?.availability_status || 'offline') as DriverAvailability;
+  const currentConfig = availabilityConfig[currentAvailability];
+  const CurrentIcon = currentConfig.icon;
 
   if (!driver) {
     return (
@@ -277,13 +336,21 @@ export default function DriverDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Availability Status Toggle */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Your Status</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex gap-2 flex-wrap">
+      {/* Status Card */}
+      <Card className={`border-2 ${currentConfig.borderColor}`}>
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className={`p-3 rounded-full ${currentConfig.bgColor}`}>
+                <CurrentIcon className={`h-6 w-6 ${currentConfig.color}`} />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Current Status</p>
+                <p className={`text-xl font-bold ${currentConfig.color}`}>{currentConfig.label}</p>
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
             {(Object.keys(availabilityConfig) as DriverAvailability[]).map((status) => {
               const config = availabilityConfig[status];
               const Icon = config.icon;
@@ -296,173 +363,178 @@ export default function DriverDashboard() {
                   size="sm"
                   onClick={() => updateAvailabilityMutation.mutate(status)}
                   disabled={updateAvailabilityMutation.isPending}
-                  className={isActive ? '' : config.color}
+                  className={`flex flex-col h-auto py-2 px-1 ${isActive ? '' : config.color}`}
                 >
-                  <Icon className="h-4 w-4 mr-1" />
-                  {config.label}
+                  <Icon className="h-4 w-4 mb-1" />
+                  <span className="text-xs">{config.label}</span>
                 </Button>
               );
             })}
           </div>
-          <p className="text-xs text-muted-foreground mt-2">
-            {currentAvailability === 'online' && 'You are visible and can receive new orders'}
-            {currentAvailability === 'offline' && 'You are not accepting orders'}
-            {currentAvailability === 'busy' && 'Currently on a delivery, will accept next order soon'}
-            {currentAvailability === 'unavailable' && 'Taking a break, not accepting orders'}
-          </p>
         </CardContent>
       </Card>
 
-      {/* Earnings Summary Widget */}
-      <EarningsWidget driverId={driver.id} onViewMore={() => navigate('/driver/earnings')} />
+      {/* Today's Stats */}
+      <div className="grid grid-cols-3 gap-3">
+        <Card className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/20 dark:to-emerald-950/20 border-green-200">
+          <CardContent className="pt-4 text-center">
+            <Wallet className="h-6 w-6 text-green-600 mx-auto mb-1" />
+            <p className="text-2xl font-bold text-green-600">₱{todayEarnings.total.toFixed(0)}</p>
+            <p className="text-xs text-muted-foreground">Today's Earnings</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border-blue-200">
+          <CardContent className="pt-4 text-center">
+            <Route className="h-6 w-6 text-blue-600 mx-auto mb-1" />
+            <p className="text-2xl font-bold text-blue-600">{completedToday}</p>
+            <p className="text-xs text-muted-foreground">Deliveries Today</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-950/20 dark:to-pink-950/20 border-purple-200">
+          <CardContent className="pt-4 text-center">
+            <Package className="h-6 w-6 text-purple-600 mx-auto mb-1" />
+            <p className="text-2xl font-bold text-purple-600">{assignedOrders.length + activeOrders.length}</p>
+            <p className="text-xs text-muted-foreground">Pending Orders</p>
+          </CardContent>
+        </Card>
+      </div>
 
-      {/* Extended Stats */}
-      <DriverStatsCards driverId={driver.id} />
+      {/* Active Orders - Priority View */}
+      {activeOrders.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="font-semibold flex items-center gap-2">
+            <Timer className="h-5 w-5 text-blue-600" />
+            Active Delivery
+          </h2>
+          {activeOrders.map((order) => (
+            <Card key={order.id} className="border-2 border-blue-200 bg-blue-50/30">
+              <CardContent className="pt-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold">{order.order_number}</p>
+                    <p className="text-sm text-muted-foreground">{order.customers?.name}</p>
+                  </div>
+                  <Badge className={statusColors[order.status || '']}>
+                    {statusLabels[order.status || '']}
+                  </Badge>
+                </div>
+                
+                {order.customers?.phone && (
+                  <a href={`tel:${order.customers.phone}`} className="flex items-center gap-2 text-sm text-primary">
+                    <Phone className="h-4 w-4" />
+                    {order.customers.phone}
+                  </a>
+                )}
 
-      {/* Orders Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="assigned">
-            Assigned ({filterOrders('assigned').length})
-          </TabsTrigger>
-          <TabsTrigger value="picked_up">
-            Active ({filterOrders('picked_up').length})
-          </TabsTrigger>
-          <TabsTrigger value="delivered">
-            Done ({filterOrders('delivered').length})
-          </TabsTrigger>
-        </TabsList>
+                {order.delivery_address && (
+                  <div className="flex items-start gap-2 text-sm p-2 bg-background rounded-lg">
+                    <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground flex-shrink-0" />
+                    <span className="text-muted-foreground flex-1">
+                      {order.delivery_address.replace(/\s*\[.*?\]\s*/g, '')}
+                    </span>
+                  </div>
+                )}
 
-        {['assigned', 'picked_up', 'delivered'].map((tab) => (
-          <TabsContent key={tab} value={tab} className="space-y-4 mt-4">
-            {isLoading ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              </div>
-            ) : filterOrders(tab).length === 0 ? (
-              <Card>
-                <CardContent className="py-8 text-center text-muted-foreground">
-                  <Package className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p>No orders in this category</p>
-                </CardContent>
-              </Card>
-            ) : (
-              filterOrders(tab).map((order) => (
-                <Card key={order.id}>
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-base">{order.order_number}</CardTitle>
-                      <Badge className={statusColors[order.status || ''] || 'bg-muted'}>
-                        {statusLabels[order.status || ''] || order.status}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {/* Customer Info */}
-                    {order.customers && (
-                      <div className="flex items-center gap-2 text-sm">
-                        <User className="h-4 w-4 text-muted-foreground" />
-                        <span>{order.customers.name}</span>
-                        {order.customers.phone && (
-                          <a 
-                            href={`tel:${order.customers.phone}`}
-                            className="ml-auto flex items-center gap-1 text-primary"
-                          >
-                            <Phone className="h-4 w-4" />
-                            Call
-                          </a>
-                        )}
-                      </div>
-                    )}
+                <div className="flex gap-2">
+                  {order.status === 'picked_up' && (
+                    <Button onClick={() => handleStartDelivery(order)} className="flex-1">
+                      <Navigation className="h-4 w-4 mr-2" />
+                      Start Delivery
+                    </Button>
+                  )}
+                  {order.status === 'in_transit' && (
+                    <>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          if (order.delivery_address) {
+                            const address = encodeURIComponent(order.delivery_address.replace(/\s*\[.*?\]\s*/g, ''));
+                            window.open(`https://www.google.com/maps/dir/?api=1&destination=${address}`, '_blank');
+                          }
+                        }}
+                        className="flex-1"
+                      >
+                        <MapPin className="h-4 w-4 mr-2" />
+                        Navigate
+                      </Button>
+                      <Button onClick={() => handleDelivered(order)} className="flex-1">
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        Delivered
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
-                    {/* Delivery Address */}
-                    {order.delivery_address && (
-                      <div className="flex items-start gap-2 text-sm">
-                        <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground flex-shrink-0" />
-                        <span className="text-muted-foreground">
-                          {order.delivery_address.replace(/\s*\[.*?\]\s*/g, '')}
-                        </span>
-                      </div>
-                    )}
+      {/* Assigned Orders */}
+      {assignedOrders.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="font-semibold flex items-center gap-2">
+            <Package className="h-5 w-5 text-purple-600" />
+            Assigned Orders ({assignedOrders.length})
+          </h2>
+          {assignedOrders.map((order) => (
+            <Card key={order.id}>
+              <CardContent className="pt-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold">{order.order_number}</p>
+                    <p className="text-sm text-muted-foreground">{order.customers?.name}</p>
+                  </div>
+                  <Badge className={statusColors[order.status || '']}>
+                    {statusLabels[order.status || '']}
+                  </Badge>
+                </div>
 
-                    {/* Order Time */}
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Clock className="h-4 w-4" />
-                      <span>
-                        {order.created_at && format(new Date(order.created_at), 'MMM d, h:mm a')}
-                      </span>
-                    </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Delivery Fee</span>
+                  <span className="font-medium text-green-600">₱{order.delivery_fee?.toFixed(2)}</span>
+                </div>
 
-                    {/* Total */}
-                    <div className="flex items-center justify-between text-sm font-medium pt-2 border-t">
-                      <span>Total</span>
-                      <span>₱{order.total_amount?.toFixed(2)}</span>
-                    </div>
+                <Button onClick={() => handlePickup(order)} className="w-full">
+                  <Camera className="h-4 w-4 mr-2" />
+                  Pick Up Order
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
-                    {/* Action Buttons */}
-                    <div className="flex gap-2 pt-2">
-                      {order.status === 'waiting_for_rider' && (
-                        <Button 
-                          onClick={() => handlePickup(order)} 
-                          className="flex-1"
-                          disabled={updateStatusMutation.isPending}
-                        >
-                          <Camera className="h-4 w-4 mr-2" />
-                          Mark Picked Up
-                        </Button>
-                      )}
-                      
-                      {order.status === 'picked_up' && (
-                        <Button 
-                          onClick={() => handleStartDelivery(order)} 
-                          className="flex-1"
-                          disabled={updateStatusMutation.isPending}
-                        >
-                          <Navigation className="h-4 w-4 mr-2" />
-                          Start Delivery
-                        </Button>
-                      )}
-
-                      {order.status === 'in_transit' && (
-                        <>
-                          <Button 
-                            variant="outline"
-                            onClick={() => {
-                              if (order.delivery_address) {
-                                const address = encodeURIComponent(order.delivery_address.replace(/\s*\[.*?\]\s*/g, ''));
-                                window.open(`https://www.google.com/maps/dir/?api=1&destination=${address}`, '_blank');
-                              }
-                            }}
-                            className="flex-1"
-                          >
-                            <MapPin className="h-4 w-4 mr-2" />
-                            Navigate
-                          </Button>
-                          <Button 
-                            onClick={() => handleDelivered(order)} 
-                            className="flex-1"
-                            disabled={updateStatusMutation.isPending}
-                          >
-                            <CheckCircle className="h-4 w-4 mr-2" />
-                            Delivered
-                          </Button>
-                        </>
-                      )}
-
-                      {['delivered', 'completed'].includes(order.status || '') && (
-                        <div className="flex items-center gap-2 text-green-600 text-sm">
-                          <CheckCircle className="h-4 w-4" />
-                          <span>Completed</span>
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))
+      {/* Empty State */}
+      {assignedOrders.length === 0 && activeOrders.length === 0 && (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <Package className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+            <p className="text-muted-foreground mb-4">No active orders</p>
+            {currentAvailability !== 'online' && (
+              <p className="text-sm text-muted-foreground">
+                Switch to <span className="font-medium text-green-600">Online</span> to receive orders
+              </p>
             )}
-          </TabsContent>
-        ))}
-      </Tabs>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Quick Actions */}
+      <div className="grid grid-cols-2 gap-3">
+        <Button variant="outline" onClick={() => navigate('/driver/orders')} className="h-auto py-4">
+          <div className="text-center">
+            <Package className="h-5 w-5 mx-auto mb-1" />
+            <span className="text-sm">All Orders</span>
+          </div>
+        </Button>
+        <Button variant="outline" onClick={() => navigate('/driver/earnings')} className="h-auto py-4">
+          <div className="text-center">
+            <TrendingUp className="h-5 w-5 mx-auto mb-1" />
+            <span className="text-sm">Earnings</span>
+          </div>
+        </Button>
+      </div>
 
       {/* Photo Upload Dialog */}
       <Dialog open={photoDialogOpen} onOpenChange={setPhotoDialogOpen}>
@@ -514,50 +586,5 @@ export default function DriverDashboard() {
         </DialogContent>
       </Dialog>
     </div>
-  );
-}
-
-// Earnings Widget Component
-function EarningsWidget({ driverId, onViewMore }: { driverId: string; onViewMore: () => void }) {
-  const { data: earnings = [] } = useQuery({
-    queryKey: ['driver-earnings-summary', driverId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('driver_earnings')
-        .select('delivery_fee, status')
-        .eq('driver_id', driverId);
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!driverId,
-  });
-
-  const availableBalance = earnings
-    .filter((e: any) => e.status === 'available')
-    .reduce((sum: number, e: any) => sum + e.delivery_fee, 0);
-  const totalEarnings = earnings.reduce((sum: number, e: any) => sum + e.delivery_fee, 0);
-
-  return (
-    <Card className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/20 dark:to-emerald-950/20 border-green-200 dark:border-green-800">
-      <CardContent className="pt-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-green-100 dark:bg-green-900 p-2 rounded-full">
-              <Wallet className="h-5 w-5 text-green-600" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Available Balance</p>
-              <p className="text-2xl font-bold text-green-600">₱{availableBalance.toFixed(2)}</p>
-            </div>
-          </div>
-          <Button variant="outline" size="sm" onClick={onViewMore}>
-            View <ArrowRight className="h-4 w-4 ml-1" />
-          </Button>
-        </div>
-        <p className="text-xs text-muted-foreground mt-2">
-          Total earned: ₱{totalEarnings.toFixed(2)}
-        </p>
-      </CardContent>
-    </Card>
   );
 }
