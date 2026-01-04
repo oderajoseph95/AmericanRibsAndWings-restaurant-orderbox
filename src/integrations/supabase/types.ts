@@ -891,6 +891,50 @@ export type Database = {
           },
         ]
       }
+      push_subscriptions: {
+        Row: {
+          auth_key: string
+          created_at: string | null
+          customer_phone: string | null
+          driver_id: string | null
+          endpoint: string
+          id: string
+          p256dh: string
+          user_id: string | null
+          user_type: string
+        }
+        Insert: {
+          auth_key: string
+          created_at?: string | null
+          customer_phone?: string | null
+          driver_id?: string | null
+          endpoint: string
+          id?: string
+          p256dh: string
+          user_id?: string | null
+          user_type: string
+        }
+        Update: {
+          auth_key?: string
+          created_at?: string | null
+          customer_phone?: string | null
+          driver_id?: string | null
+          endpoint?: string
+          id?: string
+          p256dh?: string
+          user_id?: string | null
+          user_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "push_subscriptions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       settings: {
         Row: {
           created_at: string | null

@@ -35,6 +35,7 @@ import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
 import { RefundDialog } from '@/components/admin/RefundDialog';
 import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package, MoreHorizontal, Link, Share2, Copy, User, AlertTriangle, ChevronDown, Trash2, Camera, Upload } from 'lucide-react';
+import { sendPushNotification } from '@/hooks/usePushNotifications';
 import { format } from 'date-fns';
 import type { Tables, Enums } from '@/integrations/supabase/types';
 
@@ -251,6 +252,8 @@ export default function Orders() {
     mutationFn: async ({ id, status, orderNumber }: { id: string; status: Enums<'order_status'>; orderNumber?: string }) => {
       const order = orders.find(o => o.id === id);
       const oldStatus = order?.status;
+      const customerPhone = order?.customers?.phone;
+      const driverId = order?.driver_id;
       
       const { error } = await supabase
         .from('orders')
@@ -268,6 +271,68 @@ export default function Orders() {
         newValues: { status },
         details: `Changed status from ${oldStatus} to ${status}`,
       });
+
+      // Send push notifications based on status change
+      const orderNum = orderNumber || order?.order_number || '';
+      try {
+        // Notify customer for key status changes
+        if (customerPhone) {
+          if (status === 'approved') {
+            await sendPushNotification({
+              title: "Order Approved! ✅",
+              body: `Your order #${orderNum} has been approved`,
+              url: `/thank-you/${id}`,
+              customerPhone,
+              userType: "customer",
+            });
+          } else if (status === 'ready_for_pickup') {
+            await sendPushNotification({
+              title: "Order Ready! 🍗",
+              body: `Your order #${orderNum} is ready for pickup`,
+              url: `/thank-you/${id}`,
+              customerPhone,
+              userType: "customer",
+            });
+          } else if (status === 'in_transit') {
+            await sendPushNotification({
+              title: "On the Way! 🚗",
+              body: `Your order #${orderNum} is being delivered`,
+              url: `/thank-you/${id}`,
+              customerPhone,
+              userType: "customer",
+            });
+          } else if (status === 'delivered') {
+            await sendPushNotification({
+              title: "Order Delivered! 🎉",
+              body: `Your order #${orderNum} has been delivered. Enjoy!`,
+              url: `/thank-you/${id}`,
+              customerPhone,
+              userType: "customer",
+            });
+          } else if (status === 'cancelled' || status === 'rejected') {
+            await sendPushNotification({
+              title: "Order Update",
+              body: `Your order #${orderNum} has been ${status}`,
+              url: `/thank-you/${id}`,
+              customerPhone,
+              userType: "customer",
+            });
+          }
+        }
+
+        // Notify driver when order is ready
+        if (driverId && status === 'ready_for_pickup') {
+          await sendPushNotification({
+            title: "Order Ready for Pickup! 📦",
+            body: `Order #${orderNum} is ready to be picked up`,
+            url: `/driver/orders`,
+            driverId,
+            userType: "driver",
+          });
+        }
+      } catch (e) {
+        console.error("Failed to send status notification:", e);
+      }
 
       return { id, status };
     },
@@ -309,6 +374,23 @@ export default function Orders() {
           ? `Assigned driver ${newDriverName || driverId}`
           : `Unassigned driver${oldDriverName ? ` (was ${oldDriverName})` : ''}`,
       });
+
+      // Send push notification to driver when assigned
+      if (driverId) {
+        try {
+          await sendPushNotification({
+            title: "New Delivery Assigned!",
+            body: `You've been assigned Order #${orderNumber || order?.order_number}`,
+            url: `/driver/orders`,
+            driverId: driverId,
+            userType: "driver",
+            orderId: orderId,
+            orderNumber: orderNumber || order?.order_number || undefined,
+          });
+        } catch (e) {
+          console.error("Failed to send driver notification:", e);
+        }
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });

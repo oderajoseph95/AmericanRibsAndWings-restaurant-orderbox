@@ -71,8 +71,8 @@ export function useSalesPop({ enabled = true, paused = false }: UseSalesPopOptio
       clearTimeout(timeoutRef.current);
     }
 
-    // Random delay between 15-30 seconds
-    const delay = getRandomBetween(15000, 30000);
+    // Fixed 30 second delay between toasts
+    const delay = 30000;
 
     timeoutRef.current = setTimeout(() => {
       if (!paused && products && products.length > 0) {
@@ -92,16 +92,15 @@ export function useSalesPop({ enabled = true, paused = false }: UseSalesPopOptio
       return;
     }
 
-    // Show first pop after a shorter initial delay (5-10 seconds)
+    // Show first pop after 10 seconds
     if (isFirstRun.current) {
       isFirstRun.current = false;
-      const initialDelay = getRandomBetween(5000, 10000);
       timeoutRef.current = setTimeout(() => {
         if (!paused) {
           setCurrentMessage(generateMessage());
         }
         scheduleNextPop();
-      }, initialDelay);
+      }, 10000);
     } else {
       scheduleNextPop();
     }

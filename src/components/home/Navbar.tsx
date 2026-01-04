@@ -3,8 +3,12 @@ import { Link } from "react-router-dom";
 import { Menu, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { NotificationBell } from "@/components/NotificationBell";
+import { useAuth } from "@/contexts/AuthContext";
 
 export function Navbar() {
+  const { user, role } = useAuth();
+  const isAdmin = role === 'owner' || role === 'manager';
   const [isScrolled, setIsScrolled] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
 
@@ -63,8 +67,11 @@ export function Navbar() {
           ))}
         </div>
 
-        {/* CTA Button */}
-        <div className="hidden md:block">
+        {/* CTA Button + Notification Bell */}
+        <div className="hidden md:flex items-center gap-2">
+          {isAdmin && (
+            <NotificationBell userType="admin" />
+          )}
           <Button asChild className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-full px-6">
             <Link to="/order">
               <ShoppingBag className="mr-2 h-4 w-4" />
