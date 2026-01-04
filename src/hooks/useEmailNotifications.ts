@@ -2,15 +2,19 @@ import { supabase } from "@/integrations/supabase/client";
 
 export type EmailType = 
   | "new_order"
+  | "order_pending"
+  | "order_for_verification"
   | "order_approved"
   | "order_rejected"
   | "order_cancelled"
   | "order_preparing"
   | "order_ready_for_pickup"
+  | "order_waiting_for_rider"
   | "order_picked_up"
   | "order_in_transit"
   | "order_delivered"
   | "order_completed"
+  | "order_returned"
   | "driver_assigned"
   | "payout_requested"
   | "payout_approved"
@@ -19,6 +23,7 @@ export type EmailType =
 export interface EmailNotificationPayload {
   type: EmailType;
   recipientEmail: string;
+  ccEmails?: string[]; // CC owner emails
   orderId?: string;
   orderNumber?: string;
   customerName?: string;

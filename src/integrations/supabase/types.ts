@@ -548,6 +548,53 @@ export type Database = {
         }
         Relationships: []
       }
+      email_logs: {
+        Row: {
+          created_at: string | null
+          email_id: string | null
+          email_type: string | null
+          event_data: Json | null
+          event_type: string | null
+          id: string
+          order_id: string | null
+          recipient_email: string
+          status: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          email_id?: string | null
+          email_type?: string | null
+          event_data?: Json | null
+          event_type?: string | null
+          id?: string
+          order_id?: string | null
+          recipient_email: string
+          status: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          email_id?: string | null
+          email_type?: string | null
+          event_data?: Json | null
+          event_type?: string | null
+          id?: string
+          order_id?: string | null
+          recipient_email?: string
+          status?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_logs_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       email_templates: {
         Row: {
           content: string

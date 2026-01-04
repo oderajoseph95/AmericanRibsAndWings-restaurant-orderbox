@@ -40,7 +40,7 @@ import { sendPushNotification } from '@/hooks/usePushNotifications';
 import { createAdminNotification } from '@/hooks/useAdminNotifications';
 import { createDriverNotification } from '@/hooks/useDriverNotifications';
 import { sendEmailNotification, EmailType } from '@/hooks/useEmailNotifications';
-import { ADMIN_EMAIL } from '@/lib/constants';
+import { ADMIN_EMAIL, OWNER_EMAILS } from '@/lib/constants';
 import { format } from 'date-fns';
 import type { Tables, Enums } from '@/integrations/supabase/types';
 
@@ -385,48 +385,58 @@ export default function Orders() {
       // Send email notifications based on status change
       try {
         const customerEmail = order?.customers?.email;
-        const driverEmail = order?.drivers?.email;
         const driver = order?.drivers;
         
-        // Email customer for key status changes
-        if (customerEmail) {
-          const emailType = status === 'approved' ? 'order_approved'
-            : status === 'rejected' ? 'order_rejected'
-            : status === 'cancelled' ? 'order_cancelled'
-            : status === 'preparing' ? 'order_preparing'
-            : status === 'ready_for_pickup' ? 'order_ready_for_pickup'
-            : status === 'picked_up' ? 'order_picked_up'
-            : status === 'in_transit' ? 'order_in_transit'
-            : status === 'delivered' ? 'order_delivered'
-            : status === 'completed' ? 'order_completed'
-            : null;
-          
-          if (emailType) {
-            await sendEmailNotification({
-              type: emailType,
-              recipientEmail: customerEmail,
-              orderId: id,
-              orderNumber: orderNum,
-              customerName: order?.customers?.name || '',
-              totalAmount: order?.total_amount || 0,
-              orderType: order?.order_type || '',
-              deliveryAddress: order?.delivery_address || undefined,
-              driverName: driver?.name,
-              driverPhone: driver?.phone,
-            });
-          }
-        }
+        // Map all statuses to email types
+        const statusToEmailType: Record<string, EmailType> = {
+          pending: 'order_pending',
+          for_verification: 'order_for_verification',
+          approved: 'order_approved',
+          rejected: 'order_rejected',
+          cancelled: 'order_cancelled',
+          preparing: 'order_preparing',
+          ready_for_pickup: 'order_ready_for_pickup',
+          waiting_for_rider: 'order_waiting_for_rider',
+          picked_up: 'order_picked_up',
+          in_transit: 'order_in_transit',
+          delivered: 'order_delivered',
+          completed: 'order_completed',
+        };
         
-        // Email admin for key status changes
-        if (status === 'delivered' || status === 'completed') {
+        const emailType = statusToEmailType[status];
+        
+        // Email customer for all status changes (if they have email)
+        if (customerEmail && emailType) {
           await sendEmailNotification({
-            type: status === 'delivered' ? 'order_delivered' : 'order_completed',
-            recipientEmail: ADMIN_EMAIL,
+            type: emailType,
+            recipientEmail: customerEmail,
+            ccEmails: OWNER_EMAILS, // CC all owners
             orderId: id,
             orderNumber: orderNum,
             customerName: order?.customers?.name || '',
             totalAmount: order?.total_amount || 0,
+            orderType: order?.order_type || '',
+            deliveryAddress: order?.delivery_address || undefined,
+            driverName: driver?.name,
+            driverPhone: driver?.phone,
           });
+          console.log(`Email sent to ${customerEmail} for status ${status}`);
+        } else if (!customerEmail && emailType) {
+          // No customer email - just send to owners
+          await sendEmailNotification({
+            type: emailType,
+            recipientEmail: ADMIN_EMAIL,
+            ccEmails: OWNER_EMAILS.filter(e => e !== ADMIN_EMAIL),
+            orderId: id,
+            orderNumber: orderNum,
+            customerName: order?.customers?.name || '',
+            totalAmount: order?.total_amount || 0,
+            orderType: order?.order_type || '',
+            deliveryAddress: order?.delivery_address || undefined,
+            driverName: driver?.name,
+            driverPhone: driver?.phone,
+          });
+          console.log(`Email sent to owners for status ${status} (no customer email)`);
         }
       } catch (e) {
         console.error("Failed to send email notification:", e);
@@ -707,11 +717,14 @@ export default function Orders() {
   // Map order status to email type
   const getEmailTypeForStatus = (status: Enums<'order_status'> | null): EmailType | null => {
     const statusToEmailType: Partial<Record<Enums<'order_status'>, EmailType>> = {
+      pending: 'order_pending',
+      for_verification: 'order_for_verification',
       approved: 'order_approved',
       rejected: 'order_rejected',
       cancelled: 'order_cancelled',
       preparing: 'order_preparing',
       ready_for_pickup: 'order_ready_for_pickup',
+      waiting_for_rider: 'order_waiting_for_rider',
       picked_up: 'order_picked_up',
       in_transit: 'order_in_transit',
       delivered: 'order_delivered',
@@ -741,6 +754,7 @@ export default function Orders() {
       const result = await sendEmailNotification({
         type: emailType,
         recipientEmail: customerEmail,
+        ccEmails: OWNER_EMAILS, // CC all owners
         orderId: selectedOrder.id,
         orderNumber: selectedOrder.order_number || '',
         customerName: selectedOrder.customers?.name || '',

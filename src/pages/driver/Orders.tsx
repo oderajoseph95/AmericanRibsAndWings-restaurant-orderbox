@@ -27,6 +27,8 @@ import {
 } from 'lucide-react';
 import type { Tables } from '@/integrations/supabase/types';
 import { logDriverAction } from '@/lib/driverLogger';
+import { sendEmailNotification, EmailType } from '@/hooks/useEmailNotifications';
+import { OWNER_EMAILS } from '@/lib/constants';
 
 type Order = Tables<'orders'> & {
   customer: Tables<'customers'> | null;
@@ -233,6 +235,39 @@ export default function DriverOrders() {
         details: `Changed status from ${oldStatus} to ${newStatus}`,
       });
 
+      // Send email notifications
+      const emailType: EmailType = photoAction === 'pickup' ? 'order_picked_up' : 'order_delivered';
+      const customerEmail = order?.customer?.email;
+      
+      if (customerEmail) {
+        await sendEmailNotification({
+          type: emailType,
+          recipientEmail: customerEmail,
+          ccEmails: OWNER_EMAILS,
+          orderId: uploadingOrderId,
+          orderNumber: order?.order_number || '',
+          customerName: order?.customer?.name || '',
+          totalAmount: order?.total_amount || 0,
+          orderType: order?.order_type || '',
+          deliveryAddress: order?.delivery_address || undefined,
+          driverName: driver.name,
+          driverPhone: driver.phone,
+        });
+      } else {
+        // No customer email, send to owners only
+        await sendEmailNotification({
+          type: emailType,
+          recipientEmail: OWNER_EMAILS[0],
+          ccEmails: OWNER_EMAILS.slice(1),
+          orderId: uploadingOrderId,
+          orderNumber: order?.order_number || '',
+          customerName: order?.customer?.name || '',
+          totalAmount: order?.total_amount || 0,
+          driverName: driver.name,
+          driverPhone: driver.phone,
+        });
+      }
+
       toast.success(`${photoAction === 'pickup' ? 'Pickup' : 'Delivery'} photo uploaded`);
     } catch (error: any) {
       toast.error('Upload failed: ' + error.message);
@@ -268,6 +303,23 @@ export default function DriverOrders() {
         newValues: { status: 'in_transit' },
         details: `Started delivery - changed status from ${oldStatus} to in_transit`,
       });
+
+      // Send email notification
+      const customerEmail = order?.customer?.email;
+      if (customerEmail) {
+        await sendEmailNotification({
+          type: 'order_in_transit',
+          recipientEmail: customerEmail,
+          ccEmails: OWNER_EMAILS,
+          orderId: orderId,
+          orderNumber: order?.order_number || '',
+          customerName: order?.customer?.name || '',
+          totalAmount: order?.total_amount || 0,
+          deliveryAddress: order?.delivery_address || undefined,
+          driverName: driver.name,
+          driverPhone: driver.phone,
+        });
+      }
     }
   };
 
@@ -356,6 +408,37 @@ export default function DriverOrders() {
         newValues: { status: 'rejected', reason: reasonLabel, notes: returnNotes },
         details: `Returned order to restaurant. ${returnDetails}`,
       });
+
+      // Send email notification for return
+      const customerEmail = returnOrder.customer?.email;
+      if (customerEmail) {
+        await sendEmailNotification({
+          type: 'order_returned',
+          recipientEmail: customerEmail,
+          ccEmails: OWNER_EMAILS,
+          orderId: returnOrder.id,
+          orderNumber: returnOrder.order_number || '',
+          customerName: returnOrder.customer?.name || '',
+          totalAmount: returnOrder.total_amount || 0,
+          reason: reasonLabel + (returnNotes ? `: ${returnNotes}` : ''),
+          driverName: driver.name,
+          driverPhone: driver.phone,
+        });
+      } else {
+        // No customer email, send to owners only
+        await sendEmailNotification({
+          type: 'order_returned',
+          recipientEmail: OWNER_EMAILS[0],
+          ccEmails: OWNER_EMAILS.slice(1),
+          orderId: returnOrder.id,
+          orderNumber: returnOrder.order_number || '',
+          customerName: returnOrder.customer?.name || '',
+          totalAmount: returnOrder.total_amount || 0,
+          reason: reasonLabel + (returnNotes ? `: ${returnNotes}` : ''),
+          driverName: driver.name,
+          driverPhone: driver.phone,
+        });
+      }
 
       queryClient.invalidateQueries({ queryKey: ['driver-orders'] });
       toast.success('Order marked as returned to restaurant');
