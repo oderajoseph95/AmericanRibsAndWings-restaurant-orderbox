@@ -16,7 +16,7 @@ import { Separator } from "@/components/ui/separator";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Upload, X, Check, Package, Truck, CalendarIcon, MapPin, User, CreditCard, ClipboardList } from "lucide-react";
+import { Loader2, Upload, X, Check, Package, Truck, CalendarIcon, MapPin, User, CreditCard, ClipboardList, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -346,6 +346,76 @@ export function CheckoutSheet({
     }
   };
 
+  // Get errors for each section
+  const getSectionErrors = (sectionId: SectionId): string[] => {
+    const errors = form.formState.errors;
+    switch (sectionId) {
+      case "customer-info":
+        return [
+          errors.name?.message,
+          errors.phone?.message,
+          errors.email?.message
+        ].filter(Boolean) as string[];
+      case "delivery-address":
+        return [
+          errors.streetAddress?.message,
+          errors.city?.message,
+          errors.customerLat?.message,
+          errors.customerLng?.message
+        ].filter(Boolean) as string[];
+      case "pickup-schedule":
+        return [
+          errors.pickupDate?.message,
+          errors.pickupTime?.message
+        ].filter(Boolean) as string[];
+      case "payment":
+        return [errors.paymentMethod?.message].filter(Boolean) as string[];
+      default:
+        return [];
+    }
+  };
+
+  // Handle form validation errors on submit
+  const handleInvalidSubmit = (errors: any) => {
+    // Find which section has the first error and show a toast
+    let errorMessage = "";
+    let targetSection: SectionId | null = null;
+
+    // Check customer info first (most common)
+    if (errors.name || errors.phone || errors.email) {
+      errorMessage = errors.phone?.message || errors.name?.message || errors.email?.message;
+      targetSection = "customer-info";
+    }
+    // Check delivery address
+    else if (errors.streetAddress || errors.city || errors.customerLat || errors.customerLng) {
+      errorMessage = errors.streetAddress?.message || errors.city?.message || "Please complete your delivery address";
+      targetSection = "delivery-address";
+    }
+    // Check pickup schedule
+    else if (errors.pickupDate || errors.pickupTime) {
+      errorMessage = errors.pickupDate?.message || errors.pickupTime?.message;
+      targetSection = "pickup-schedule";
+    }
+    // Check payment
+    else if (errors.paymentMethod) {
+      errorMessage = errors.paymentMethod?.message;
+      targetSection = "payment";
+    }
+
+    if (errorMessage) {
+      toast.error(errorMessage, {
+        description: "Please fix the error and try again",
+        icon: <AlertTriangle className="h-4 w-4" />,
+        duration: 5000,
+      });
+
+      // Expand the section with the error
+      if (targetSection) {
+        setActiveSection(targetSection);
+      }
+    }
+  };
+
   const onSubmit = async (data: CheckoutFormData) => {
     if ((data.paymentMethod === "gcash" || data.paymentMethod === "bank") && !paymentProof) {
       toast.error("Please upload payment proof for this payment method.");
@@ -454,7 +524,7 @@ export function CheckoutSheet({
 
         <ScrollArea className="h-[calc(100vh-80px)]">
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="p-4 space-y-3">
+            <form onSubmit={form.handleSubmit(onSubmit, handleInvalidSubmit)} className="p-4 space-y-3">
               {/* Compact Order Summary */}
               <CompactOrderSummary 
                 cart={cart} 
@@ -521,6 +591,7 @@ export function CheckoutSheet({
                   isActive={activeSection === "pickup-schedule"}
                   isCompleted={completedSections.has("pickup-schedule")}
                   isDisabled={!completedSections.has("order-type")}
+                  hasError={getSectionErrors("pickup-schedule").length > 0}
                   onToggle={() => completedSections.has("order-type") && setActiveSection("pickup-schedule")}
                 >
                   <p className="text-sm text-muted-foreground mb-3">
@@ -613,6 +684,7 @@ export function CheckoutSheet({
                   isActive={activeSection === "delivery-address"}
                   isCompleted={completedSections.has("delivery-address")}
                   isDisabled={!completedSections.has("order-type")}
+                  hasError={getSectionErrors("delivery-address").length > 0}
                   onToggle={() => completedSections.has("order-type") && setActiveSection("delivery-address")}
                 >
                   <DeliveryMapPicker 
@@ -646,6 +718,7 @@ export function CheckoutSheet({
                 isActive={activeSection === "customer-info"}
                 isCompleted={completedSections.has("customer-info")}
                 isDisabled={orderType === "pickup" ? !completedSections.has("pickup-schedule") : !completedSections.has("delivery-address")}
+                hasError={getSectionErrors("customer-info").length > 0}
                 onToggle={() => {
                   const canAccess = orderType === "pickup" ? completedSections.has("pickup-schedule") : completedSections.has("delivery-address");
                   if (canAccess) setActiveSection("customer-info");

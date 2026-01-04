@@ -100,27 +100,42 @@ export default function Orders() {
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 20;
   const queryClient = useQueryClient();
 
   const isOwner = role === 'owner';
 
-  const { data: orders = [], isLoading } = useQuery({
-    queryKey: ['orders', statusFilter],
+  const { data: ordersData, isLoading } = useQuery({
+    queryKey: ['orders', statusFilter, currentPage],
     queryFn: async () => {
+      const from = (currentPage - 1) * ITEMS_PER_PAGE;
+      const to = from + ITEMS_PER_PAGE - 1;
+      
       let query = supabase
         .from('orders')
-        .select('*, customers(*), drivers(*)')
-        .order('created_at', { ascending: false });
+        .select('*, customers(*), drivers(*)', { count: 'exact' })
+        .order('created_at', { ascending: false })
+        .range(from, to);
 
       if (statusFilter !== 'all') {
         query = query.eq('status', statusFilter as Enums<'order_status'>);
       }
 
-      const { data, error } = await query;
+      const { data, error, count } = await query;
       if (error) throw error;
-      return data as Order[];
+      return { orders: data as Order[], totalCount: count || 0 };
     },
   });
+
+  const orders = ordersData?.orders || [];
+  const totalCount = ordersData?.totalCount || 0;
+  const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE);
+
+  // Reset page when filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter]);
 
   // Fetch available drivers with status
   const { data: availableDrivers = [], refetch: refetchDrivers } = useQuery({
@@ -712,6 +727,34 @@ export default function Orders() {
                 ))}
               </TableBody>
             </Table>
+          )}
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t">
+              <p className="text-sm text-muted-foreground">
+                Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, totalCount)} of {totalCount} orders
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </Button>
+                <span className="text-sm px-2">Page {currentPage} of {totalPages}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>

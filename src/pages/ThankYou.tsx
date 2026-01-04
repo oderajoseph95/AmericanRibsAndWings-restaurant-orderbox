@@ -184,6 +184,8 @@ export default function ThankYou() {
   const [showAccountPrompt, setShowAccountPrompt] = useState(false);
   const [password, setPassword] = useState('');
   const [isCreatingAccount, setIsCreatingAccount] = useState(false);
+  const [isLiveConnected, setIsLiveConnected] = useState(false);
+  const [showStatusFlash, setShowStatusFlash] = useState(false);
 
   // Fetch order data using secure RPC function
   const { data: orderData, isLoading, error } = useQuery({
@@ -226,7 +228,7 @@ export default function ThankYou() {
     }
   }, [trackingData]);
 
-  // Subscribe to realtime updates
+  // Subscribe to realtime updates with LIVE indicator
   useEffect(() => {
     if (!orderId) return;
 
@@ -241,6 +243,11 @@ export default function ThankYou() {
           filter: `id=eq.${orderId}`,
         },
         async (payload) => {
+          console.log('Real-time update received:', payload);
+          // Show flash animation
+          setShowStatusFlash(true);
+          setTimeout(() => setShowStatusFlash(false), 1000);
+          
           // Refetch full tracking data to get driver info, proper masked/unmasked data
           try {
             const { data, error } = await supabase.rpc('get_order_tracking', {
@@ -250,7 +257,10 @@ export default function ThankYou() {
               setTrackingData(data as unknown as OrderTrackingResponse);
               const newStatus = (data as any).order?.status;
               if (newStatus) {
-                toast.success(`Order updated: ${statusConfig[newStatus as Enums<'order_status'>]?.label || newStatus}`);
+                toast.success(`Order updated: ${statusConfig[newStatus as Enums<'order_status'>]?.label || newStatus}`, {
+                  icon: <CheckCircle2 className="h-4 w-4 text-green-500" />,
+                  duration: 5000,
+                });
               }
             }
           } catch (err) {
@@ -258,7 +268,14 @@ export default function ThankYou() {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          setIsLiveConnected(true);
+        } else {
+          setIsLiveConnected(false);
+        }
+      });
 
     return () => {
       supabase.removeChannel(channel);
@@ -380,9 +397,21 @@ export default function ThankYou() {
       {/* Header */}
       <header className="sticky top-0 z-40 bg-card/95 backdrop-blur border-b border-border">
         <div className="container px-4 h-16 flex items-center justify-between max-w-2xl mx-auto">
-          <div>
-            <h1 className="font-bold text-lg">Order Tracking</h1>
-            <p className="text-xs text-muted-foreground">American Ribs & Wings</p>
+          <div className="flex items-center gap-3">
+            <div>
+              <h1 className="font-bold text-lg">Order Tracking</h1>
+              <p className="text-xs text-muted-foreground">American Ribs & Wings</p>
+            </div>
+            {/* Live indicator */}
+            {isLiveConnected && (
+              <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/30 text-xs flex items-center gap-1.5 animate-pulse">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                </span>
+                LIVE
+              </Badge>
+            )}
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="icon" onClick={handleCopyLink}>
@@ -410,7 +439,7 @@ export default function ThankYou() {
         )}
 
         {/* Order Number & Current Status */}
-        <Card>
+        <Card className={`transition-all duration-300 ${showStatusFlash ? 'ring-2 ring-green-500 bg-green-50/50 dark:bg-green-950/20' : ''}`}>
           <CardContent className="pt-6">
             <div className="text-center mb-6">
               <p className="text-sm text-muted-foreground mb-1">Order Number</p>
@@ -421,7 +450,7 @@ export default function ThankYou() {
             </div>
 
             {/* Current Status Badge */}
-            <div className={`flex items-center justify-center gap-3 p-4 rounded-lg bg-muted ${statusInfo.color}`}>
+            <div className={`flex items-center justify-center gap-3 p-4 rounded-lg bg-muted transition-all duration-300 ${statusInfo.color} ${showStatusFlash ? 'scale-105' : ''}`}>
               <StatusIcon className="h-6 w-6" />
               <div>
                 <p className="font-semibold">{statusInfo.label}</p>

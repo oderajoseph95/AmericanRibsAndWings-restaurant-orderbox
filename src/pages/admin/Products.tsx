@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -44,6 +44,8 @@ export default function Products() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [imageUrl, setImageUrl] = useState<string>('');
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 20;
   const imageInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
@@ -192,6 +194,18 @@ export default function Products() {
       p.name.toLowerCase().includes(search.toLowerCase()) ||
       p.sku?.toLowerCase().includes(search.toLowerCase())
   );
+
+  // Paginate filtered results
+  const totalPages = Math.ceil(filteredProducts.length / ITEMS_PER_PAGE);
+  const paginatedProducts = filteredProducts.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+
+  // Reset page when filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, showArchived]);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -444,92 +458,122 @@ export default function Products() {
               No products found
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-12">Image</TableHead>
-                    <TableHead>Product</TableHead>
-                    <TableHead>SKU</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead className="text-right">Price</TableHead>
-                    <TableHead>Status</TableHead>
-                    {canEdit && <TableHead className="w-[100px]"></TableHead>}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredProducts.map((product) => (
-                    <TableRow key={product.id}>
-                      <TableCell>
-                        <div className="w-10 h-10 rounded bg-muted flex items-center justify-center overflow-hidden">
-                          {product.image_url ? (
-                            <img 
-                              src={product.image_url} 
-                              alt={product.name}
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-medium">{product.name}</TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground">
-                        {product.sku}
-                      </TableCell>
-                      <TableCell>{product.categories?.name || '-'}</TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={productTypeBadgeColors[product.product_type || 'simple']}
-                        >
-                          {productTypeLabels[product.product_type || 'simple']}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        ₱{product.price.toFixed(2)}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={product.is_active ? 'default' : 'secondary'}>
-                          {product.is_active ? 'Active' : 'Inactive'}
-                        </Badge>
-                      </TableCell>
-                      {canEdit && (
+            <>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-12">Image</TableHead>
+                      <TableHead>Product</TableHead>
+                      <TableHead>SKU</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead className="text-right">Price</TableHead>
+                      <TableHead>Status</TableHead>
+                      {canEdit && <TableHead className="w-[100px]"></TableHead>}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {paginatedProducts.map((product) => (
+                      <TableRow key={product.id}>
                         <TableCell>
-                          <div className="flex gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => openEditDialog(product)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() =>
-                                archiveMutation.mutate({
-                                  id: product.id,
-                                  name: product.name,
-                                  archive: !product.archived_at,
-                                })
-                              }
-                            >
-                              {product.archived_at ? (
-                                <ArchiveRestore className="h-4 w-4" />
-                              ) : (
-                                <Archive className="h-4 w-4" />
-                              )}
-                            </Button>
+                          <div className="w-10 h-10 rounded bg-muted flex items-center justify-center overflow-hidden">
+                            {product.image_url ? (
+                              <img 
+                                src={product.image_url} 
+                                alt={product.name}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                            )}
                           </div>
                         </TableCell>
-                      )}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                        <TableCell className="font-medium">{product.name}</TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {product.sku}
+                        </TableCell>
+                        <TableCell>{product.categories?.name || '-'}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={productTypeBadgeColors[product.product_type || 'simple']}
+                          >
+                            {productTypeLabels[product.product_type || 'simple']}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          ₱{product.price.toFixed(2)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={product.is_active ? 'default' : 'secondary'}>
+                            {product.is_active ? 'Active' : 'Inactive'}
+                          </Badge>
+                        </TableCell>
+                        {canEdit && (
+                          <TableCell>
+                            <div className="flex gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => openEditDialog(product)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() =>
+                                  archiveMutation.mutate({
+                                    id: product.id,
+                                    name: product.name,
+                                    archive: !product.archived_at,
+                                  })
+                                }
+                              >
+                                {product.archived_at ? (
+                                  <ArchiveRestore className="h-4 w-4" />
+                                ) : (
+                                  <Archive className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </div>
+                          </TableCell>
+                        )}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Pagination Controls */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between px-4 py-3 border-t mt-4">
+                  <p className="text-sm text-muted-foreground">
+                    Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, filteredProducts.length)} of {filteredProducts.length} products
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                    >
+                      Previous
+                    </Button>
+                    <span className="text-sm px-2">Page {currentPage} of {totalPages}</span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>

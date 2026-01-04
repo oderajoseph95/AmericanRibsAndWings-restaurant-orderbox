@@ -51,6 +51,8 @@ export default function Drivers() {
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 20;
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -308,6 +310,18 @@ export default function Drivers() {
       d.phone.includes(searchQuery)
   );
 
+  // Paginate filtered results
+  const totalPages = Math.ceil(filteredDrivers.length / ITEMS_PER_PAGE);
+  const paginatedDrivers = filteredDrivers.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+
+  // Reset page when search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
   const activeCount = drivers.filter((d) => d.is_active).length;
   const onlineCount = drivers.filter((d) => d.availability_status === 'online').length;
 
@@ -452,7 +466,8 @@ export default function Drivers() {
               </p>
             </div>
           ) : (
-            <Table>
+            <>
+              <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Driver</TableHead>
@@ -464,7 +479,7 @@ export default function Drivers() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredDrivers.map((driver) => {
+                {paginatedDrivers.map((driver) => {
                   const initials = driver.name
                     .split(' ')
                     .map((n) => n[0])
@@ -554,6 +569,35 @@ export default function Drivers() {
                 })}
               </TableBody>
             </Table>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-4 py-3 border-t mt-4">
+                <p className="text-sm text-muted-foreground">
+                  Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, filteredDrivers.length)} of {filteredDrivers.length} drivers
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm px-2">Page {currentPage} of {totalPages}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </CardContent>
       </Card>
