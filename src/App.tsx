@@ -28,6 +28,7 @@ import Settings from "./pages/admin/Settings";
 import Website from "./pages/admin/Website";
 import DriverAuth from "./pages/driver/Auth";
 import DriverDashboard from "./pages/driver/Dashboard";
+import DriverOrders from "./pages/driver/Orders";
 import DriverProfile from "./pages/driver/Profile";
 import DriverEarnings from "./pages/driver/Earnings";
 import Payouts from "./pages/admin/Payouts";
@@ -92,6 +93,7 @@ const App = () => (
               }
             >
               <Route index element={<DriverDashboard />} />
+              <Route path="orders" element={<DriverOrders />} />
               <Route path="earnings" element={<DriverEarnings />} />
               <Route path="profile" element={<DriverProfile />} />
             </Route>

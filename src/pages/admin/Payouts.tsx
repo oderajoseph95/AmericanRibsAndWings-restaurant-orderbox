@@ -21,7 +21,9 @@ import {
   DollarSign,
   User,
   CreditCard,
-  ExternalLink
+  ExternalLink,
+  Truck,
+  Wallet
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -89,16 +91,25 @@ export default function Payouts() {
   const { data: stats } = useQuery({
     queryKey: ['payout-stats'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // Fetch payout requests
+      const { data: payoutData, error: payoutError } = await supabase
         .from('driver_payouts')
         .select('status, amount');
-      if (error) throw error;
+      if (payoutError) throw payoutError;
 
-      const pending = data.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
-      const completed = data.filter(p => p.status === 'completed').reduce((sum, p) => sum + p.amount, 0);
-      const pendingCount = data.filter(p => p.status === 'pending').length;
+      // Fetch pending earnings (drivers on delivery)
+      const { data: earningsData, error: earningsError } = await supabase
+        .from('driver_earnings')
+        .select('status, delivery_fee');
+      if (earningsError) throw earningsError;
 
-      return { pending, completed, pendingCount };
+      const pending = payoutData.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
+      const completed = payoutData.filter(p => p.status === 'completed').reduce((sum, p) => sum + p.amount, 0);
+      const pendingCount = payoutData.filter(p => p.status === 'pending').length;
+      const pendingEarnings = earningsData.filter(e => e.status === 'pending').reduce((sum, e) => sum + Number(e.delivery_fee), 0);
+      const availableEarnings = earningsData.filter(e => e.status === 'available').reduce((sum, e) => sum + Number(e.delivery_fee), 0);
+
+      return { pending, completed, pendingCount, pendingEarnings, availableEarnings };
     },
   });
 
@@ -212,15 +223,15 @@ export default function Payouts() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Pending Requests</p>
-                <p className="text-2xl font-bold">{stats?.pendingCount || 0}</p>
+                <p className="text-xs text-muted-foreground">In Transit</p>
+                <p className="text-xl font-bold text-orange-600">₱{(stats?.pendingEarnings || 0).toFixed(2)}</p>
               </div>
-              <Clock className="h-8 w-8 text-yellow-600" />
+              <Truck className="h-6 w-6 text-orange-600" />
             </div>
           </CardContent>
         </Card>
@@ -228,10 +239,10 @@ export default function Payouts() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Pending Amount</p>
-                <p className="text-2xl font-bold">₱{(stats?.pending || 0).toFixed(2)}</p>
+                <p className="text-xs text-muted-foreground">Available</p>
+                <p className="text-xl font-bold text-green-600">₱{(stats?.availableEarnings || 0).toFixed(2)}</p>
               </div>
-              <DollarSign className="h-8 w-8 text-yellow-600" />
+              <Wallet className="h-6 w-6 text-green-600" />
             </div>
           </CardContent>
         </Card>
@@ -239,10 +250,32 @@ export default function Payouts() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Total Paid Out</p>
-                <p className="text-2xl font-bold">₱{(stats?.completed || 0).toFixed(2)}</p>
+                <p className="text-xs text-muted-foreground">Pending Requests</p>
+                <p className="text-xl font-bold">{stats?.pendingCount || 0}</p>
               </div>
-              <CheckCircle className="h-8 w-8 text-green-600" />
+              <Clock className="h-6 w-6 text-yellow-600" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground">Pending Amount</p>
+                <p className="text-xl font-bold">₱{(stats?.pending || 0).toFixed(2)}</p>
+              </div>
+              <DollarSign className="h-6 w-6 text-yellow-600" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground">Total Paid</p>
+                <p className="text-xl font-bold">₱{(stats?.completed || 0).toFixed(2)}</p>
+              </div>
+              <CheckCircle className="h-6 w-6 text-green-600" />
             </div>
           </CardContent>
         </Card>
