@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import { logAdminAction } from '@/lib/adminLogger';
 import { Plus, Pencil, Archive, ArchiveRestore, Search, Loader2, Upload, ImageIcon } from 'lucide-react';
 import type { Tables, Enums } from '@/integrations/supabase/types';
 
@@ -117,8 +118,18 @@ export default function Products() {
           .update(product)
           .eq('id', editingProduct.id);
         if (error) throw error;
+
+        // Log update
+        await logAdminAction({
+          action: 'update',
+          entityType: 'product',
+          entityId: editingProduct.id,
+          entityName: product.name,
+          oldValues: { name: editingProduct.name, price: editingProduct.price, is_active: editingProduct.is_active },
+          newValues: { name: product.name, price: product.price, is_active: product.is_active },
+        });
       } else {
-        const { error } = await supabase.from('products').insert({
+        const { data, error } = await supabase.from('products').insert({
           name: product.name,
           sku: product.sku,
           description: product.description,
@@ -128,8 +139,17 @@ export default function Products() {
           is_active: product.is_active,
           stock_enabled: product.stock_enabled,
           image_url: product.image_url,
-        });
+        }).select().single();
         if (error) throw error;
+
+        // Log create
+        await logAdminAction({
+          action: 'create',
+          entityType: 'product',
+          entityId: data.id,
+          entityName: product.name,
+          newValues: { name: product.name, price: product.price, product_type: product.product_type },
+        });
       }
     },
     onSuccess: () => {
@@ -145,12 +165,21 @@ export default function Products() {
   });
 
   const archiveMutation = useMutation({
-    mutationFn: async ({ id, archive }: { id: string; archive: boolean }) => {
+    mutationFn: async ({ id, name, archive }: { id: string; name: string; archive: boolean }) => {
       const { error } = await supabase
         .from('products')
         .update({ archived_at: archive ? new Date().toISOString() : null })
         .eq('id', id);
       if (error) throw error;
+
+      // Log archive/restore
+      await logAdminAction({
+        action: archive ? 'delete' : 'update',
+        entityType: 'product',
+        entityId: id,
+        entityName: name,
+        details: archive ? 'Archived product' : 'Restored product',
+      });
     },
     onSuccess: (_, { archive }) => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
@@ -482,6 +511,7 @@ export default function Products() {
                               onClick={() =>
                                 archiveMutation.mutate({
                                   id: product.id,
+                                  name: product.name,
                                   archive: !product.archived_at,
                                 })
                               }

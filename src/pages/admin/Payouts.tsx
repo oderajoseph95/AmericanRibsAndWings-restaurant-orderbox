@@ -95,7 +95,6 @@ type Payout = {
 
 const statusColors: Record<string, string> = {
   pending: 'bg-yellow-500/20 text-yellow-700 border-yellow-500/30',
-  approved: 'bg-blue-500/20 text-blue-700 border-blue-500/30',
   rejected: 'bg-red-500/20 text-red-700 border-red-500/30',
   completed: 'bg-emerald-500/20 text-emerald-700 border-emerald-500/30',
 };
@@ -423,7 +422,6 @@ export default function Payouts() {
             <Tabs value={statusFilter} onValueChange={setStatusFilter}>
               <TabsList>
                 <TabsTrigger value="pending">Pending</TabsTrigger>
-                <TabsTrigger value="approved">Approved</TabsTrigger>
                 <TabsTrigger value="completed">Completed</TabsTrigger>
                 <TabsTrigger value="rejected">Rejected</TabsTrigger>
                 <TabsTrigger value="all">All</TabsTrigger>

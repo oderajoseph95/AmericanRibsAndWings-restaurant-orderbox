@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import { logAdminAction } from '@/lib/adminLogger';
 import { Plus, Pencil, Archive, ArchiveRestore, Loader2 } from 'lucide-react';
 import type { Tables, Enums } from '@/integrations/supabase/types';
 
@@ -48,15 +49,34 @@ export default function Flavors() {
           .update(flavor)
           .eq('id', editingFlavor.id);
         if (error) throw error;
+
+        // Log update
+        await logAdminAction({
+          action: 'update',
+          entityType: 'flavor',
+          entityId: editingFlavor.id,
+          entityName: flavor.name,
+          oldValues: { name: editingFlavor.name, flavor_type: editingFlavor.flavor_type, is_active: editingFlavor.is_active },
+          newValues: { name: flavor.name, flavor_type: flavor.flavor_type, is_active: flavor.is_active },
+        });
       } else {
-        const { error } = await supabase.from('flavors').insert({
+        const { data, error } = await supabase.from('flavors').insert({
           name: flavor.name,
           flavor_type: flavor.flavor_type,
           surcharge: flavor.surcharge,
           is_active: flavor.is_active,
           is_available: flavor.is_available ?? true,
-        });
+        }).select().single();
         if (error) throw error;
+
+        // Log create
+        await logAdminAction({
+          action: 'create',
+          entityType: 'flavor',
+          entityId: data.id,
+          entityName: flavor.name,
+          newValues: { flavor_type: flavor.flavor_type, surcharge: flavor.surcharge },
+        });
       }
     },
     onSuccess: () => {
@@ -71,12 +91,22 @@ export default function Flavors() {
   });
 
   const toggleAvailabilityMutation = useMutation({
-    mutationFn: async ({ id, is_available }: { id: string; is_available: boolean }) => {
+    mutationFn: async ({ id, name, is_available }: { id: string; name: string; is_available: boolean }) => {
       const { error } = await supabase
         .from('flavors')
         .update({ is_available })
         .eq('id', id);
       if (error) throw error;
+
+      // Log toggle
+      await logAdminAction({
+        action: 'toggle',
+        entityType: 'flavor',
+        entityId: id,
+        entityName: name,
+        newValues: { is_available },
+        details: is_available ? 'Set to available' : 'Set to out of stock',
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['flavors'] });
@@ -88,12 +118,21 @@ export default function Flavors() {
   });
 
   const archiveMutation = useMutation({
-    mutationFn: async ({ id, archive }: { id: string; archive: boolean }) => {
+    mutationFn: async ({ id, name, archive }: { id: string; name: string; archive: boolean }) => {
       const { error } = await supabase
         .from('flavors')
         .update({ archived_at: archive ? new Date().toISOString() : null })
         .eq('id', id);
       if (error) throw error;
+
+      // Log archive/restore
+      await logAdminAction({
+        action: archive ? 'delete' : 'update',
+        entityType: 'flavor',
+        entityId: id,
+        entityName: name,
+        details: archive ? 'Archived flavor' : 'Restored flavor',
+      });
     },
     onSuccess: (_, { archive }) => {
       queryClient.invalidateQueries({ queryKey: ['flavors'] });
@@ -293,7 +332,7 @@ export default function Flavors() {
                           <Switch
                             checked={(flavor as any).is_available ?? true}
                             onCheckedChange={(checked) =>
-                              toggleAvailabilityMutation.mutate({ id: flavor.id, is_available: checked })
+                              toggleAvailabilityMutation.mutate({ id: flavor.id, name: flavor.name, is_available: checked })
                             }
                           />
                           <Badge 
@@ -339,6 +378,7 @@ export default function Flavors() {
                             onClick={() =>
                               archiveMutation.mutate({
                                 id: flavor.id,
+                                name: flavor.name,
                                 archive: !flavor.archived_at,
                               })
                             }

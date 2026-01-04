@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import { DriverStatsCards } from '@/components/driver/DriverStatsCards';
 import { 
   Package, 
   MapPin, 
@@ -20,7 +21,6 @@ import {
   Navigation,
   User,
   AlertCircle,
-  Circle,
   Power,
   Coffee,
   Truck,
@@ -316,27 +316,8 @@ export default function DriverDashboard() {
       {/* Earnings Summary Widget */}
       <EarningsWidget driverId={driver.id} onViewMore={() => navigate('/driver/earnings')} />
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="pt-4 pb-4 text-center">
-            <p className="text-2xl font-bold text-primary">{assignedCount}</p>
-            <p className="text-xs text-muted-foreground">Assigned</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 pb-4 text-center">
-            <p className="text-2xl font-bold text-blue-600">{inProgressCount}</p>
-            <p className="text-xs text-muted-foreground">In Progress</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 pb-4 text-center">
-            <p className="text-2xl font-bold text-green-600">{completedToday}</p>
-            <p className="text-xs text-muted-foreground">Today</p>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Extended Stats */}
+      <DriverStatsCards driverId={driver.id} />
 
       {/* Orders Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>

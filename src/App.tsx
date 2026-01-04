@@ -34,6 +34,7 @@ import DriverProfile from "./pages/driver/Profile";
 import DriverEarnings from "./pages/driver/Earnings";
 import Payouts from "./pages/admin/Payouts";
 import Logs from "./pages/admin/Logs";
+import Users from "./pages/admin/Users";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -82,6 +83,7 @@ const App = () => (
               <Route path="payouts" element={<Payouts />} />
               <Route path="reports" element={<Reports />} />
               <Route path="website" element={<Website />} />
+              <Route path="users" element={<Users />} />
               <Route path="logs" element={<Logs />} />
               <Route path="settings" element={<Settings />} />
             </Route>
