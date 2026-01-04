@@ -70,8 +70,8 @@ export function NotificationsSheet({ open, onOpenChange }: NotificationsSheetPro
     if (selectedNotification.action_url) {
       navigate(selectedNotification.action_url);
     } else if (selectedNotification.order_id) {
-      const orderNumber = selectedNotification.metadata?.order_number;
-      navigate(`/admin/orders?search=${orderNumber || selectedNotification.order_id}`);
+      // Navigate with orderId param to auto-open the order detail sheet
+      navigate(`/admin/orders?orderId=${selectedNotification.order_id}`);
     } else if (selectedNotification.type === "payout") {
       navigate("/admin/payouts");
     } else if (selectedNotification.type === "stock") {
@@ -107,7 +107,7 @@ export function NotificationsSheet({ open, onOpenChange }: NotificationsSheetPro
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent className="w-full sm:max-w-md p-0 flex flex-col">
-          <SheetHeader className="p-4 border-b">
+          <SheetHeader className="p-4 pr-14 border-b">
             <div className="flex items-center justify-between">
               <SheetTitle className="flex items-center gap-2">
                 <Bell className="h-5 w-5" />

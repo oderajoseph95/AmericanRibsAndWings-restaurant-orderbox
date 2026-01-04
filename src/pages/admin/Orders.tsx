@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, ChangeEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -98,6 +99,7 @@ const statusLabels: Record<Enums<'order_status'>, string> = {
 
 export default function Orders() {
   const { role } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -158,6 +160,20 @@ export default function Orders() {
   useEffect(() => {
     setCurrentPage(1);
   }, [statusFilter]);
+
+  // Auto-open order from URL param (from notifications)
+  useEffect(() => {
+    const orderId = searchParams.get('orderId');
+    if (orderId && orders.length > 0) {
+      const order = orders.find(o => o.id === orderId);
+      if (order) {
+        setSelectedOrder(order);
+        // Clear the param so refresh doesn't reopen
+        searchParams.delete('orderId');
+        setSearchParams(searchParams, { replace: true });
+      }
+    }
+  }, [searchParams, orders, setSearchParams]);
 
   // Fetch available drivers with status
   const { data: availableDrivers = [], refetch: refetchDrivers } = useQuery({
