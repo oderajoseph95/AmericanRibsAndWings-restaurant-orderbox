@@ -21,6 +21,7 @@ import { format } from "date-fns";
 import { SEOHead } from "@/components/SEOHead";
 import { useToast } from "@/hooks/use-toast";
 import type { Enums } from "@/integrations/supabase/types";
+import { useVisitorPresence } from "@/hooks/useVisitorPresence";
 
 interface OrderResult {
   id: string;
@@ -65,6 +66,7 @@ const statusLabels: Record<Enums<'order_status'>, string> = {
 
 export default function MyOrders() {
   const { toast } = useToast();
+  useVisitorPresence("/my-orders");
   const [searchType, setSearchType] = useState<'email' | 'phone'>('phone');
   const [contactValue, setContactValue] = useState('');
   const [orders, setOrders] = useState<OrderResult[]>([]);
