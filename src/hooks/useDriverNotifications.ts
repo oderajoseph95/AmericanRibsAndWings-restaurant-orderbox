@@ -1,6 +1,20 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
+
+export interface DriverNotificationMetadata {
+  order_number?: string;
+  customer_name?: string;
+  customer_phone?: string;
+  order_type?: string;
+  total_amount?: number;
+  items?: { name: string; quantity: number; price: number }[];
+  delivery_address?: string;
+  payout_amount?: number;
+  action_url?: string;
+  action_label?: string;
+}
 
 export interface DriverNotification {
   id: string;
@@ -11,6 +25,8 @@ export interface DriverNotification {
   order_id: string | null;
   is_read: boolean | null;
   created_at: string | null;
+  metadata: DriverNotificationMetadata | null;
+  action_url: string | null;
 }
 
 export function useDriverNotifications(driverId?: string) {
@@ -49,7 +65,7 @@ export function useDriverNotifications(driverId?: string) {
       .on(
         "postgres_changes",
         {
-          event: "INSERT",
+          event: "*",
           schema: "public",
           table: "driver_notifications",
           filter: `driver_id=eq.${driverId}`,
@@ -93,6 +109,33 @@ export function useDriverNotifications(driverId?: string) {
     },
   });
 
+  const deleteNotification = useMutation({
+    mutationFn: async (notificationId: string) => {
+      const { error } = await supabase
+        .from("driver_notifications")
+        .delete()
+        .eq("id", notificationId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["driver-notifications", driverId] });
+    },
+  });
+
+  const deleteAllNotifications = useMutation({
+    mutationFn: async () => {
+      if (!driverId) return;
+      const { error } = await supabase
+        .from("driver_notifications")
+        .delete()
+        .eq("driver_id", driverId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["driver-notifications", driverId] });
+    },
+  });
+
   return {
     notifications,
     unreadCount,
@@ -100,16 +143,21 @@ export function useDriverNotifications(driverId?: string) {
     markAsRead: markAsRead.mutate,
     markAllAsRead: markAllAsRead.mutate,
     isMarkingAllAsRead: markAllAsRead.isPending,
+    deleteNotification: deleteNotification.mutate,
+    deleteAllNotifications: deleteAllNotifications.mutate,
+    isDeletingAll: deleteAllNotifications.isPending,
   };
 }
 
-// Utility function to create a driver notification
+// Utility function to create a driver notification with metadata
 export async function createDriverNotification(payload: {
   driverId: string;
   title: string;
   message: string;
   type?: string;
   orderId?: string;
+  metadata?: DriverNotificationMetadata;
+  actionUrl?: string;
 }) {
   const { error } = await supabase.from("driver_notifications").insert({
     driver_id: payload.driverId,
@@ -117,6 +165,8 @@ export async function createDriverNotification(payload: {
     message: payload.message,
     type: payload.type || "order",
     order_id: payload.orderId || null,
+    metadata: (payload.metadata || {}) as Json,
+    action_url: payload.actionUrl || null,
   });
 
   if (error) {

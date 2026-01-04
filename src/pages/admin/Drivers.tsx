@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
-import { Plus, Truck, Phone, Mail, Loader2, Search, Edit, Circle, Eye, DollarSign, MapPin, Package, TrendingUp, Clock } from 'lucide-react';
+import { Plus, Truck, Phone, Mail, Loader2, Search, Edit, Circle, Eye, DollarSign, MapPin, Package, TrendingUp, Clock, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import { z } from 'zod';
 import type { Tables } from '@/integrations/supabase/types';
@@ -52,6 +52,7 @@ export default function Drivers() {
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const ITEMS_PER_PAGE = 20;
   const [formData, setFormData] = useState({
     name: '',
@@ -60,6 +61,13 @@ export default function Drivers() {
     password: '',
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await queryClient.invalidateQueries({ queryKey: ['admin-drivers'] });
+    toast.success('Drivers refreshed');
+    setTimeout(() => setIsRefreshing(false), 500);
+  };
 
   // Fetch drivers with realtime subscription
   const { data: drivers = [], isLoading } = useQuery({
@@ -328,11 +336,22 @@ export default function Drivers() {
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">Drivers</h1>
-          <p className="text-muted-foreground mt-1">
-            Manage delivery drivers ({activeCount} active, {onlineCount} online)
-          </p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h1 className="text-3xl font-bold text-foreground">Drivers</h1>
+            <p className="text-muted-foreground mt-1">
+              Manage delivery drivers ({activeCount} active, {onlineCount} online)
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="h-8 w-8"
+          >
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          </Button>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>

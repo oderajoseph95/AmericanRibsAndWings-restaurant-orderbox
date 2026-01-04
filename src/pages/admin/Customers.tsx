@@ -23,7 +23,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
-import { Plus, Pencil, Trash2, Search, Loader2, Eye } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, Loader2, Eye, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Tables } from '@/integrations/supabase/types';
 
@@ -39,8 +39,16 @@ export default function Customers() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const ITEMS_PER_PAGE = 20;
   const queryClient = useQueryClient();
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await queryClient.invalidateQueries({ queryKey: ['customers'] });
+    toast.success('Customers refreshed');
+    setTimeout(() => setIsRefreshing(false), 500);
+  };
 
   const { data: customers = [], isLoading } = useQuery({
     queryKey: ['customers'],
@@ -222,11 +230,22 @@ export default function Customers() {
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">Customers</h1>
-          <p className="text-muted-foreground mt-1">
-            {customers.length} total customers
-          </p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h1 className="text-3xl font-bold text-foreground">Customers</h1>
+            <p className="text-muted-foreground mt-1">
+              {customers.length} total customers
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="h-8 w-8"
+          >
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          </Button>
         </div>
         <div className="flex gap-2">
           {isOwner && selectedCustomerIds.size > 0 && (

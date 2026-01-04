@@ -2,6 +2,21 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import type { Json } from "@/integrations/supabase/types";
+
+export interface NotificationMetadata {
+  order_number?: string;
+  customer_name?: string;
+  customer_phone?: string;
+  order_type?: string;
+  total_amount?: number;
+  items?: { name: string; quantity: number; price: number }[];
+  delivery_address?: string;
+  driver_name?: string;
+  payout_amount?: number;
+  action_url?: string;
+  action_label?: string;
+}
 
 export interface AdminNotification {
   id: string;
@@ -12,6 +27,8 @@ export interface AdminNotification {
   order_id: string | null;
   is_read: boolean;
   created_at: string;
+  metadata: NotificationMetadata | null;
+  action_url: string | null;
 }
 
 export function useAdminNotifications() {
@@ -53,7 +70,7 @@ export function useAdminNotifications() {
       .on(
         "postgres_changes",
         {
-          event: "INSERT",
+          event: "*",
           schema: "public",
           table: "admin_notifications",
           filter: `user_id=eq.${user.id}`,
@@ -103,6 +120,39 @@ export function useAdminNotifications() {
     },
   });
 
+  // Delete single notification
+  const deleteNotificationMutation = useMutation({
+    mutationFn: async (notificationId: string) => {
+      const { error } = await supabase
+        .from("admin_notifications")
+        .delete()
+        .eq("id", notificationId)
+        .eq("user_id", user?.id);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-notifications"] });
+    },
+  });
+
+  // Delete all notifications
+  const deleteAllNotificationsMutation = useMutation({
+    mutationFn: async () => {
+      if (!user?.id) return;
+      
+      const { error } = await supabase
+        .from("admin_notifications")
+        .delete()
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-notifications"] });
+    },
+  });
+
   return {
     notifications,
     unreadCount,
@@ -110,15 +160,20 @@ export function useAdminNotifications() {
     markAsRead: markAsReadMutation.mutate,
     markAllAsRead: markAllAsReadMutation.mutate,
     isMarkingAllAsRead: markAllAsReadMutation.isPending,
+    deleteNotification: deleteNotificationMutation.mutate,
+    deleteAllNotifications: deleteAllNotificationsMutation.mutate,
+    isDeletingAll: deleteAllNotificationsMutation.isPending,
   };
 }
 
-// Helper function to create notifications for all admins
+// Helper function to create notifications for all admins with metadata
 export async function createAdminNotification(payload: {
   title: string;
   message: string;
   type?: string;
   order_id?: string;
+  metadata?: NotificationMetadata;
+  action_url?: string;
 }) {
   // Get all admin user IDs
   const { data: adminUsers, error: usersError } = await supabase
@@ -140,6 +195,8 @@ export async function createAdminNotification(payload: {
     message: payload.message,
     type: payload.type || "info",
     order_id: payload.order_id || null,
+    metadata: (payload.metadata || {}) as Json,
+    action_url: payload.action_url || null,
   }));
 
   const { error } = await supabase

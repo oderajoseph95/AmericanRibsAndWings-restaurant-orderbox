@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { 
   ShoppingCart, DollarSign, Clock, AlertTriangle, Loader2, TrendingUp, 
-  MapPin, Activity, Calendar, ChevronRight, Users, Truck, Package, Award, XCircle
+  MapPin, Activity, Calendar, ChevronRight, Users, Truck, Package, Award, XCircle, RefreshCw
 } from 'lucide-react';
 import { startOfDay, endOfDay, subDays, startOfWeek, startOfMonth, format } from 'date-fns';
 import { Link } from 'react-router-dom';
@@ -15,6 +15,8 @@ import { ActivityFeed } from '@/components/admin/ActivityFeed';
 import { LiveVisitorsCard } from '@/components/admin/LiveVisitorsCard';
 import { ConversionFunnelCard } from '@/components/admin/ConversionFunnelCard';
 import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 import type { Database } from '@/integrations/supabase/types';
 
 type OrderStatus = Database['public']['Enums']['order_status'];
@@ -32,6 +34,17 @@ export default function Dashboard() {
   const queryClient = useQueryClient();
   const [dateFilter, setDateFilter] = useState<DateFilter>('today');
   const [lastUpdate, setLastUpdate] = useState(new Date());
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    await queryClient.invalidateQueries({ queryKey: ['conversion-funnel'] });
+    await queryClient.invalidateQueries({ queryKey: ['live-visitors'] });
+    setLastUpdate(new Date());
+    toast.success('Dashboard refreshed');
+    setTimeout(() => setIsRefreshing(false), 500);
+  };
 
   // Calculate date range based on filter
   const dateRange = useMemo(() => {
@@ -320,7 +333,7 @@ export default function Dashboard() {
       {/* Header with live indicator */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
             <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20">
               <span className="relative flex h-2 w-2">
@@ -329,6 +342,15 @@ export default function Dashboard() {
               </span>
               <span className="text-xs font-medium text-green-600 dark:text-green-400">Live</span>
             </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="h-8 w-8"
+            >
+              <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
+            </Button>
           </div>
           <p className="text-muted-foreground mt-1">
             Last updated: {format(lastUpdate, 'h:mm:ss a')}
