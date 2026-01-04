@@ -421,8 +421,30 @@ export default function Orders() {
         details: `Uploaded pickup proof photo for order ${selectedOrder.order_number}`,
       });
 
+      // Auto-complete pickup orders when photo is uploaded
+      if (selectedOrder.order_type === 'pickup') {
+        await supabase
+          .from('orders')
+          .update({ status: 'completed' })
+          .eq('id', selectedOrder.id);
+        
+        // Update local state
+        setSelectedOrder(prev => prev ? { ...prev, status: 'completed' } : null);
+        
+        await logAdminAction({
+          action: 'status_change',
+          entityType: 'order',
+          entityId: selectedOrder.id,
+          entityName: selectedOrder.order_number || undefined,
+          oldValues: { status: selectedOrder.status },
+          newValues: { status: 'completed' },
+          details: `Auto-completed pickup order after photo upload`,
+        });
+      }
+
       queryClient.invalidateQueries({ queryKey: ['delivery-photos', selectedOrder.id] });
-      toast.success('Pickup photo uploaded');
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      toast.success(selectedOrder.order_type === 'pickup' ? 'Pickup photo uploaded & order completed' : 'Pickup photo uploaded');
     } catch (error: any) {
       toast.error('Upload failed: ' + error.message);
     } finally {
