@@ -115,9 +115,10 @@ function generateTimeSlots(selectedDate: Date | undefined): string[] {
   const slots: string[] = [];
   const now = new Date();
   const isSelectedToday = selectedDate && isToday(selectedDate);
-  for (let hour = 10; hour <= 21; hour++) {
+  // Pickup hours: 12 PM to 8 PM only
+  for (let hour = 12; hour <= 20; hour++) {
     for (const minute of [0, 30]) {
-      if (hour === 21 && minute === 30) continue;
+      if (hour === 20 && minute === 30) continue;
       const slotTime = setMinutes(setHours(new Date(), hour), minute);
       if (isSelectedToday) {
         const bufferTime = new Date(now.getTime() + 60 * 60 * 1000);
