@@ -367,31 +367,32 @@ export function CheckoutSheet({
       if (orderError) throw orderError;
       const order = orderResult[0];
 
+      // Use secure RPC functions for order items (bypasses RLS)
       for (const item of cart) {
-        const orderItemData = {
-          order_id: order.id,
-          product_id: item.product.id,
-          product_name: item.product.name,
-          product_sku: item.product.sku,
-          quantity: item.quantity,
-          unit_price: item.product.price,
-          subtotal: item.quantity * item.product.price,
-          flavor_surcharge_total: item.flavors?.reduce((sum, f) => sum + f.surcharge * f.quantity, 0) || 0
-          // line_total is a generated column - database calculates it automatically
-        };
-        const { data: orderItem, error: itemError } = await supabase.from("order_items").insert(orderItemData).select().single();
+        const { data: orderItemId, error: itemError } = await supabase.rpc('create_checkout_order_item', {
+          p_order_id: order.id,
+          p_product_id: item.product.id,
+          p_product_name: item.product.name,
+          p_product_sku: item.product.sku || null,
+          p_quantity: item.quantity,
+          p_unit_price: item.product.price,
+          p_subtotal: item.quantity * item.product.price,
+          p_flavor_surcharge_total: item.flavors?.reduce((sum, f) => sum + f.surcharge * f.quantity, 0) || 0
+        });
         if (itemError) throw itemError;
 
+        // Use secure RPC function for flavors
         if (item.flavors && item.flavors.length > 0) {
-          const flavorInserts = item.flavors.map(f => ({
-            order_item_id: orderItem.id,
-            flavor_id: f.id,
-            flavor_name: f.name,
-            quantity: f.quantity,
-            surcharge_applied: f.surcharge
-          }));
-          const { error: flavorError } = await supabase.from("order_item_flavors").insert(flavorInserts);
-          if (flavorError) throw flavorError;
+          for (const f of item.flavors) {
+            const { error: flavorError } = await supabase.rpc('create_checkout_order_item_flavor', {
+              p_order_item_id: orderItemId,
+              p_flavor_id: f.id,
+              p_flavor_name: f.name,
+              p_quantity: f.quantity,
+              p_surcharge_applied: f.surcharge
+            });
+            if (flavorError) throw flavorError;
+          }
         }
       }
 

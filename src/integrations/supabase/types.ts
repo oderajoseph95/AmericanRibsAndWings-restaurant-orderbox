@@ -1080,6 +1080,29 @@ export type Database = {
           order_number: string
         }[]
       }
+      create_checkout_order_item: {
+        Args: {
+          p_flavor_surcharge_total?: number
+          p_order_id: string
+          p_product_id: string
+          p_product_name: string
+          p_product_sku: string
+          p_quantity: number
+          p_subtotal: number
+          p_unit_price: number
+        }
+        Returns: string
+      }
+      create_checkout_order_item_flavor: {
+        Args: {
+          p_flavor_id: string
+          p_flavor_name: string
+          p_order_item_id: string
+          p_quantity: number
+          p_surcharge_applied: number
+        }
+        Returns: string
+      }
       get_order_tracking: { Args: { p_order_id: string }; Returns: Json }
       get_orders_by_contact: {
         Args: { p_email?: string; p_phone?: string }
