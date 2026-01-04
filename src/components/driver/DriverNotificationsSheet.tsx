@@ -87,7 +87,8 @@ export function DriverNotificationsSheet({ open, onOpenChange, driverId }: Drive
     toast.success("All notifications cleared");
   };
 
-  const getActionLabel = (notification: DriverNotification) => {
+  const getActionLabel = (notification: DriverNotification | null): string | null => {
+    if (!notification) return null;
     if (notification.metadata?.action_label) return notification.metadata.action_label;
     if (notification.order_id || notification.type === "order" || notification.type === "assignment") return "View Orders";
     if (notification.type === "payout") return "View Earnings";

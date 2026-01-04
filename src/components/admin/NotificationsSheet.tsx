@@ -93,7 +93,8 @@ export function NotificationsSheet({ open, onOpenChange }: NotificationsSheetPro
     toast.success("All notifications cleared");
   };
 
-  const getActionLabel = (notification: AdminNotification) => {
+  const getActionLabel = (notification: AdminNotification | null): string | null => {
+    if (!notification) return null;
     if (notification.metadata?.action_label) return notification.metadata.action_label;
     if (notification.order_id) return "View Order";
     if (notification.type === "payout") return "View Payouts";
