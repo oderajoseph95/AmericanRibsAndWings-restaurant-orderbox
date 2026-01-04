@@ -31,6 +31,7 @@ import {
   Globe,
   Truck,
   Wallet,
+  FileText,
 } from 'lucide-react';
 
 const navItems = [
@@ -46,6 +47,7 @@ const navItems = [
   { title: 'Payouts', url: '/admin/payouts', icon: Wallet, roles: ['owner', 'manager'] },
   { title: 'Reports', url: '/admin/reports', icon: BarChart3, roles: ['owner', 'manager'] },
   { title: 'Website', url: '/admin/website', icon: Globe, roles: ['owner', 'manager'] },
+  { title: 'Activity Logs', url: '/admin/logs', icon: FileText, roles: ['owner', 'manager'] },
   { title: 'Settings', url: '/admin/settings', icon: Settings, roles: ['owner'] },
 ];
 

@@ -56,6 +56,7 @@ type Payout = {
   processed_at: string | null;
   payment_proof_url: string | null;
   admin_notes: string | null;
+  rejection_reason: string | null;
 };
 
 const statusColors: Record<string, string> = {
@@ -396,12 +397,24 @@ export default function DriverEarnings() {
                       Processed: {format(new Date(payout.processed_at), 'MMM d, h:mm a')}
                     </p>
                   )}
+                  {/* Rejection Reason - prominently displayed */}
+                  {payout.status === 'rejected' && payout.rejection_reason && (
+                    <div className="mt-3 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg">
+                      <p className="text-xs font-medium text-red-700 dark:text-red-400 flex items-center gap-1 mb-1">
+                        <AlertCircle className="h-3 w-3" />
+                        Rejection Reason
+                      </p>
+                      <p className="text-sm text-red-600 dark:text-red-300">
+                        {payout.rejection_reason}
+                      </p>
+                    </div>
+                  )}
                   {payout.payment_proof_url && (
                     <a 
                       href={payout.payment_proof_url} 
                       target="_blank" 
                       rel="noopener noreferrer"
-                      className="text-xs text-primary hover:underline flex items-center gap-1 mt-1"
+                      className="text-xs text-primary hover:underline flex items-center gap-1 mt-2"
                     >
                       <CheckCircle className="h-3 w-3" />
                       View Payment Proof

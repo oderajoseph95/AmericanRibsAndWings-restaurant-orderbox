@@ -14,6 +14,48 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_logs: {
+        Row: {
+          action: string
+          created_at: string | null
+          details: string | null
+          entity_id: string | null
+          entity_name: string | null
+          entity_type: string
+          id: string
+          new_values: Json | null
+          old_values: Json | null
+          user_email: string
+          user_id: string
+        }
+        Insert: {
+          action: string
+          created_at?: string | null
+          details?: string | null
+          entity_id?: string | null
+          entity_name?: string | null
+          entity_type: string
+          id?: string
+          new_values?: Json | null
+          old_values?: Json | null
+          user_email: string
+          user_id: string
+        }
+        Update: {
+          action?: string
+          created_at?: string | null
+          details?: string | null
+          entity_id?: string | null
+          entity_name?: string | null
+          entity_type?: string
+          id?: string
+          new_values?: Json | null
+          old_values?: Json | null
+          user_email?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       bundle_components: {
         Row: {
           bundle_product_id: string
@@ -289,6 +331,7 @@ export type Database = {
           payment_proof_url: string | null
           processed_at: string | null
           processed_by: string | null
+          rejection_reason: string | null
           requested_at: string | null
           status: string
         }
@@ -303,6 +346,7 @@ export type Database = {
           payment_proof_url?: string | null
           processed_at?: string | null
           processed_by?: string | null
+          rejection_reason?: string | null
           requested_at?: string | null
           status?: string
         }
@@ -317,6 +361,7 @@ export type Database = {
           payment_proof_url?: string | null
           processed_at?: string | null
           processed_by?: string | null
+          rejection_reason?: string | null
           requested_at?: string | null
           status?: string
         }
