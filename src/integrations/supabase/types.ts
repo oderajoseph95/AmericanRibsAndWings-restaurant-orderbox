@@ -1062,6 +1062,24 @@ export type Database = {
         Args: { p_email?: string; p_name: string; p_phone?: string }
         Returns: string
       }
+      create_checkout_order: {
+        Args: {
+          p_customer_id: string
+          p_delivery_address?: string
+          p_delivery_distance_km?: number
+          p_delivery_fee?: number
+          p_internal_notes?: string
+          p_order_type: string
+          p_pickup_date?: string
+          p_pickup_time?: string
+          p_subtotal: number
+          p_total_amount: number
+        }
+        Returns: {
+          id: string
+          order_number: string
+        }[]
+      }
       get_order_tracking: { Args: { p_order_id: string }; Returns: Json }
       get_orders_by_contact: {
         Args: { p_email?: string; p_phone?: string }

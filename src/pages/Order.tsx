@@ -9,6 +9,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowLeft, ShoppingCart } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { ProductCard } from "@/components/customer/ProductCard";
 import { Cart } from "@/components/customer/Cart";
 import { FlavorModal } from "@/components/customer/FlavorModal";
@@ -339,7 +340,7 @@ const Order = () => {
       </header>
 
       {/* Main content */}
-      <div className="container px-4 py-6">
+      <div className={cn("container px-4 py-6", cartItemCount > 0 && "pb-28 lg:pb-6")}>
         <div className="flex gap-6">
           {/* Products grid */}
           <div className="flex-1">
@@ -396,13 +397,13 @@ const Order = () => {
 
       {/* Mobile checkout bar */}
       {cartItemCount > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 lg:hidden bg-card border-t border-border p-4 shadow-lg">
+        <div className="fixed bottom-0 left-0 right-0 lg:hidden bg-card border-t border-border p-4 shadow-lg z-50">
           <Button
-            className="w-full"
+            className="w-full animate-glow-pulse"
             size="lg"
             onClick={() => setIsCheckoutOpen(true)}
           >
-            Checkout · ₱{cartTotal.toFixed(2)}
+            Checkout ({cartItemCount} {cartItemCount === 1 ? 'item' : 'items'}) · ₱{cartTotal.toFixed(2)}
           </Button>
         </div>
       )}
