@@ -1,73 +1,92 @@
-# Welcome to your Lovable project
+# American Ribs & Wings Floridablanca
 
-## Project info
+Online Ordering & Admin System
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+**Live site:** https://arwfloridablanca.shop
 
-## How can I edit this code?
+---
 
-There are several ways of editing your application.
+## Overview
 
-**Use Lovable**
+This repository contains the source code for the **American Ribs & Wings Floridablanca online ordering system**, built to support pickup and delivery orders with real-time distance-based delivery fees, payment verification, and a full admin dashboard.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+The system is designed for a **single-branch restaurant operation in the Philippines**, with workflows aligned to local payment methods, delivery operations, and customer behavior.
 
-Changes made via Lovable will be committed automatically to this repo.
+---
 
-**Use your preferred IDE**
+## Core Features
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+### Customer Ordering
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+- Pickup and Delivery order types
+- Google Maps–based delivery distance calculation
+- Distance-based delivery fee computation
+- Estimated delivery time calculation using prep time + travel time
+- Mobile-first checkout experience with collapsible sections
+- Required payment proof for delivery orders
+- Cash payments supported for pickup orders below defined limits
 
-Follow these steps:
+### Payments
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+- GCash payments with QR code display
+- Bank transfer payments with QR code and account details
+- Payment proof upload and verification
+- Cash allowed only for pickup orders under ₱500
+- Delivery orders are fully cashless
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+### Notifications
 
-# Step 3: Install the necessary dependencies.
-npm i
+- SMS notifications for order status updates
+- Email receipts and order confirmations
+- Backend-triggered transactional messaging
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
+### Admin Panel
 
-**Edit a file directly in GitHub**
+- Secure admin authentication
+- Full product management
+- Category and flavor management
+- Flavor rules for wings and bundles
+- Order review and payment verification
+- Delivery fee visibility per order
+- Stock tracking and low-stock alerts
+- Sales and order reporting
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+---
 
-**Use GitHub Codespaces**
+## Technology Stack
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+### Frontend
 
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
 - React
-- shadcn-ui
+- TypeScript
+- Vite
 - Tailwind CSS
+- shadcn/ui
 
-## How can I deploy this project?
+### Backend and Services
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+- Google Maps APIs for distance and ETA calculation
+- Email service for transactional emails
+- SMS gateway for order notifications
 
-## Can I connect a custom domain to my Lovable project?
+---
 
-Yes, you can!
+## Delivery Fee Logic
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+- First 3 km: ₱39
+- Additional distance: ₱15 per kilometer
+- Billable distance is calculated using road distance
+- Distance is floored, not rounded up
+- Delivery fee is calculated only after address confirmation
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+---
+
+## ETA Calculation
+
+Estimated delivery time is calculated as:
+
+- Fixed preparation time: 30 minutes
+- Plus Google Maps travel time
+- Displayed as a time range to account for real-world conditions
+
+**Example:**
