@@ -201,6 +201,23 @@ export function CheckoutSheet({
   const customerName = form.watch("name");
   const customerPhone = form.watch("phone");
 
+  // Fire Meta Pixel InitiateCheckout event when checkout opens
+  useEffect(() => {
+    if (open && typeof (window as any).fbq === 'function') {
+      (window as any).fbq('track', 'InitiateCheckout', {
+        content_ids: cart.map(item => item.product.id),
+        contents: cart.map(item => ({
+          id: item.product.id,
+          quantity: item.quantity,
+        })),
+        num_items: cart.reduce((sum, item) => sum + item.quantity, 0),
+        value: total,
+        currency: 'PHP',
+      });
+      console.log('Meta Pixel InitiateCheckout event fired:', total);
+    }
+  }, [open, cart, total]);
+
   // Reset delivery fee when switching order type
   useEffect(() => {
     if (orderType === "pickup") {

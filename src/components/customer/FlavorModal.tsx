@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -37,6 +37,20 @@ export function FlavorModal({
   const [selectedFlavors, setSelectedFlavors] = useState<
     Record<string, number>
   >({});
+
+  // Fire Meta Pixel ViewContent event when modal opens
+  useEffect(() => {
+    if (open && typeof (window as any).fbq === 'function') {
+      (window as any).fbq('track', 'ViewContent', {
+        content_name: product.name,
+        content_ids: [product.id],
+        content_type: 'product',
+        value: product.price,
+        currency: 'PHP',
+      });
+      console.log('Meta Pixel ViewContent event fired:', product.name);
+    }
+  }, [open, product]);
 
   const flavorRulesRaw = product.product_flavor_rules;
   const flavorRule = Array.isArray(flavorRulesRaw) ? flavorRulesRaw[0] : flavorRulesRaw;

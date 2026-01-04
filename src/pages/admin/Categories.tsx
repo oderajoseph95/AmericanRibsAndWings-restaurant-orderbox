@@ -8,11 +8,13 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
-import { Plus, Pencil, Archive, ArchiveRestore, GripVertical, Loader2, Upload, ImageIcon } from 'lucide-react';
+import { Plus, Pencil, Archive, ArchiveRestore, GripVertical, Loader2, Upload, ImageIcon, Trash2 } from 'lucide-react';
 import type { Tables } from '@/integrations/supabase/types';
 
 type CategoryWithImage = Tables<'categories'> & {
@@ -22,11 +24,13 @@ type CategoryWithImage = Tables<'categories'> & {
 export default function Categories() {
   const { role } = useAuth();
   const canEdit = role === 'owner' || role === 'manager';
+  const isOwner = role === 'owner';
   const [showArchived, setShowArchived] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<CategoryWithImage | null>(null);
   const [imageUrl, setImageUrl] = useState<string>('');
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const imageInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
@@ -136,7 +140,6 @@ export default function Categories() {
         .eq('id', id);
       if (error) throw error;
 
-      // Log archive/restore
       await logAdminAction({
         action: archive ? 'delete' : 'update',
         entityType: 'category',
@@ -150,6 +153,78 @@ export default function Categories() {
       toast.success(archive ? 'Category archived' : 'Category restored');
     },
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: async ({ id, name }: { id: string; name: string }) => {
+      const { error } = await supabase.from('categories').delete().eq('id', id);
+      if (error) throw error;
+
+      await logAdminAction({
+        action: 'delete',
+        entityType: 'category',
+        entityId: id,
+        entityName: name,
+        details: 'Permanently deleted category',
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['categories'] });
+      setSelectedIds(new Set());
+      toast.success('Category deleted permanently');
+    },
+    onError: (error: any) => {
+      if (error.message?.includes('violates foreign key constraint')) {
+        toast.error('Cannot delete: Category has products. Archive instead.');
+      } else {
+        toast.error(error.message || 'Failed to delete category');
+      }
+    },
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const { error } = await supabase.from('categories').delete().in('id', ids);
+      if (error) throw error;
+
+      await logAdminAction({
+        action: 'delete',
+        entityType: 'category',
+        entityId: ids.join(','),
+        entityName: `${ids.length} categories`,
+        details: `Permanently deleted ${ids.length} categories`,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['categories'] });
+      setSelectedIds(new Set());
+      toast.success('Categories deleted permanently');
+    },
+    onError: (error: any) => {
+      if (error.message?.includes('violates foreign key constraint')) {
+        toast.error('Cannot delete: Some categories have products. Archive instead.');
+      } else {
+        toast.error(error.message || 'Failed to delete categories');
+      }
+    },
+  });
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === categories.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(categories.map(c => c.id)));
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    const newSet = new Set(selectedIds);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setSelectedIds(newSet);
+  };
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -286,15 +361,44 @@ export default function Categories() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg">All Categories</CardTitle>
-            <div className="flex items-center gap-2">
-              <Switch
-                id="show-archived"
-                checked={showArchived}
-                onCheckedChange={setShowArchived}
-              />
-              <Label htmlFor="show-archived" className="text-sm">
-                Show Archived
-              </Label>
+            <div className="flex items-center gap-4">
+              {isOwner && selectedIds.size > 0 && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" size="sm">
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete ({selectedIds.size})
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete {selectedIds.size} category(s)?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will permanently delete the selected categories. Categories with products cannot be deleted - archive them instead.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      >
+                        Delete Permanently
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="show-archived"
+                  checked={showArchived}
+                  onCheckedChange={setShowArchived}
+                />
+                <Label htmlFor="show-archived" className="text-sm">
+                  Show Archived
+                </Label>
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -311,17 +415,33 @@ export default function Categories() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  {isOwner && (
+                    <TableHead className="w-10">
+                      <Checkbox
+                        checked={selectedIds.size === categories.length && categories.length > 0}
+                        onCheckedChange={toggleSelectAll}
+                      />
+                    </TableHead>
+                  )}
                   <TableHead className="w-10"></TableHead>
                   <TableHead className="w-16">Image</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Order</TableHead>
-                  {canEdit && <TableHead className="w-[100px]"></TableHead>}
+                  {canEdit && <TableHead className="w-[120px]"></TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {categories.map((category) => (
                   <TableRow key={category.id}>
+                    {isOwner && (
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedIds.has(category.id)}
+                          onCheckedChange={() => toggleSelect(category.id)}
+                        />
+                      </TableCell>
+                    )}
                     <TableCell>
                       <GripVertical className="h-4 w-4 text-muted-foreground" />
                     </TableCell>
@@ -374,6 +494,32 @@ export default function Categories() {
                               <Archive className="h-4 w-4" />
                             )}
                           </Button>
+                          {isOwner && (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="ghost" size="icon">
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Delete "{category.name}"?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This will permanently delete this category. Categories with products cannot be deleted - archive them instead.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => deleteMutation.mutate({ id: category.id, name: category.name })}
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                  >
+                                    Delete
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          )}
                         </div>
                       </TableCell>
                     )}

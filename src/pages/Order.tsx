@@ -113,6 +113,18 @@ const Order = () => {
 
   // Add to cart handler
   const handleAddToCart = (product: Tables<"products">) => {
+    // Fire Meta Pixel AddToCart event
+    if (typeof (window as any).fbq === 'function') {
+      (window as any).fbq('track', 'AddToCart', {
+        content_name: product.name,
+        content_ids: [product.id],
+        content_type: 'product',
+        value: product.price,
+        currency: 'PHP',
+      });
+      console.log('Meta Pixel AddToCart event fired:', product.name);
+    }
+
     if (product.product_type === "bundle") {
       // Bundle products use the BundleWizard for step-by-step selection
       setSelectedProduct(product);
