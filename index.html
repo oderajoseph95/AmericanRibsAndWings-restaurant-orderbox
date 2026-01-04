@@ -43,6 +43,20 @@
     </script>
     <!-- End Meta Pixel Code -->
 
+    <!-- Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-KYEN87YZQK"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      
+      // Only track on customer-facing pages (not admin)
+      if (!window.location.pathname.startsWith('/admin') && !window.location.pathname.startsWith('/auth')) {
+        gtag('config', 'G-KYEN87YZQK');
+      }
+    </script>
+    <!-- End Google Analytics -->
+
     <!-- Manychat Widget -->
     <script src="//widget.manychat.com/855134534342550.js" defer="defer"></script>
     <script src="https://mccdn.me/assets/js/widget.js" defer="defer"></script>
