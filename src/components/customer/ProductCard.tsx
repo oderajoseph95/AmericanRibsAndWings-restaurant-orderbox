@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Eye } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -29,6 +29,26 @@ const productTypeLabels: Record<string, string> = {
 
 export function ProductCard({ product, onAdd }: ProductCardProps) {
   const [showDetails, setShowDetails] = useState(false);
+
+  // Meta Pixel ViewContent event when product details modal opens
+  useEffect(() => {
+    if (showDetails && typeof (window as any).fbq === 'function') {
+      (window as any).fbq('track', 'ViewContent', {
+        content_name: product.name,
+        content_ids: [product.id],
+        content_type: 'product',
+        content_category: product.categories?.name || 'Uncategorized',
+        contents: [{
+          id: product.id,
+          quantity: 1,
+          item_price: product.price
+        }],
+        value: product.price,
+        currency: 'PHP',
+      });
+      console.log('Meta Pixel ViewContent:', product.name, product.id);
+    }
+  }, [showDetails, product]);
 
   return (
     <>

@@ -30,8 +30,10 @@ import {
   Bike,
   Timer,
   PackageCheck,
-  CookingPot
+  CookingPot,
+  Camera
 } from "lucide-react";
+import type { Tables } from "@/integrations/supabase/types";
 import { format } from "date-fns";
 import { SEOHead } from "@/components/SEOHead";
 import { cn } from "@/lib/utils";
@@ -194,6 +196,22 @@ export default function ThankYou() {
   const [showStatusFlash, setShowStatusFlash] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Fetch delivery photos for the order
+  const { data: deliveryPhotos = [] } = useQuery({
+    queryKey: ['delivery-photos', orderId],
+    queryFn: async () => {
+      if (!orderId) return [];
+      const { data, error } = await supabase
+        .from('delivery_photos')
+        .select('*')
+        .eq('order_id', orderId)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      return data as Tables<'delivery_photos'>[];
+    },
+    enabled: !!orderId,
+  });
 
   // Fetch order data using secure RPC function with polling fallback
   const { data: orderData, isLoading, error, refetch } = useQuery({
@@ -692,6 +710,47 @@ export default function ThankYou() {
                   </p>
                 </div>
               )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Delivery Photos - Show pickup and delivery proof photos */}
+        {isDelivery && deliveryPhotos.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Camera className="h-5 w-5" />
+                Delivery Photos
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {deliveryPhotos.map((photo) => (
+                  <div key={photo.id} className="space-y-2">
+                    <div className="relative aspect-video rounded-lg overflow-hidden border bg-muted">
+                      <img
+                        src={photo.image_url}
+                        alt={photo.photo_type === 'pickup' ? 'Pickup Photo' : 'Delivery Photo'}
+                        className="w-full h-full object-cover"
+                      />
+                      <Badge 
+                        className={cn(
+                          "absolute top-2 left-2",
+                          photo.photo_type === 'pickup' 
+                            ? "bg-blue-500/90 text-white" 
+                            : "bg-green-500/90 text-white"
+                        )}
+                      >
+                        {photo.photo_type === 'pickup' ? 'Picked Up' : 'Delivered'}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground text-center">
+                      {photo.taken_at ? format(new Date(photo.taken_at), 'PPp') : 
+                       photo.created_at ? format(new Date(photo.created_at), 'PPp') : ''}
+                    </p>
+                  </div>
+                ))}
+              </div>
             </CardContent>
           </Card>
         )}
