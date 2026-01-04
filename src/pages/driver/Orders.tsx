@@ -112,13 +112,13 @@ export default function DriverOrders() {
       const fileName = `${uploadingOrderId}/${photoAction}-${Date.now()}.${fileExt}`;
 
       const { error: uploadError } = await supabase.storage
-        .from('delivery-photos')
+        .from('driver-photos')
         .upload(fileName, file);
 
       if (uploadError) throw uploadError;
 
       const { data: { publicUrl } } = supabase.storage
-        .from('delivery-photos')
+        .from('driver-photos')
         .getPublicUrl(fileName);
 
       // Save photo record
