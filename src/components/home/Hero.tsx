@@ -48,7 +48,7 @@ export function Hero() {
   const phone = content.phone || "0976 207 4276";
 
   return (
-    <section className="relative min-h-[50vh] flex items-center justify-center overflow-hidden">
+    <section className="relative min-h-[50vh] flex items-center justify-center overflow-hidden pt-16 md:pt-20">
       {/* Background with gradient overlay using brand colors */}
       <div className="absolute inset-0 bg-gradient-to-br from-primary via-primary/90 to-accent/80" />
       
@@ -60,7 +60,7 @@ export function Hero() {
         }}
       />
 
-      <div className="container relative z-10 px-4 py-12 md:py-16">
+      <div className="container relative z-10 px-4 pt-8 pb-12 md:pt-10 md:pb-16">
         <div className="max-w-3xl mx-auto text-center">
           {/* Badge - hidden on mobile (shown in navbar), visible on tablet+ */}
           <div className="hidden md:inline-flex items-center gap-2 bg-white/20 text-white px-3 py-1.5 rounded-full text-sm font-medium mb-4">
