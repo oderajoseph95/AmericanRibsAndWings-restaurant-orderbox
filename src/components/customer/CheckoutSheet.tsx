@@ -877,11 +877,27 @@ export function CheckoutSheet({
                   control={form.control} 
                   name="email" 
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email (optional)</FormLabel>
+                    <FormItem className="relative">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg animate-pulse">📧</span>
+                        <FormLabel className="text-primary font-medium">
+                          Email for Updates
+                          <span className="text-muted-foreground text-xs ml-1">(recommended)</span>
+                        </FormLabel>
+                      </div>
                       <FormControl>
-                        <Input type="email" placeholder="your@email.com" {...field} />
+                        <div className="relative">
+                          <Input 
+                            type="email" 
+                            placeholder="your@email.com" 
+                            className="border-primary/50 focus:border-primary focus:ring-primary/30 transition-all"
+                            {...field} 
+                          />
+                        </div>
                       </FormControl>
+                      <p className="text-xs text-primary/80 flex items-center gap-1 animate-pulse">
+                        ✨ Get real-time order status updates via email!
+                      </p>
                       <FormMessage />
                     </FormItem>
                   )} 

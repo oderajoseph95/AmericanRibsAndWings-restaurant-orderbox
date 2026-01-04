@@ -39,10 +39,12 @@ const actionColors: Record<string, string> = {
   upload: 'bg-indigo-500/20 text-indigo-700 border-indigo-500/30',
   photo_upload: 'bg-pink-500/20 text-pink-700 border-pink-500/30',
   return: 'bg-amber-500/20 text-amber-700 border-amber-500/30',
+  email_sent: 'bg-cyan-500/20 text-cyan-700 border-cyan-500/30',
+  payout_request: 'bg-yellow-500/20 text-yellow-700 border-yellow-500/30',
 };
 
-const entityTypes = ['all', 'order', 'delivery_photo', 'payout', 'driver', 'product', 'category', 'flavor', 'user', 'setting', 'stock', 'customer'];
-const actions = ['all', 'create', 'status_change', 'photo_upload', 'approve', 'reject', 'complete', 'update', 'delete', 'assign', 'toggle', 'upload', 'return'];
+const entityTypes = ['all', 'order', 'email', 'delivery_photo', 'payout', 'driver', 'product', 'category', 'flavor', 'user', 'setting', 'stock', 'customer'];
+const actions = ['all', 'create', 'status_change', 'email_sent', 'photo_upload', 'approve', 'reject', 'complete', 'update', 'delete', 'assign', 'toggle', 'upload', 'return', 'payout_request'];
 
 const ITEMS_PER_PAGE = 50;
 
