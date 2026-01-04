@@ -29,6 +29,8 @@ import Website from "./pages/admin/Website";
 import DriverAuth from "./pages/driver/Auth";
 import DriverDashboard from "./pages/driver/Dashboard";
 import DriverProfile from "./pages/driver/Profile";
+import DriverEarnings from "./pages/driver/Earnings";
+import Payouts from "./pages/admin/Payouts";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -73,6 +75,7 @@ const App = () => (
               <Route path="stock" element={<Stock />} />
               <Route path="customers" element={<Customers />} />
               <Route path="drivers" element={<Drivers />} />
+              <Route path="payouts" element={<Payouts />} />
               <Route path="reports" element={<Reports />} />
               <Route path="website" element={<Website />} />
               <Route path="settings" element={<Settings />} />
@@ -89,6 +92,7 @@ const App = () => (
               }
             >
               <Route index element={<DriverDashboard />} />
+              <Route path="earnings" element={<DriverEarnings />} />
               <Route path="profile" element={<DriverProfile />} />
             </Route>
 

@@ -30,6 +30,7 @@ import {
   ChevronRight,
   Globe,
   Truck,
+  Wallet,
 } from 'lucide-react';
 
 const navItems = [
@@ -42,6 +43,7 @@ const navItems = [
   { title: 'Stock', url: '/admin/stock', icon: BoxesIcon, roles: ['owner', 'manager', 'cashier'] },
   { title: 'Customers', url: '/admin/customers', icon: Users, roles: ['owner', 'manager', 'cashier'] },
   { title: 'Drivers', url: '/admin/drivers', icon: Truck, roles: ['owner', 'manager'] },
+  { title: 'Payouts', url: '/admin/payouts', icon: Wallet, roles: ['owner', 'manager'] },
   { title: 'Reports', url: '/admin/reports', icon: BarChart3, roles: ['owner', 'manager'] },
   { title: 'Website', url: '/admin/website', icon: Globe, roles: ['owner', 'manager'] },
   { title: 'Settings', url: '/admin/settings', icon: Settings, roles: ['owner'] },

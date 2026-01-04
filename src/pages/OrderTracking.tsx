@@ -205,7 +205,7 @@ export default function OrderTracking() {
     }
   }, [orderData]);
 
-  // Subscribe to realtime updates
+  // Subscribe to realtime updates - REFETCH full data on any change
   useEffect(() => {
     if (!orderId) return;
 
@@ -219,16 +219,22 @@ export default function OrderTracking() {
           table: 'orders',
           filter: `id=eq.${orderId}`,
         },
-        (payload) => {
-          // Refetch the tracking data to get proper masked/unmasked data
-          setTrackingData(prev => {
-            if (!prev) return null;
-            return {
-              ...prev,
-              order: { ...prev.order, status: payload.new.status as Enums<'order_status'> }
-            };
-          });
-          toast.success(`Order status updated to ${statusConfig[payload.new.status as Enums<'order_status'>]?.label || payload.new.status}`);
+        async (payload) => {
+          // Refetch full tracking data to get driver info, proper masked/unmasked data
+          try {
+            const { data, error } = await supabase.rpc('get_order_tracking', {
+              p_order_id: orderId
+            });
+            if (!error && data) {
+              setTrackingData(data as unknown as OrderTrackingResponse);
+              const newStatus = (data as any).order?.status;
+              if (newStatus) {
+                toast.success(`Order updated: ${statusConfig[newStatus as Enums<'order_status'>]?.label || newStatus}`);
+              }
+            }
+          } catch (err) {
+            console.error('Failed to refetch tracking data:', err);
+          }
         }
       )
       .subscribe();

@@ -362,6 +362,211 @@ export default function DriverProfile() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Payment Methods */}
+      <PaymentMethodsSection driverId={driver.id} />
     </div>
+  );
+}
+
+// Payment Methods Component
+function PaymentMethodsSection({ driverId }: { driverId: string }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formData, setFormData] = useState({
+    payment_method: 'gcash',
+    account_name: '',
+    account_number: '',
+    bank_name: '',
+  });
+
+  const { data: paymentMethods = [], isLoading } = useQuery({
+    queryKey: ['driver-payment-info', driverId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('driver_payment_info')
+        .select('*')
+        .eq('driver_id', driverId);
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async (data: typeof formData & { id?: string }) => {
+      if (data.id) {
+        const { error } = await supabase
+          .from('driver_payment_info')
+          .update({
+            payment_method: data.payment_method,
+            account_name: data.account_name,
+            account_number: data.account_number,
+            bank_name: data.payment_method === 'bank' ? data.bank_name : null,
+          })
+          .eq('id', data.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('driver_payment_info')
+          .insert({
+            driver_id: driverId,
+            payment_method: data.payment_method,
+            account_name: data.account_name,
+            account_number: data.account_number,
+            bank_name: data.payment_method === 'bank' ? data.bank_name : null,
+          });
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['driver-payment-info'] });
+      toast({ title: 'Payment method saved' });
+      resetForm();
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Failed to save', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('driver_payment_info')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['driver-payment-info'] });
+      toast({ title: 'Payment method removed' });
+    },
+  });
+
+  const resetForm = () => {
+    setIsAdding(false);
+    setEditingId(null);
+    setFormData({ payment_method: 'gcash', account_name: '', account_number: '', bank_name: '' });
+  };
+
+  const handleEdit = (method: any) => {
+    setEditingId(method.id);
+    setFormData({
+      payment_method: method.payment_method,
+      account_name: method.account_name,
+      account_number: method.account_number,
+      bank_name: method.bank_name || '',
+    });
+    setIsAdding(true);
+  };
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="text-lg">Payment Methods</CardTitle>
+        {!isAdding && (
+          <Button size="sm" variant="outline" onClick={() => setIsAdding(true)}>
+            Add Method
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <div className="flex justify-center py-4">
+            <Loader2 className="h-6 w-6 animate-spin" />
+          </div>
+        ) : (
+          <>
+            {paymentMethods.map((method: any) => (
+              <div key={method.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                <div>
+                  <p className="font-medium capitalize">{method.payment_method}</p>
+                  <p className="text-sm text-muted-foreground">{method.account_name}</p>
+                  <p className="text-sm text-muted-foreground">{method.account_number}</p>
+                  {method.bank_name && (
+                    <p className="text-sm text-muted-foreground">{method.bank_name}</p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => handleEdit(method)}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="ghost" 
+                    onClick={() => deleteMutation.mutate(method.id)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+
+            {isAdding && (
+              <div className="space-y-3 p-4 border rounded-lg">
+                <div className="flex gap-2">
+                  {['gcash', 'maya', 'bank'].map((m) => (
+                    <Button
+                      key={m}
+                      size="sm"
+                      variant={formData.payment_method === m ? 'default' : 'outline'}
+                      onClick={() => setFormData({ ...formData, payment_method: m })}
+                      className="capitalize"
+                    >
+                      {m}
+                    </Button>
+                  ))}
+                </div>
+                <div>
+                  <Label>Account Name</Label>
+                  <Input
+                    value={formData.account_name}
+                    onChange={(e) => setFormData({ ...formData, account_name: e.target.value })}
+                    placeholder="Full name on account"
+                  />
+                </div>
+                <div>
+                  <Label>Account Number</Label>
+                  <Input
+                    value={formData.account_number}
+                    onChange={(e) => setFormData({ ...formData, account_number: e.target.value })}
+                    placeholder="Account/mobile number"
+                  />
+                </div>
+                {formData.payment_method === 'bank' && (
+                  <div>
+                    <Label>Bank Name</Label>
+                    <Input
+                      value={formData.bank_name}
+                      onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
+                      placeholder="e.g. BPI, BDO, etc."
+                    />
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={resetForm} className="flex-1">
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => saveMutation.mutate({ ...formData, id: editingId || undefined })}
+                    disabled={!formData.account_name || !formData.account_number || saveMutation.isPending}
+                    className="flex-1"
+                  >
+                    {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {paymentMethods.length === 0 && !isAdding && (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                Add a payment method to receive payouts
+              </p>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
