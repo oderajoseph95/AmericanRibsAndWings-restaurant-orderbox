@@ -33,6 +33,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
+import { RefundDialog } from '@/components/admin/RefundDialog';
 import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package, MoreHorizontal, Link, Share2, Copy, User, AlertTriangle, ChevronDown, Trash2, Camera, Upload } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Tables, Enums } from '@/integrations/supabase/types';
@@ -102,6 +103,13 @@ export default function Orders() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [refundDialog, setRefundDialog] = useState<{
+    open: boolean;
+    orderId: string;
+    orderNumber: string | null;
+    orderTotal: number;
+    newStatus: 'cancelled' | 'rejected';
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const ITEMS_PER_PAGE = 20;
   const queryClient = useQueryClient();
@@ -366,8 +374,20 @@ export default function Orders() {
     toast.success('Tracking link copied to clipboard!');
   };
 
-  const handleQuickStatusUpdate = (orderId: string, status: Enums<'order_status'>, orderNumber?: string) => {
-    updateStatusMutation.mutate({ id: orderId, status, orderNumber });
+  const handleQuickStatusUpdate = (orderId: string, status: Enums<'order_status'>, orderNumber?: string | null, orderTotal?: number) => {
+    // For cancelled or rejected, show refund dialog
+    if (status === 'cancelled' || status === 'rejected') {
+      const order = orders.find(o => o.id === orderId);
+      setRefundDialog({
+        open: true,
+        orderId,
+        orderNumber: orderNumber || order?.order_number || null,
+        orderTotal: orderTotal ?? order?.total_amount ?? 0,
+        newStatus: status,
+      });
+      return;
+    }
+    updateStatusMutation.mutate({ id: orderId, status, orderNumber: orderNumber || undefined });
   };
 
   const updateNotesMutation = useMutation({
@@ -829,6 +849,24 @@ export default function Orders() {
           )}
         </CardContent>
       </Card>
+
+      {/* Refund Dialog */}
+      {refundDialog && (
+        <RefundDialog
+          open={refundDialog.open}
+          onOpenChange={(open) => {
+            if (!open) setRefundDialog(null);
+          }}
+          orderId={refundDialog.orderId}
+          orderNumber={refundDialog.orderNumber}
+          orderTotal={refundDialog.orderTotal}
+          newStatus={refundDialog.newStatus}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ['orders'] });
+            setRefundDialog(null);
+          }}
+        />
+      )}
 
       {/* Bulk Delete Confirmation Dialog */}
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>

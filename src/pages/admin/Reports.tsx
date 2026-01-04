@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
-import { Download, Loader2, TrendingUp, ShoppingCart, Users, DollarSign, ShieldX, MapPin, Truck, Clock, Award, UserCheck } from 'lucide-react';
+import { Download, Loader2, TrendingUp, ShoppingCart, Users, DollarSign, ShieldX, MapPin, Truck, Clock, Award, UserCheck, XCircle, RotateCcw } from 'lucide-react';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import type { Tables, Database } from '@/integrations/supabase/types';
 import { Package } from 'lucide-react';
@@ -59,6 +59,22 @@ export default function Reports() {
         .in('status', SALES_STATUSES);
       if (error) throw error;
       return data as OrderWithItems[];
+    },
+  });
+
+  // Fetch cancelled/rejected orders with refund data
+  const { data: cancelledOrders = [] } = useQuery({
+    queryKey: ['reports-cancelled-orders', dateFrom, dateTo],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*, customers(name, phone)')
+        .gte('created_at', startOfDay(new Date(dateFrom)).toISOString())
+        .lte('created_at', endOfDay(new Date(dateTo)).toISOString())
+        .in('status', ['cancelled', 'rejected'])
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data || [];
     },
   });
 
@@ -218,11 +234,26 @@ export default function Reports() {
     };
   }, [orders]);
 
-  // Cancelled/rejected stats
-  const cancelledStats = useMemo(() => {
-    // This only shows approved+ orders, so we need to query separately
-    return { cancelled: 0, rejected: 0 };
-  }, []);
+  // Cancelled/Refund stats - now using real data
+  const refundStats = useMemo(() => {
+    const cancelled = cancelledOrders.filter(o => o.status === 'cancelled');
+    const rejected = cancelledOrders.filter(o => o.status === 'rejected');
+    const refunded = cancelledOrders.filter(o => o.is_refunded === true);
+    const totalRefundAmount = refunded.reduce((sum, o) => sum + Number(o.refund_amount || 0), 0);
+    const totalCancelledValue = cancelledOrders.reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
+
+    return {
+      cancelledCount: cancelled.length,
+      rejectedCount: rejected.length,
+      totalCancelled: cancelledOrders.length,
+      refundedCount: refunded.length,
+      totalRefundAmount,
+      totalCancelledValue,
+      refundRate: cancelledOrders.length > 0 
+        ? ((refunded.length / cancelledOrders.length) * 100).toFixed(1) 
+        : '0',
+    };
+  }, [cancelledOrders]);
 
   // Order type distribution
   const orderTypeData = useMemo(() => {
@@ -369,6 +400,14 @@ export default function Reports() {
               <TabsTrigger value="flavors">Flavors</TabsTrigger>
               <TabsTrigger value="delivery">Delivery</TabsTrigger>
               <TabsTrigger value="frequency">Order Frequency</TabsTrigger>
+              <TabsTrigger value="refunds">
+                Refunds
+                {refundStats.totalCancelled > 0 && (
+                  <span className="ml-1 px-1.5 py-0.5 text-xs bg-orange-500/20 text-orange-600 rounded-full">
+                    {refundStats.totalCancelled}
+                  </span>
+                )}
+              </TabsTrigger>
               <TabsTrigger value="drivers">Drivers</TabsTrigger>
               <TabsTrigger value="customers">Customers</TabsTrigger>
             </TabsList>
@@ -629,6 +668,110 @@ export default function Reports() {
                   </CardContent>
                 </Card>
               </div>
+            </TabsContent>
+
+            {/* Refunds Tab */}
+            <TabsContent value="refunds">
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
+                <Card className="border-orange-500/20 bg-orange-500/5">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium">Cancelled Orders</CardTitle>
+                    <XCircle className="h-4 w-4 text-orange-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-orange-600">{refundStats.cancelledCount}</div>
+                  </CardContent>
+                </Card>
+                <Card className="border-red-500/20 bg-red-500/5">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium">Rejected Orders</CardTitle>
+                    <XCircle className="h-4 w-4 text-red-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-red-600">{refundStats.rejectedCount}</div>
+                  </CardContent>
+                </Card>
+                <Card className="border-blue-500/20 bg-blue-500/5">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium">Refunds Processed</CardTitle>
+                    <RotateCcw className="h-4 w-4 text-blue-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-blue-600">{refundStats.refundedCount}</div>
+                    <p className="text-xs text-muted-foreground">{refundStats.refundRate}% of cancelled</p>
+                  </CardContent>
+                </Card>
+                <Card className="border-purple-500/20 bg-purple-500/5">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium">Total Refunded</CardTitle>
+                    <DollarSign className="h-4 w-4 text-purple-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-purple-600">₱{refundStats.totalRefundAmount.toFixed(2)}</div>
+                    <p className="text-xs text-muted-foreground">Lost value: ₱{refundStats.totalCancelledValue.toFixed(2)}</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <XCircle className="h-5 w-5" />
+                    Cancelled & Rejected Orders
+                  </CardTitle>
+                  <CardDescription>Orders that were cancelled or rejected in selected period</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {cancelledOrders.length === 0 ? (
+                    <p className="text-center py-8 text-muted-foreground">No cancelled or rejected orders in this period</p>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Order #</TableHead>
+                          <TableHead>Customer</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Order Value</TableHead>
+                          <TableHead>Refunded</TableHead>
+                          <TableHead>Reason</TableHead>
+                          <TableHead>Date</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {cancelledOrders.map((order) => (
+                          <TableRow key={order.id}>
+                            <TableCell className="font-mono text-sm">{order.order_number}</TableCell>
+                            <TableCell>{(order.customers as any)?.name || 'Walk-in'}</TableCell>
+                            <TableCell>
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                                order.status === 'cancelled' 
+                                  ? 'bg-orange-100 text-orange-700' 
+                                  : 'bg-red-100 text-red-700'
+                              }`}>
+                                {order.status === 'cancelled' ? 'Cancelled' : 'Rejected'}
+                              </span>
+                            </TableCell>
+                            <TableCell>₱{Number(order.total_amount || 0).toFixed(2)}</TableCell>
+                            <TableCell>
+                              {order.is_refunded ? (
+                                <span className="text-green-600 font-medium">₱{Number(order.refund_amount || 0).toFixed(2)}</span>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="max-w-[200px] truncate" title={order.refund_reason || ''}>
+                              {order.refund_reason || '—'}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground text-sm">
+                              {order.created_at && format(new Date(order.created_at), 'MMM d, h:mm a')}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </CardContent>
+              </Card>
             </TabsContent>
 
             {/* Drivers Tab */}
