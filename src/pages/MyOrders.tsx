@@ -108,11 +108,26 @@ export default function MyOrders() {
         return false;
       }
     } else {
-      const digitsOnly = contactValue.replace(/[^0-9]/g, '');
-      if (digitsOnly.length < 10) {
+      // Normalize phone: handle +63 prefix
+      let normalized = contactValue.trim();
+      if (normalized.startsWith('+63')) {
+        normalized = '0' + normalized.slice(3);
+      }
+      const digitsOnly = normalized.replace(/[^0-9]/g, '');
+      
+      if (digitsOnly.length !== 11) {
         toast({
           title: "Invalid Phone",
-          description: "Phone number must be at least 10 digits",
+          description: "Phone number must be exactly 11 digits (e.g., 09171234567)",
+          variant: "destructive",
+        });
+        return false;
+      }
+      
+      if (!digitsOnly.startsWith('09')) {
+        toast({
+          title: "Invalid Phone",
+          description: "Phone number must start with 09",
           variant: "destructive",
         });
         return false;
@@ -245,7 +260,7 @@ export default function MyOrders() {
                   />
                   {searchType === 'phone' && (
                     <p className="text-xs text-muted-foreground mt-1">
-                      Enter with or without +63 (e.g., 09171234567 or +639171234567)
+                      Must be 11 digits starting with 09 (e.g., 09171234567)
                     </p>
                   )}
                 </div>
