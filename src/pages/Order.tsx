@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -36,8 +36,10 @@ const Order = () => {
   const [isBundleWizardOpen, setIsBundleWizardOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [processedAddToCart, setProcessedAddToCart] = useState<string | null>(null);
 
   const activeCategory = searchParams.get("category") || "all";
+  const addToCartId = searchParams.get("addToCart");
 
   // Fetch categories
   const { data: categories } = useQuery({
@@ -142,6 +144,21 @@ const Order = () => {
       }
     }
   };
+
+  // Handle addToCart query param from homepage - placed after handleAddToCart definition
+  useEffect(() => {
+    if (addToCartId && products && addToCartId !== processedAddToCart) {
+      const product = products.find((p) => p.id === addToCartId);
+      if (product) {
+        handleAddToCart(product);
+        setProcessedAddToCart(addToCartId);
+        // Clear the query param
+        const newParams = new URLSearchParams(searchParams);
+        newParams.delete("addToCart");
+        setSearchParams(newParams, { replace: true });
+      }
+    }
+  }, [addToCartId, products, processedAddToCart]);
 
   // Add flavored item to cart
   const handleAddFlavoredItem = (
