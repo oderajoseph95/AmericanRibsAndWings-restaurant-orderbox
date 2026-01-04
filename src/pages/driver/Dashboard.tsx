@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -22,7 +23,9 @@ import {
   Circle,
   Power,
   Coffee,
-  Truck
+  Truck,
+  Wallet,
+  ArrowRight
 } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Tables, Enums } from '@/integrations/supabase/types';
@@ -64,6 +67,7 @@ const availabilityConfig: Record<DriverAvailability, { icon: typeof Power; color
 export default function DriverDashboard() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('assigned');
   const [photoDialogOpen, setPhotoDialogOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -309,6 +313,9 @@ export default function DriverDashboard() {
         </CardContent>
       </Card>
 
+      {/* Earnings Summary Widget */}
+      <EarningsWidget driverId={driver.id} onViewMore={() => navigate('/driver/earnings')} />
+
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
         <Card>
@@ -526,5 +533,50 @@ export default function DriverDashboard() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// Earnings Widget Component
+function EarningsWidget({ driverId, onViewMore }: { driverId: string; onViewMore: () => void }) {
+  const { data: earnings = [] } = useQuery({
+    queryKey: ['driver-earnings-summary', driverId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('driver_earnings')
+        .select('delivery_fee, status')
+        .eq('driver_id', driverId);
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!driverId,
+  });
+
+  const availableBalance = earnings
+    .filter((e: any) => e.status === 'available')
+    .reduce((sum: number, e: any) => sum + e.delivery_fee, 0);
+  const totalEarnings = earnings.reduce((sum: number, e: any) => sum + e.delivery_fee, 0);
+
+  return (
+    <Card className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/20 dark:to-emerald-950/20 border-green-200 dark:border-green-800">
+      <CardContent className="pt-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="bg-green-100 dark:bg-green-900 p-2 rounded-full">
+              <Wallet className="h-5 w-5 text-green-600" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Available Balance</p>
+              <p className="text-2xl font-bold text-green-600">₱{availableBalance.toFixed(2)}</p>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" onClick={onViewMore}>
+            View <ArrowRight className="h-4 w-4 ml-1" />
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          Total earned: ₱{totalEarnings.toFixed(2)}
+        </p>
+      </CardContent>
+    </Card>
   );
 }

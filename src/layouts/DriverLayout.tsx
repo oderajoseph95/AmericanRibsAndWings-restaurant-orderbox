@@ -1,7 +1,7 @@
 import { Outlet, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-import { LogOut, Truck, User, Package } from 'lucide-react';
+import { LogOut, Truck, User, Package, Wallet } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -66,6 +66,13 @@ export default function DriverLayout() {
           >
             <Package className="h-5 w-5" />
             <span className="text-xs">Orders</span>
+          </Link>
+          <Link
+            to="/driver/earnings"
+            className="flex flex-col items-center gap-1 text-muted-foreground hover:text-primary transition-colors"
+          >
+            <Wallet className="h-5 w-5" />
+            <span className="text-xs">Earnings</span>
           </Link>
           <Link
             to="/driver/profile"

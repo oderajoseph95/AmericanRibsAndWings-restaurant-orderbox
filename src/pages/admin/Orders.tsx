@@ -401,9 +401,10 @@ export default function Orders() {
                   <TableHead>Customer</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Total</TableHead>
+                  <TableHead>Driver</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Date</TableHead>
-                  <TableHead className="w-[80px]"></TableHead>
+                  <TableHead className="w-[60px]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -418,12 +419,103 @@ export default function Orders() {
                     </TableCell>
                     <TableCell>₱{order.total_amount?.toFixed(2)}</TableCell>
                     <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={statusColors[order.status || 'pending']}
-                      >
-                        {statusLabels[order.status || 'pending']}
-                      </Badge>
+                      {/* Inline clickable driver assignment for delivery orders */}
+                      {order.order_type === 'delivery' ? (
+                        <Select
+                          value={order.driver_id || 'unassigned'}
+                          onValueChange={(value) => {
+                            assignDriverMutation.mutate({
+                              orderId: order.id,
+                              driverId: value === 'unassigned' ? null : value,
+                            });
+                          }}
+                        >
+                          <SelectTrigger className="h-8 w-[140px] text-xs">
+                            <SelectValue>
+                              {order.drivers ? (
+                                <span className="flex items-center gap-1">
+                                  <span className={`w-2 h-2 rounded-full ${order.drivers.availability_status === 'online' ? 'bg-green-500' : 'bg-gray-400'}`} />
+                                  {order.drivers.name}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">Assign</span>
+                              )}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="unassigned">No driver</SelectItem>
+                            {availableDrivers
+                              .sort((a, b) => {
+                                const orderMap = { online: 0, busy: 1, offline: 2, unavailable: 3 };
+                                return (orderMap[a.availability_status || 'offline'] ?? 2) - (orderMap[b.availability_status || 'offline'] ?? 2);
+                              })
+                              .map((d) => (
+                                <SelectItem key={d.id} value={d.id}>
+                                  <span className="flex items-center gap-2">
+                                    <span className={`w-2 h-2 rounded-full ${d.availability_status === 'online' ? 'bg-green-500' : d.availability_status === 'busy' ? 'bg-yellow-500' : 'bg-gray-400'}`} />
+                                    {d.name}
+                                  </span>
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {/* Inline clickable status dropdown */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button className="cursor-pointer">
+                            <Badge
+                              variant="outline"
+                              className={`${statusColors[order.status || 'pending']} hover:opacity-80 transition-opacity`}
+                            >
+                              {statusLabels[order.status || 'pending']}
+                              <ChevronDown className="h-3 w-3 ml-1" />
+                            </Badge>
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-56">
+                          {getNextActions(order.status, order.order_type).length > 0 && (
+                            <>
+                              <DropdownMenuSub>
+                                <DropdownMenuSubTrigger>Quick Actions</DropdownMenuSubTrigger>
+                                <DropdownMenuSubContent>
+                                  {getNextActions(order.status, order.order_type).map((action) => (
+                                    <DropdownMenuItem
+                                      key={action.status}
+                                      onClick={() => handleQuickStatusUpdate(order.id, action.status)}
+                                      className={action.variant === 'destructive' ? 'text-destructive' : ''}
+                                    >
+                                      {action.label}
+                                    </DropdownMenuItem>
+                                  ))}
+                                </DropdownMenuSubContent>
+                              </DropdownMenuSub>
+                              <DropdownMenuSeparator />
+                            </>
+                          )}
+                          {getAllStatuses().map((item) => (
+                            <DropdownMenuItem
+                              key={item.status}
+                              onClick={() => {
+                                if (item.status !== order.status) {
+                                  handleQuickStatusUpdate(order.id, item.status);
+                                }
+                              }}
+                              disabled={item.status === order.status}
+                              className={item.status === order.status ? 'bg-muted' : ''}
+                            >
+                              <Badge variant="outline" className={`mr-2 ${statusColors[item.status]}`}>
+                                {item.label}
+                              </Badge>
+                              {item.status === order.status && <span className="ml-auto text-xs">(current)</span>}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {order.created_at && format(new Date(order.created_at), 'MMM d, h:mm a')}
