@@ -1,5 +1,6 @@
-import { useState, useRef, ChangeEvent } from 'react';
+import { useState, useRef, ChangeEvent, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Badge } from '@/components/ui/badge';
@@ -63,7 +64,9 @@ const returnReasons = [
 export default function DriverOrders() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState('assigned');
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const returnFileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingOrderId, setUploadingOrderId] = useState<string | null>(null);
@@ -131,6 +134,28 @@ export default function DriverOrders() {
   const getOrderPhotos = (orderId: string) => {
     return deliveryPhotos.filter(p => p.order_id === orderId);
   };
+
+  // Auto-open order from URL param (from notifications)
+  useEffect(() => {
+    const orderId = searchParams.get('orderId');
+    if (orderId && orders && orders.length > 0) {
+      const order = orders.find(o => o.id === orderId);
+      if (order) {
+        setSelectedOrder(order);
+        // Switch to appropriate tab based on order status
+        if (order.status === 'waiting_for_rider') {
+          setActiveTab('assigned');
+        } else if (['picked_up', 'in_transit'].includes(order.status || '')) {
+          setActiveTab('active');
+        } else if (['delivered', 'completed', 'rejected'].includes(order.status || '')) {
+          setActiveTab('done');
+        }
+        // Clear the param so refresh doesn't reopen
+        searchParams.delete('orderId');
+        setSearchParams(searchParams, { replace: true });
+      }
+    }
+  }, [searchParams, orders, setSearchParams]);
 
   // Update order status mutation
   const updateOrderMutation = useMutation({
