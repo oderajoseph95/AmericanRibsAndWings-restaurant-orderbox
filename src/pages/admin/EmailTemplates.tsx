@@ -12,8 +12,10 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Mail, Loader2, Edit, Eye, Copy, RefreshCw, Info } from 'lucide-react';
+import { Mail, Loader2, Edit, Eye, Copy, RefreshCw, Info, History, CheckCircle, XCircle, AlertCircle, Clock } from 'lucide-react';
+import { format } from 'date-fns';
 
 type EmailTemplate = {
   id: string;
@@ -24,6 +26,18 @@ type EmailTemplate = {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+};
+
+type EmailLog = {
+  id: string;
+  recipient_email: string;
+  email_type: string | null;
+  status: string;
+  event_type: string | null;
+  email_id: string | null;
+  order_id: string | null;
+  event_data: any;
+  created_at: string;
 };
 
 const variablesList = [
@@ -53,6 +67,7 @@ export default function EmailTemplates() {
   const [editContent, setEditContent] = useState('');
   const [showPreview, setShowPreview] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [activeTab, setActiveTab] = useState('templates');
 
   const { data: templates = [], isLoading } = useQuery({
     queryKey: ['email-templates'],
@@ -63,6 +78,20 @@ export default function EmailTemplates() {
         .order('name');
       if (error) throw error;
       return data as EmailTemplate[];
+    },
+  });
+
+  // Fetch email logs from webhook events
+  const { data: emailLogs = [], isLoading: isLoadingLogs, refetch: refetchLogs } = useQuery({
+    queryKey: ['email-logs'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('email_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      return data as EmailLog[];
     },
   });
 
@@ -155,15 +184,19 @@ export default function EmailTemplates() {
   const getEmailTypeLabel = (type: string) => {
     const labels: Record<string, { label: string; color: string }> = {
       new_order: { label: 'New Order', color: 'bg-blue-500/20 text-blue-700' },
+      order_pending: { label: 'Pending', color: 'bg-yellow-500/20 text-yellow-700' },
+      order_for_verification: { label: 'Verification', color: 'bg-orange-500/20 text-orange-700' },
       order_approved: { label: 'Approved', color: 'bg-green-500/20 text-green-700' },
       order_rejected: { label: 'Rejected', color: 'bg-red-500/20 text-red-700' },
       order_cancelled: { label: 'Cancelled', color: 'bg-gray-500/20 text-gray-700' },
       order_preparing: { label: 'Preparing', color: 'bg-orange-500/20 text-orange-700' },
       order_ready_for_pickup: { label: 'Ready', color: 'bg-emerald-500/20 text-emerald-700' },
+      order_waiting_for_rider: { label: 'Waiting Driver', color: 'bg-amber-500/20 text-amber-700' },
       order_picked_up: { label: 'Picked Up', color: 'bg-indigo-500/20 text-indigo-700' },
       order_in_transit: { label: 'In Transit', color: 'bg-blue-500/20 text-blue-700' },
       order_delivered: { label: 'Delivered', color: 'bg-green-500/20 text-green-700' },
       order_completed: { label: 'Completed', color: 'bg-emerald-500/20 text-emerald-700' },
+      order_returned: { label: 'Returned', color: 'bg-amber-500/20 text-amber-700' },
       driver_assigned: { label: 'Driver', color: 'bg-purple-500/20 text-purple-700' },
       payout_requested: { label: 'Payout', color: 'bg-yellow-500/20 text-yellow-700' },
       payout_approved: { label: 'Payout', color: 'bg-green-500/20 text-green-700' },
@@ -172,12 +205,41 @@ export default function EmailTemplates() {
     return labels[type] || { label: type, color: 'bg-muted' };
   };
 
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'delivered':
+        return <CheckCircle className="h-4 w-4 text-green-600" />;
+      case 'sent':
+        return <Clock className="h-4 w-4 text-blue-600" />;
+      case 'bounced':
+      case 'complained':
+        return <XCircle className="h-4 w-4 text-red-600" />;
+      case 'opened':
+      case 'clicked':
+        return <Eye className="h-4 w-4 text-purple-600" />;
+      default:
+        return <AlertCircle className="h-4 w-4 text-muted-foreground" />;
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    const colors: Record<string, string> = {
+      sent: 'bg-blue-500/20 text-blue-700',
+      delivered: 'bg-green-500/20 text-green-700',
+      bounced: 'bg-red-500/20 text-red-700',
+      complained: 'bg-red-500/20 text-red-700',
+      opened: 'bg-purple-500/20 text-purple-700',
+      clicked: 'bg-indigo-500/20 text-indigo-700',
+    };
+    return colors[status] || 'bg-muted text-muted-foreground';
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Email Templates</h1>
-          <p className="text-muted-foreground mt-1">Customize email notifications sent to customers and drivers</p>
+          <h1 className="text-3xl font-bold text-foreground">Email Management</h1>
+          <p className="text-muted-foreground mt-1">Manage email templates and view delivery logs</p>
         </div>
         <Button variant="outline" onClick={handleRefresh} disabled={isRefreshing}>
           <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
@@ -185,74 +247,174 @@ export default function EmailTemplates() {
         </Button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Mail className="h-5 w-5" />
-            Email Templates
-          </CardTitle>
-          <CardDescription>
-            Edit subject lines and content for each email type. Use variables like {"{{order_number}}"} to insert dynamic data.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : templates.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <Mail className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p>No email templates found</p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Template</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Subject</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="w-[100px]">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {templates.map((template) => {
-                  const typeInfo = getEmailTypeLabel(template.type);
-                  return (
-                    <TableRow key={template.id}>
-                      <TableCell className="font-medium">{template.name}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className={typeInfo.color}>
-                          {typeInfo.label}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="max-w-[300px] truncate text-sm text-muted-foreground">
-                        {template.subject}
-                      </TableCell>
-                      <TableCell>
-                        <Switch
-                          checked={template.is_active}
-                          onCheckedChange={() => handleToggleActive(template)}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleEditTemplate(template)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="templates" className="gap-2">
+            <Mail className="h-4 w-4" />
+            Templates
+          </TabsTrigger>
+          <TabsTrigger value="logs" className="gap-2">
+            <History className="h-4 w-4" />
+            Email Logs
+            {emailLogs.length > 0 && (
+              <Badge variant="secondary" className="ml-1 text-xs">{emailLogs.length}</Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="templates" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Mail className="h-5 w-5" />
+                Email Templates
+              </CardTitle>
+              <CardDescription>
+                Edit subject lines and content for each email type. Use variables like {"{{order_number}}"} to insert dynamic data.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : templates.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Mail className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No email templates found</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Template</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Subject</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="w-[100px]">Actions</TableHead>
                     </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+                  </TableHeader>
+                  <TableBody>
+                    {templates.map((template) => {
+                      const typeInfo = getEmailTypeLabel(template.type);
+                      return (
+                        <TableRow key={template.id}>
+                          <TableCell className="font-medium">{template.name}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className={typeInfo.color}>
+                              {typeInfo.label}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="max-w-[300px] truncate text-sm text-muted-foreground">
+                            {template.subject}
+                          </TableCell>
+                          <TableCell>
+                            <Switch
+                              checked={template.is_active}
+                              onCheckedChange={() => handleToggleActive(template)}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleEditTemplate(template)}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="logs" className="mt-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <History className="h-5 w-5" />
+                    Email Delivery Logs
+                  </CardTitle>
+                  <CardDescription>
+                    Track email delivery status from Resend webhooks
+                  </CardDescription>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => refetchLogs()}>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Refresh Logs
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {isLoadingLogs ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : emailLogs.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <History className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No email logs yet</p>
+                  <p className="text-xs mt-1">Logs will appear here when emails are sent and webhooks are received</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Recipient</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Event</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {emailLogs.map((log) => {
+                      const typeInfo = log.email_type ? getEmailTypeLabel(log.email_type) : null;
+                      return (
+                        <TableRow key={log.id}>
+                          <TableCell className="text-sm">
+                            {format(new Date(log.created_at), 'MMM d, h:mm a')}
+                          </TableCell>
+                          <TableCell className="font-medium truncate max-w-[200px]">
+                            {log.recipient_email}
+                          </TableCell>
+                          <TableCell>
+                            {typeInfo ? (
+                              <Badge variant="outline" className={typeInfo.color}>
+                                {typeInfo.label}
+                              </Badge>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              {getStatusIcon(log.status)}
+                              <Badge variant="outline" className={getStatusBadge(log.status)}>
+                                {log.status}
+                              </Badge>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {log.event_type || '-'}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* Edit Template Sheet */}
       <Sheet open={!!selectedTemplate} onOpenChange={() => setSelectedTemplate(null)}>
