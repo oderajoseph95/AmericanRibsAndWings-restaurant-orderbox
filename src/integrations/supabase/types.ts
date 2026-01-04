@@ -140,6 +140,87 @@ export type Database = {
         }
         Relationships: []
       }
+      delivery_photos: {
+        Row: {
+          created_at: string | null
+          driver_id: string | null
+          id: string
+          image_url: string
+          order_id: string
+          photo_type: Database["public"]["Enums"]["delivery_photo_type"]
+          taken_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          driver_id?: string | null
+          id?: string
+          image_url: string
+          order_id: string
+          photo_type: Database["public"]["Enums"]["delivery_photo_type"]
+          taken_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          driver_id?: string | null
+          id?: string
+          image_url?: string
+          order_id?: string
+          photo_type?: Database["public"]["Enums"]["delivery_photo_type"]
+          taken_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "delivery_photos_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "delivery_photos_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      drivers: {
+        Row: {
+          created_at: string | null
+          email: string
+          id: string
+          is_active: boolean | null
+          name: string
+          phone: string
+          profile_photo_url: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          email: string
+          id?: string
+          is_active?: boolean | null
+          name: string
+          phone: string
+          profile_photo_url?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          email?: string
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          phone?: string
+          profile_photo_url?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       flavors: {
         Row: {
           archived_at: string | null
@@ -348,6 +429,7 @@ export type Database = {
           delivery_address: string | null
           delivery_distance_km: number | null
           delivery_fee: number | null
+          driver_id: string | null
           id: string
           internal_notes: string | null
           order_number: string | null
@@ -366,6 +448,7 @@ export type Database = {
           delivery_address?: string | null
           delivery_distance_km?: number | null
           delivery_fee?: number | null
+          driver_id?: string | null
           id?: string
           internal_notes?: string | null
           order_number?: string | null
@@ -384,6 +467,7 @@ export type Database = {
           delivery_address?: string | null
           delivery_distance_km?: number | null
           delivery_fee?: number | null
+          driver_id?: string | null
           id?: string
           internal_notes?: string | null
           order_number?: string | null
@@ -402,6 +486,13 @@ export type Database = {
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
         ]
@@ -798,7 +889,8 @@ export type Database = {
         | "manual_deduct"
         | "order_approved"
         | "order_cancelled"
-      app_role: "owner" | "manager" | "cashier"
+      app_role: "owner" | "manager" | "cashier" | "driver"
+      delivery_photo_type: "pickup" | "delivery"
       flavor_type: "all_time" | "special"
       order_status:
         | "pending"
@@ -948,7 +1040,8 @@ export const Constants = {
         "order_approved",
         "order_cancelled",
       ],
-      app_role: ["owner", "manager", "cashier"],
+      app_role: ["owner", "manager", "cashier", "driver"],
+      delivery_photo_type: ["pickup", "delivery"],
       flavor_type: ["all_time", "special"],
       order_status: [
         "pending",

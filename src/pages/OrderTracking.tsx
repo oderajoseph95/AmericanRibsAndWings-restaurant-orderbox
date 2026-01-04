@@ -38,6 +38,13 @@ interface OrderTrackingCustomer {
   email: string | null;
 }
 
+interface OrderTrackingDriver {
+  id: string;
+  name: string;
+  phone: string;
+  profile_photo_url: string | null;
+}
+
 interface OrderTrackingOrder {
   id: string;
   order_number: string | null;
@@ -53,6 +60,7 @@ interface OrderTrackingOrder {
   pickup_time: string | null;
   delivery_address: string | null;
   delivery_distance_km: number | null;
+  driver_id: string | null;
   customer: OrderTrackingCustomer | null;
 }
 
@@ -74,6 +82,7 @@ interface OrderTrackingItem {
 interface OrderTrackingResponse {
   order: OrderTrackingOrder;
   items: OrderTrackingItem[];
+  driver: OrderTrackingDriver | null;
   is_owner: boolean;
   is_admin: boolean;
 }
@@ -449,6 +458,50 @@ export default function OrderTracking() {
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Distance</span>
                   <span className="font-medium">{order.delivery_distance_km.toFixed(1)} km</span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Driver Info - Show when driver is assigned and order is in delivery phase */}
+        {trackingData?.driver && ['waiting_for_rider', 'picked_up', 'in_transit', 'delivered'].includes(currentStatus) && (
+          <Card className="border-primary/20 bg-primary/5">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <User className="h-5 w-5" />
+                Your Driver
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center overflow-hidden border-2 border-primary/20">
+                  {trackingData.driver.profile_photo_url ? (
+                    <img 
+                      src={trackingData.driver.profile_photo_url} 
+                      alt={trackingData.driver.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <User className="h-7 w-7 text-muted-foreground" />
+                  )}
+                </div>
+                <div className="flex-1">
+                  <p className="font-semibold">{trackingData.driver.name}</p>
+                  <a 
+                    href={`tel:${trackingData.driver.phone}`}
+                    className="inline-flex items-center gap-2 text-primary font-medium text-sm hover:underline mt-1"
+                  >
+                    <Phone className="h-4 w-4" />
+                    {trackingData.driver.phone}
+                  </a>
+                </div>
+              </div>
+              {currentStatus === 'in_transit' && (
+                <div className="mt-4 p-3 bg-primary/10 rounded-lg text-center">
+                  <p className="text-sm font-medium text-primary">
+                    🚗 Your order is on its way!
+                  </p>
                 </div>
               )}
             </CardContent>

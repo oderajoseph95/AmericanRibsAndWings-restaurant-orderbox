@@ -222,6 +222,7 @@ export default function Settings() {
     owner: 'bg-purple-500/20 text-purple-700 border-purple-500/30',
     manager: 'bg-blue-500/20 text-blue-700 border-blue-500/30',
     cashier: 'bg-green-500/20 text-green-700 border-green-500/30',
+    driver: 'bg-amber-500/20 text-amber-700 border-amber-500/30',
   };
 
   if (role !== 'owner') {
