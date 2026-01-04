@@ -4,6 +4,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { SalesPopContextProvider } from "@/contexts/SalesPopContext";
+import { SalesPopProvider } from "@/components/home/SalesPopProvider";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import DriverProtectedRoute from "@/components/driver/DriverProtectedRoute";
 import AuthPage from "./pages/Auth";
@@ -53,59 +55,63 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AuthProvider>
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/order" element={<Order />} />
-            <Route path="/order/:orderId" element={<OrderTracking />} />
-            <Route path="/thank-you/:orderId" element={<ThankYou />} />
-            <Route path="/my-orders" element={<MyOrders />} />
-            <Route path="/auth" element={<AuthPage />} />
-            <Route path="/no-access" element={<NoAccess />} />
-            
-            {/* Admin Routes */}
-            <Route
-              path="/admin"
-              element={
-                <ProtectedRoute>
-                  <AdminLayout />
-                </ProtectedRoute>
-              }
-            >
-              <Route index element={<Dashboard />} />
-              <Route path="orders" element={<Orders />} />
-              <Route path="products" element={<Products />} />
-              <Route path="categories" element={<Categories />} />
-              <Route path="flavors" element={<Flavors />} />
-              <Route path="bundles" element={<Bundles />} />
-              <Route path="stock" element={<Stock />} />
-              <Route path="customers" element={<Customers />} />
-              <Route path="drivers" element={<Drivers />} />
-              <Route path="payouts" element={<Payouts />} />
-              <Route path="reports" element={<Reports />} />
-              <Route path="website" element={<Website />} />
-              <Route path="users" element={<Users />} />
-              <Route path="logs" element={<Logs />} />
-              <Route path="settings" element={<Settings />} />
-            </Route>
+          <SalesPopContextProvider>
+            <SalesPopProvider>
+              <Routes>
+                <Route path="/" element={<Index />} />
+                <Route path="/order" element={<Order />} />
+                <Route path="/order/:orderId" element={<OrderTracking />} />
+                <Route path="/thank-you/:orderId" element={<ThankYou />} />
+                <Route path="/my-orders" element={<MyOrders />} />
+                <Route path="/auth" element={<AuthPage />} />
+                <Route path="/no-access" element={<NoAccess />} />
+                
+                {/* Admin Routes */}
+                <Route
+                  path="/admin"
+                  element={
+                    <ProtectedRoute>
+                      <AdminLayout />
+                    </ProtectedRoute>
+                  }
+                >
+                  <Route index element={<Dashboard />} />
+                  <Route path="orders" element={<Orders />} />
+                  <Route path="products" element={<Products />} />
+                  <Route path="categories" element={<Categories />} />
+                  <Route path="flavors" element={<Flavors />} />
+                  <Route path="bundles" element={<Bundles />} />
+                  <Route path="stock" element={<Stock />} />
+                  <Route path="customers" element={<Customers />} />
+                  <Route path="drivers" element={<Drivers />} />
+                  <Route path="payouts" element={<Payouts />} />
+                  <Route path="reports" element={<Reports />} />
+                  <Route path="website" element={<Website />} />
+                  <Route path="users" element={<Users />} />
+                  <Route path="logs" element={<Logs />} />
+                  <Route path="settings" element={<Settings />} />
+                </Route>
 
-            {/* Driver Routes */}
-            <Route path="/driver/auth" element={<DriverAuth />} />
-            <Route
-              path="/driver"
-              element={
-                <DriverProtectedRoute>
-                  <DriverLayout />
-                </DriverProtectedRoute>
-              }
-            >
-              <Route index element={<DriverDashboard />} />
-              <Route path="orders" element={<DriverOrders />} />
-              <Route path="earnings" element={<DriverEarnings />} />
-              <Route path="profile" element={<DriverProfile />} />
-            </Route>
+                {/* Driver Routes */}
+                <Route path="/driver/auth" element={<DriverAuth />} />
+                <Route
+                  path="/driver"
+                  element={
+                    <DriverProtectedRoute>
+                      <DriverLayout />
+                    </DriverProtectedRoute>
+                  }
+                >
+                  <Route index element={<DriverDashboard />} />
+                  <Route path="orders" element={<DriverOrders />} />
+                  <Route path="earnings" element={<DriverEarnings />} />
+                  <Route path="profile" element={<DriverProfile />} />
+                </Route>
 
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </SalesPopProvider>
+          </SalesPopContextProvider>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

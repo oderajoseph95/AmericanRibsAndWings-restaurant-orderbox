@@ -16,6 +16,7 @@ import { FlavorModal } from "@/components/customer/FlavorModal";
 import { BundleWizard } from "@/components/customer/BundleWizard";
 import { CheckoutSheet } from "@/components/customer/CheckoutSheet";
 import { SEOHead } from "@/components/SEOHead";
+import { useSalesPopContext } from "@/contexts/SalesPopContext";
 import type { Tables } from "@/integrations/supabase/types";
 
 export type CartItem = {
@@ -31,6 +32,7 @@ export type OrderType = "dine_in" | "pickup" | "delivery";
 const Order = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { setIsCheckoutOpen: setSalesPopCheckoutOpen } = useSalesPopContext();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Tables<"products"> | null>(null);
   const [isFlavorModalOpen, setIsFlavorModalOpen] = useState(false);
@@ -38,6 +40,11 @@ const Order = () => {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [processedAddToCart, setProcessedAddToCart] = useState<string | null>(null);
+
+  // Sync checkout state with sales pop context
+  useEffect(() => {
+    setSalesPopCheckoutOpen(isCheckoutOpen);
+  }, [isCheckoutOpen, setSalesPopCheckoutOpen]);
 
   const activeCategory = searchParams.get("category") || "all";
   const addToCartId = searchParams.get("addToCart");
