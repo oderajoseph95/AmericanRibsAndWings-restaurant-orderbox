@@ -39,6 +39,8 @@ import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink,
 import { sendPushNotification } from '@/hooks/usePushNotifications';
 import { createAdminNotification } from '@/hooks/useAdminNotifications';
 import { createDriverNotification } from '@/hooks/useDriverNotifications';
+import { sendEmailNotification } from '@/hooks/useEmailNotifications';
+import { ADMIN_EMAIL } from '@/lib/constants';
 import { format } from 'date-fns';
 import type { Tables, Enums } from '@/integrations/supabase/types';
 
@@ -379,6 +381,56 @@ export default function Orders() {
         console.error("Failed to send status notification:", e);
       }
 
+      // Send email notifications based on status change
+      try {
+        const customerEmail = order?.customers?.email;
+        const driverEmail = order?.drivers?.email;
+        const driver = order?.drivers;
+        
+        // Email customer for key status changes
+        if (customerEmail) {
+          const emailType = status === 'approved' ? 'order_approved'
+            : status === 'rejected' ? 'order_rejected'
+            : status === 'cancelled' ? 'order_cancelled'
+            : status === 'preparing' ? 'order_preparing'
+            : status === 'ready_for_pickup' ? 'order_ready_for_pickup'
+            : status === 'picked_up' ? 'order_picked_up'
+            : status === 'in_transit' ? 'order_in_transit'
+            : status === 'delivered' ? 'order_delivered'
+            : status === 'completed' ? 'order_completed'
+            : null;
+          
+          if (emailType) {
+            await sendEmailNotification({
+              type: emailType,
+              recipientEmail: customerEmail,
+              orderId: id,
+              orderNumber: orderNum,
+              customerName: order?.customers?.name || '',
+              totalAmount: order?.total_amount || 0,
+              orderType: order?.order_type || '',
+              deliveryAddress: order?.delivery_address || undefined,
+              driverName: driver?.name,
+              driverPhone: driver?.phone,
+            });
+          }
+        }
+        
+        // Email admin for key status changes
+        if (status === 'delivered' || status === 'completed') {
+          await sendEmailNotification({
+            type: status === 'delivered' ? 'order_delivered' : 'order_completed',
+            recipientEmail: ADMIN_EMAIL,
+            orderId: id,
+            orderNumber: orderNum,
+            customerName: order?.customers?.name || '',
+            totalAmount: order?.total_amount || 0,
+          });
+        }
+      } catch (e) {
+        console.error("Failed to send email notification:", e);
+      }
+
       return { id, status };
     },
     onSuccess: (_, variables) => {
@@ -454,6 +506,38 @@ export default function Orders() {
           },
           actionUrl: "/driver/orders",
         });
+
+        // Send email notification to driver
+        const driverRecord = availableDrivers.find(d => d.id === driverId);
+        if (driverRecord?.email) {
+          await sendEmailNotification({
+            type: "driver_assigned",
+            recipientEmail: driverRecord.email,
+            orderId,
+            orderNumber: orderNum,
+            customerName: order?.customers?.name || '',
+            customerPhone: order?.customers?.phone || undefined,
+            totalAmount: order?.total_amount || 0,
+            deliveryAddress: order?.delivery_address || undefined,
+            driverName: driverRecord.name,
+          });
+        }
+
+        // Send email notification to customer if assigned driver
+        const customerEmail = order?.customers?.email;
+        if (customerEmail) {
+          await sendEmailNotification({
+            type: "driver_assigned",
+            recipientEmail: customerEmail,
+            orderId,
+            orderNumber: orderNum,
+            customerName: order?.customers?.name || '',
+            totalAmount: order?.total_amount || 0,
+            deliveryAddress: order?.delivery_address || undefined,
+            driverName: driverRecord?.name,
+            driverPhone: driverRecord?.phone,
+          });
+        }
       }
     },
     onSuccess: () => {

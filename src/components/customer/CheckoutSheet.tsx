@@ -22,6 +22,8 @@ import { toast } from "sonner";
 import { sendPushNotification } from "@/hooks/usePushNotifications";
 import { createAdminNotification } from "@/hooks/useAdminNotifications";
 import { trackAnalyticsEvent } from "@/hooks/useAnalytics";
+import { sendEmailNotification } from "@/hooks/useEmailNotifications";
+import { ADMIN_EMAIL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { DeliveryMapPicker } from "./DeliveryMapPicker";
 import { AccordionSection } from "./checkout/AccordionSection";
@@ -579,6 +581,42 @@ export function CheckoutSheet({
         console.error("Failed to create admin notification:", e);
       }
 
+      // Send email notifications
+      try {
+        const deliveryAddress = data.orderType === "delivery" 
+          ? `${data.streetAddress}, ${barangay}, ${data.city}` 
+          : undefined;
+
+        // Email admin about new order
+        await sendEmailNotification({
+          type: "new_order",
+          recipientEmail: ADMIN_EMAIL,
+          orderId: order.id,
+          orderNumber: order.order_number,
+          customerName: data.name,
+          customerPhone: data.phone,
+          customerEmail: data.email || undefined,
+          totalAmount: grandTotal,
+          orderType: data.orderType,
+          deliveryAddress,
+        });
+
+        // Email customer confirmation (if email provided)
+        if (data.email) {
+          await sendEmailNotification({
+            type: "new_order",
+            recipientEmail: data.email,
+            orderId: order.id,
+            orderNumber: order.order_number,
+            customerName: data.name,
+            totalAmount: grandTotal,
+            orderType: data.orderType,
+            deliveryAddress,
+          });
+        }
+      } catch (e) {
+        console.error("Failed to send email notification:", e);
+      }
       toast.success("Order placed successfully!");
       // Navigate to thank you page
       window.location.href = `/thank-you/${order.id}`;
