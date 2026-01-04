@@ -737,32 +737,15 @@ export default function Payouts() {
                         Upload Proof & Complete
                       </Button>
 
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          className="flex-1"
-                          onClick={() => {
-                            updatePayoutMutation.mutate({
-                              id: selectedPayout.id,
-                              status: 'approved',
-                              notes: adminNotes,
-                            });
-                          }}
-                          disabled={updatePayoutMutation.isPending}
-                        >
-                          <CheckCircle className="h-4 w-4 mr-2" />
-                          Approve
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          className="flex-1"
-                          onClick={() => setRejectionDialogOpen(true)}
-                          disabled={updatePayoutMutation.isPending}
-                        >
-                          <XCircle className="h-4 w-4 mr-2" />
-                          Reject
-                        </Button>
-                      </div>
+                      <Button
+                        variant="destructive"
+                        className="w-full"
+                        onClick={() => setRejectionDialogOpen(true)}
+                        disabled={updatePayoutMutation.isPending}
+                      >
+                        <XCircle className="h-4 w-4 mr-2" />
+                        Reject
+                      </Button>
                     </div>
                   )}
                 </div>
