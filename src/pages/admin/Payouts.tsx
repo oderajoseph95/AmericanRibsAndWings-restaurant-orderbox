@@ -49,6 +49,16 @@ type Payout = {
     email: string;
     phone: string;
   } | null;
+  // Attached earnings with order info
+  earnings?: {
+    order_id: string;
+    delivery_fee: number;
+    orders?: {
+      order_number: string;
+      status: string;
+      total_amount: number;
+    };
+  }[];
 };
 
 const statusColors: Record<string, string> = {
@@ -345,16 +355,18 @@ export default function Payouts() {
                       {format(new Date(payout.requested_at), 'MMM d, h:mm a')}
                     </TableCell>
                     <TableCell>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setSelectedPayout(payout);
-                          setAdminNotes(payout.admin_notes || '');
-                        }}
-                      >
-                        {payout.status === 'pending' ? 'Process' : 'View'}
-                      </Button>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedPayout(payout);
+                            setAdminNotes(payout.admin_notes || '');
+                          }}
+                        >
+                          {payout.status === 'pending' ? 'Process' : 'View'}
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

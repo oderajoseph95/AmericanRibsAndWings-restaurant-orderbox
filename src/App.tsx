@@ -11,6 +11,7 @@ import NoAccess from "./pages/NoAccess";
 import Index from "./pages/Index";
 import Order from "./pages/Order";
 import OrderTracking from "./pages/OrderTracking";
+import ThankYou from "./pages/ThankYou";
 import MyOrders from "./pages/MyOrders";
 import AdminLayout from "./layouts/AdminLayout";
 import DriverLayout from "./layouts/DriverLayout";
@@ -54,6 +55,7 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/order" element={<Order />} />
             <Route path="/order/:orderId" element={<OrderTracking />} />
+            <Route path="/thank-you/:orderId" element={<ThankYou />} />
             <Route path="/my-orders" element={<MyOrders />} />
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/no-access" element={<NoAccess />} />

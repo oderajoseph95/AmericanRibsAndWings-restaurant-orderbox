@@ -41,7 +41,7 @@ export default function Flavors() {
   });
 
   const saveMutation = useMutation({
-    mutationFn: async (flavor: { name: string; flavor_type?: Enums<'flavor_type'>; surcharge?: number; is_active?: boolean }) => {
+    mutationFn: async (flavor: { name: string; flavor_type?: Enums<'flavor_type'>; surcharge?: number; is_active?: boolean; is_available?: boolean }) => {
       if (editingFlavor) {
         const { error } = await supabase
           .from('flavors')
@@ -54,6 +54,7 @@ export default function Flavors() {
           flavor_type: flavor.flavor_type,
           surcharge: flavor.surcharge,
           is_active: flavor.is_active,
+          is_available: flavor.is_available ?? true,
         });
         if (error) throw error;
       }
@@ -66,6 +67,23 @@ export default function Flavors() {
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to save flavor');
+    },
+  });
+
+  const toggleAvailabilityMutation = useMutation({
+    mutationFn: async ({ id, is_available }: { id: string; is_available: boolean }) => {
+      const { error } = await supabase
+        .from('flavors')
+        .update({ is_available })
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['flavors'] });
+      toast.success('Availability updated');
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to update availability');
     },
   });
 
@@ -229,6 +247,7 @@ export default function Flavors() {
                   <TableHead>Category</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Surcharge</TableHead>
+                  <TableHead>Availability</TableHead>
                   <TableHead>Status</TableHead>
                   {canEdit && <TableHead className="w-[100px]"></TableHead>}
                 </TableRow>
@@ -267,6 +286,37 @@ export default function Flavors() {
                       {flavor.flavor_type === 'special' && flavor.surcharge
                         ? `₱${flavor.surcharge}`
                         : '-'}
+                    </TableCell>
+                    <TableCell>
+                      {canEdit && !flavor.archived_at ? (
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={(flavor as any).is_available ?? true}
+                            onCheckedChange={(checked) =>
+                              toggleAvailabilityMutation.mutate({ id: flavor.id, is_available: checked })
+                            }
+                          />
+                          <Badge 
+                            variant="outline" 
+                            className={(flavor as any).is_available !== false
+                              ? 'bg-green-500/20 text-green-700 border-green-500/30'
+                              : 'bg-red-500/20 text-red-700 border-red-500/30'
+                            }
+                          >
+                            {(flavor as any).is_available !== false ? 'In Stock' : 'Out of Stock'}
+                          </Badge>
+                        </div>
+                      ) : (
+                        <Badge 
+                          variant="outline" 
+                          className={(flavor as any).is_available !== false
+                            ? 'bg-green-500/20 text-green-700 border-green-500/30'
+                            : 'bg-red-500/20 text-red-700 border-red-500/30'
+                          }
+                        >
+                          {(flavor as any).is_available !== false ? 'In Stock' : 'Out of Stock'}
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge variant={flavor.is_active ? 'default' : 'secondary'}>

@@ -7,10 +7,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Download, Loader2, TrendingUp, ShoppingCart, Users, DollarSign, ShieldX, MapPin } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
+import { Download, Loader2, TrendingUp, ShoppingCart, Users, DollarSign, ShieldX, MapPin, Truck, Clock, Award, UserCheck } from 'lucide-react';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import type { Tables, Database } from '@/integrations/supabase/types';
+import { Package } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 type OrderStatus = Database['public']['Enums']['order_status'];
@@ -58,6 +59,49 @@ export default function Reports() {
         .in('status', SALES_STATUSES);
       if (error) throw error;
       return data as OrderWithItems[];
+    },
+  });
+
+  // Fetch drivers data
+  const { data: driversData = [] } = useQuery({
+    queryKey: ['reports-drivers', dateFrom, dateTo],
+    queryFn: async () => {
+      const { data: drivers, error } = await supabase
+        .from('drivers')
+        .select('id, name, is_active');
+      if (error) throw error;
+
+      // Fetch earnings for each driver in the period
+      const { data: earnings, error: earningsErr } = await supabase
+        .from('driver_earnings')
+        .select('driver_id, delivery_fee, distance_km, status, created_at')
+        .gte('created_at', startOfDay(new Date(dateFrom)).toISOString())
+        .lte('created_at', endOfDay(new Date(dateTo)).toISOString());
+      if (earningsErr) throw earningsErr;
+
+      return drivers?.map(driver => {
+        const driverEarnings = earnings?.filter(e => e.driver_id === driver.id) || [];
+        return {
+          ...driver,
+          deliveries: driverEarnings.length,
+          totalEarnings: driverEarnings.reduce((sum, e) => sum + Number(e.delivery_fee), 0),
+          totalDistance: driverEarnings.reduce((sum, e) => sum + Number(e.distance_km || 0), 0),
+        };
+      }).sort((a, b) => b.totalEarnings - a.totalEarnings) || [];
+    },
+  });
+
+  // Fetch customers data
+  const { data: customersData = [] } = useQuery({
+    queryKey: ['reports-customers', dateFrom, dateTo],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('customers')
+        .select('id, name, total_orders, total_spent, created_at')
+        .order('total_spent', { ascending: false })
+        .limit(20);
+      if (error) throw error;
+      return data || [];
     },
   });
 
@@ -131,6 +175,54 @@ export default function Reports() {
     });
     return Object.values(flavorMap).sort((a, b) => b.count - a.count);
   }, [orders]);
+
+  // Order frequency by hour
+  const hourlyData = useMemo(() => {
+    const hours: Record<number, number> = {};
+    for (let i = 0; i < 24; i++) hours[i] = 0;
+    orders.forEach((order) => {
+      const hour = new Date(order.created_at!).getHours();
+      hours[hour]++;
+    });
+    return Object.entries(hours).map(([hour, count]) => ({
+      hour: `${hour.padStart(2, '0')}:00`,
+      count,
+    }));
+  }, [orders]);
+
+  // Order frequency by day of week
+  const dayOfWeekData = useMemo(() => {
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const dayCounts: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+    orders.forEach((order) => {
+      const day = new Date(order.created_at!).getDay();
+      dayCounts[day]++;
+    });
+    return days.map((name, i) => ({ day: name, orders: dayCounts[i] }));
+  }, [orders]);
+
+  // Customer stats
+  const customerStats = useMemo(() => {
+    const customerOrders: Record<string, number> = {};
+    orders.forEach((order) => {
+      if (order.customer_id) {
+        customerOrders[order.customer_id] = (customerOrders[order.customer_id] || 0) + 1;
+      }
+    });
+    const repeatCustomers = Object.values(customerOrders).filter(count => count > 1).length;
+    const totalCustomers = Object.keys(customerOrders).length;
+    return {
+      total: totalCustomers,
+      repeat: repeatCustomers,
+      repeatRate: totalCustomers > 0 ? (repeatCustomers / totalCustomers * 100).toFixed(1) : '0',
+    };
+  }, [orders]);
+
+  // Cancelled/rejected stats
+  const cancelledStats = useMemo(() => {
+    // This only shows approved+ orders, so we need to query separately
+    return { cancelled: 0, rejected: 0 };
+  }, []);
 
   // Order type distribution
   const orderTypeData = useMemo(() => {
@@ -271,11 +363,14 @@ export default function Reports() {
           </div>
 
           <Tabs defaultValue="sales" className="space-y-6">
-            <TabsList>
+            <TabsList className="flex-wrap h-auto">
               <TabsTrigger value="sales">Sales</TabsTrigger>
               <TabsTrigger value="products">Products</TabsTrigger>
               <TabsTrigger value="flavors">Flavors</TabsTrigger>
               <TabsTrigger value="delivery">Delivery</TabsTrigger>
+              <TabsTrigger value="frequency">Order Frequency</TabsTrigger>
+              <TabsTrigger value="drivers">Drivers</TabsTrigger>
+              <TabsTrigger value="customers">Customers</TabsTrigger>
             </TabsList>
 
             {/* Sales Tab */}
@@ -477,6 +572,206 @@ export default function Reports() {
                         <Bar dataKey="count" fill="hsl(217, 91%, 60%)" radius={[4, 4, 0, 0]} name="count" />
                       </BarChart>
                     </ResponsiveContainer>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Order Frequency Tab */}
+            <TabsContent value="frequency">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Clock className="h-5 w-5" />
+                      Orders by Hour
+                    </CardTitle>
+                    <CardDescription>Distribution of orders throughout the day</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {hourlyData.every(d => d.count === 0) ? (
+                      <p className="text-center py-8 text-muted-foreground">No data</p>
+                    ) : (
+                      <ResponsiveContainer width="100%" height={300}>
+                        <BarChart data={hourlyData}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="hour" fontSize={10} angle={-45} textAnchor="end" height={60} />
+                          <YAxis fontSize={12} />
+                          <Tooltip />
+                          <Bar dataKey="count" fill="hsl(217, 91%, 60%)" radius={[4, 4, 0, 0]} name="Orders" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Clock className="h-5 w-5" />
+                      Orders by Day of Week
+                    </CardTitle>
+                    <CardDescription>Which days are busiest</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {dayOfWeekData.every(d => d.orders === 0) ? (
+                      <p className="text-center py-8 text-muted-foreground">No data</p>
+                    ) : (
+                      <ResponsiveContainer width="100%" height={300}>
+                        <BarChart data={dayOfWeekData}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="day" fontSize={12} />
+                          <YAxis fontSize={12} />
+                          <Tooltip />
+                          <Bar dataKey="orders" fill="hsl(142, 76%, 36%)" radius={[4, 4, 0, 0]} name="Orders" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+
+            {/* Drivers Tab */}
+            <TabsContent value="drivers">
+              <div className="grid gap-4 md:grid-cols-3 mb-6">
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium">Total Drivers</CardTitle>
+                    <Truck className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{driversData.length}</div>
+                    <p className="text-xs text-muted-foreground">{driversData.filter(d => d.is_active).length} active</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium">Total Deliveries</CardTitle>
+                    <Package className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{driversData.reduce((sum, d) => sum + d.deliveries, 0)}</div>
+                    <p className="text-xs text-muted-foreground">In selected period</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium">Driver Earnings</CardTitle>
+                    <DollarSign className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">₱{driversData.reduce((sum, d) => sum + d.totalEarnings, 0).toFixed(2)}</div>
+                    <p className="text-xs text-muted-foreground">Total delivery fees</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Award className="h-5 w-5" />
+                    Top Drivers
+                  </CardTitle>
+                  <CardDescription>Ranked by earnings in selected period</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {driversData.filter(d => d.deliveries > 0).length === 0 ? (
+                    <p className="text-center py-8 text-muted-foreground">No delivery data in this period</p>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>#</TableHead>
+                          <TableHead>Driver</TableHead>
+                          <TableHead className="text-center">Deliveries</TableHead>
+                          <TableHead className="text-center">Distance</TableHead>
+                          <TableHead className="text-right">Earnings</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {driversData.filter(d => d.deliveries > 0).slice(0, 10).map((driver, index) => (
+                          <TableRow key={driver.id}>
+                            <TableCell className="font-medium">{index + 1}</TableCell>
+                            <TableCell>{driver.name}</TableCell>
+                            <TableCell className="text-center">{driver.deliveries}</TableCell>
+                            <TableCell className="text-center">{driver.totalDistance.toFixed(1)} km</TableCell>
+                            <TableCell className="text-right font-medium">₱{driver.totalEarnings.toFixed(2)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Customers Tab */}
+            <TabsContent value="customers">
+              <div className="grid gap-4 md:grid-cols-3 mb-6">
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium">Unique Customers</CardTitle>
+                    <Users className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{customerStats.total}</div>
+                    <p className="text-xs text-muted-foreground">In selected period</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium">Repeat Customers</CardTitle>
+                    <UserCheck className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{customerStats.repeat}</div>
+                    <p className="text-xs text-muted-foreground">{customerStats.repeatRate}% of total</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium">Avg Order Value</CardTitle>
+                    <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">₱{stats.avgOrderValue.toFixed(2)}</div>
+                    <p className="text-xs text-muted-foreground">Per order</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Award className="h-5 w-5" />
+                    Top Customers
+                  </CardTitle>
+                  <CardDescription>By total lifetime spend</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {customersData.length === 0 ? (
+                    <p className="text-center py-8 text-muted-foreground">No customer data</p>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>#</TableHead>
+                          <TableHead>Customer</TableHead>
+                          <TableHead className="text-center">Total Orders</TableHead>
+                          <TableHead className="text-right">Total Spent</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {customersData.slice(0, 10).map((customer, index) => (
+                          <TableRow key={customer.id}>
+                            <TableCell className="font-medium">{index + 1}</TableCell>
+                            <TableCell>{customer.name}</TableCell>
+                            <TableCell className="text-center">{customer.total_orders || 0}</TableCell>
+                            <TableCell className="text-right font-medium">₱{Number(customer.total_spent || 0).toFixed(2)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
                   )}
                 </CardContent>
               </Card>

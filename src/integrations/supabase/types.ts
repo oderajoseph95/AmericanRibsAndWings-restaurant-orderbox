@@ -383,6 +383,7 @@ export type Database = {
           flavor_type: Database["public"]["Enums"]["flavor_type"] | null
           id: string
           is_active: boolean | null
+          is_available: boolean | null
           name: string
           sort_order: number | null
           surcharge: number | null
@@ -395,6 +396,7 @@ export type Database = {
           flavor_type?: Database["public"]["Enums"]["flavor_type"] | null
           id?: string
           is_active?: boolean | null
+          is_available?: boolean | null
           name: string
           sort_order?: number | null
           surcharge?: number | null
@@ -407,6 +409,7 @@ export type Database = {
           flavor_type?: Database["public"]["Enums"]["flavor_type"] | null
           id?: string
           is_active?: boolean | null
+          is_available?: boolean | null
           name?: string
           sort_order?: number | null
           surcharge?: number | null
