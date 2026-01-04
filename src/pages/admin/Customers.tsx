@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -38,6 +38,8 @@ export default function Customers() {
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<Set<string>>(new Set());
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 20;
   const queryClient = useQueryClient();
 
   const { data: customers = [], isLoading } = useQuery({
@@ -165,6 +167,18 @@ export default function Customers() {
       c.email?.toLowerCase().includes(search.toLowerCase())
   );
 
+  // Paginate filtered results
+  const totalPages = Math.ceil(filteredCustomers.length / ITEMS_PER_PAGE);
+  const paginatedCustomers = filteredCustomers.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+
+  // Reset page when search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search]);
+
   const toggleSelectCustomer = (customerId: string) => {
     setSelectedCustomerIds(prev => {
       const newSet = new Set(prev);
@@ -178,10 +192,10 @@ export default function Customers() {
   };
 
   const toggleSelectAll = () => {
-    if (selectedCustomerIds.size === filteredCustomers.length) {
+    if (selectedCustomerIds.size === paginatedCustomers.length) {
       setSelectedCustomerIds(new Set());
     } else {
-      setSelectedCustomerIds(new Set(filteredCustomers.map(c => c.id)));
+      setSelectedCustomerIds(new Set(paginatedCustomers.map(c => c.id)));
     }
   };
 
@@ -306,13 +320,14 @@ export default function Customers() {
               No customers found
             </div>
           ) : (
-            <Table>
+            <>
+              <Table>
               <TableHeader>
                 <TableRow>
                   {isOwner && (
                     <TableHead className="w-[40px]">
                       <Checkbox 
-                        checked={selectedCustomerIds.size === filteredCustomers.length && filteredCustomers.length > 0}
+                        checked={selectedCustomerIds.size === paginatedCustomers.length && paginatedCustomers.length > 0}
                         onCheckedChange={toggleSelectAll}
                       />
                     </TableHead>
@@ -326,7 +341,7 @@ export default function Customers() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredCustomers.map((customer) => (
+                {paginatedCustomers.map((customer) => (
                   <TableRow key={customer.id}>
                     {isOwner && (
                       <TableCell>
@@ -386,6 +401,35 @@ export default function Customers() {
                 ))}
               </TableBody>
             </Table>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-4 py-3 border-t mt-4">
+                <p className="text-sm text-muted-foreground">
+                  Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, filteredCustomers.length)} of {filteredCustomers.length} customers
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm px-2">Page {currentPage} of {totalPages}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </CardContent>
       </Card>

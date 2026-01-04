@@ -1,4 +1,4 @@
-import { ChevronDown, Check } from "lucide-react";
+import { ChevronDown, Check, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface AccordionSectionProps {
@@ -9,6 +9,7 @@ interface AccordionSectionProps {
   isActive: boolean;
   isCompleted: boolean;
   isDisabled?: boolean;
+  hasError?: boolean;
   onToggle: () => void;
   children: React.ReactNode;
   variant?: "default" | "hero";
@@ -22,6 +23,7 @@ export function AccordionSection({
   isActive,
   isCompleted,
   isDisabled = false,
+  hasError = false,
   onToggle,
   children,
   variant = "default"
@@ -32,6 +34,7 @@ export function AccordionSection({
         "rounded-lg border overflow-hidden transition-all duration-300",
         isActive && "ring-2 ring-primary/50",
         isDisabled && "opacity-50 pointer-events-none",
+        hasError && !isActive && "border-destructive ring-1 ring-destructive/50",
         variant === "hero" && isActive && "ring-2 ring-orange-500/50"
       )}
     >
@@ -65,9 +68,14 @@ export function AccordionSection({
 
         {/* Title and summary */}
         <div className="flex-1 min-w-0">
-          <p className="font-medium text-sm">{title}</p>
+          <div className="flex items-center gap-2">
+            <p className={cn("font-medium text-sm", hasError && !isActive && "text-destructive")}>{title}</p>
+            {hasError && !isActive && (
+              <AlertTriangle className="h-3.5 w-3.5 text-destructive animate-pulse" />
+            )}
+          </div>
           {!isActive && summary && (
-            <p className="text-xs text-muted-foreground truncate">{summary}</p>
+            <p className={cn("text-xs truncate", hasError ? "text-destructive/80" : "text-muted-foreground")}>{summary}</p>
           )}
         </div>
 
