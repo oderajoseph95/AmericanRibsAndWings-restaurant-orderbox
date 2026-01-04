@@ -9,12 +9,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
-import { Plus, Pencil, Archive, ArchiveRestore, Search, Loader2, Upload, ImageIcon } from 'lucide-react';
+import { Plus, Pencil, Archive, ArchiveRestore, Search, Loader2, Upload, ImageIcon, Trash2 } from 'lucide-react';
 import type { Tables, Enums } from '@/integrations/supabase/types';
 
 type Product = Tables<'products'> & {
@@ -38,6 +40,7 @@ const productTypeBadgeColors: Record<Enums<'product_type'>, string> = {
 export default function Products() {
   const { role } = useAuth();
   const canEdit = role === 'owner' || role === 'manager';
+  const isOwner = role === 'owner';
   const [search, setSearch] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -45,6 +48,7 @@ export default function Products() {
   const [imageUrl, setImageUrl] = useState<string>('');
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const ITEMS_PER_PAGE = 20;
   const imageInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
@@ -189,6 +193,78 @@ export default function Products() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: async ({ id, name }: { id: string; name: string }) => {
+      const { error } = await supabase.from('products').delete().eq('id', id);
+      if (error) throw error;
+
+      await logAdminAction({
+        action: 'delete',
+        entityType: 'product',
+        entityId: id,
+        entityName: name,
+        details: 'Permanently deleted product',
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      setSelectedIds(new Set());
+      toast.success('Product deleted permanently');
+    },
+    onError: (error: any) => {
+      if (error.message?.includes('violates foreign key constraint')) {
+        toast.error('Cannot delete: Product is used in orders. Archive instead.');
+      } else {
+        toast.error(error.message || 'Failed to delete product');
+      }
+    },
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const { error } = await supabase.from('products').delete().in('id', ids);
+      if (error) throw error;
+
+      await logAdminAction({
+        action: 'delete',
+        entityType: 'product',
+        entityId: ids.join(','),
+        entityName: `${ids.length} products`,
+        details: `Permanently deleted ${ids.length} products`,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      setSelectedIds(new Set());
+      toast.success('Products deleted permanently');
+    },
+    onError: (error: any) => {
+      if (error.message?.includes('violates foreign key constraint')) {
+        toast.error('Cannot delete: Some products are used in orders. Archive instead.');
+      } else {
+        toast.error(error.message || 'Failed to delete products');
+      }
+    },
+  });
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === paginatedProducts.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(paginatedProducts.map(p => p.id)));
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    const newSet = new Set(selectedIds);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setSelectedIds(newSet);
+  };
+
   const filteredProducts = products.filter(
     (p) =>
       p.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -202,9 +278,10 @@ export default function Products() {
     currentPage * ITEMS_PER_PAGE
   );
 
-  // Reset page when filter changes
+  // Reset page and selection when filter changes
   useEffect(() => {
     setCurrentPage(1);
+    setSelectedIds(new Set());
   }, [search, showArchived]);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -436,15 +513,44 @@ export default function Products() {
                 className="pl-10"
               />
             </div>
-            <div className="flex items-center gap-2">
-              <Switch
-                id="show-archived"
-                checked={showArchived}
-                onCheckedChange={setShowArchived}
-              />
-              <Label htmlFor="show-archived" className="text-sm">
-                Show Archived
-              </Label>
+            <div className="flex items-center gap-4">
+              {isOwner && selectedIds.size > 0 && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" size="sm">
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete ({selectedIds.size})
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete {selectedIds.size} product(s)?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will permanently delete the selected products. Products used in orders cannot be deleted - archive them instead.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      >
+                        Delete Permanently
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="show-archived"
+                  checked={showArchived}
+                  onCheckedChange={setShowArchived}
+                />
+                <Label htmlFor="show-archived" className="text-sm">
+                  Show Archived
+                </Label>
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -463,6 +569,14 @@ export default function Products() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      {isOwner && (
+                        <TableHead className="w-10">
+                          <Checkbox
+                            checked={selectedIds.size === paginatedProducts.length && paginatedProducts.length > 0}
+                            onCheckedChange={toggleSelectAll}
+                          />
+                        </TableHead>
+                      )}
                       <TableHead className="w-12">Image</TableHead>
                       <TableHead>Product</TableHead>
                       <TableHead>SKU</TableHead>
@@ -470,12 +584,20 @@ export default function Products() {
                       <TableHead>Type</TableHead>
                       <TableHead className="text-right">Price</TableHead>
                       <TableHead>Status</TableHead>
-                      {canEdit && <TableHead className="w-[100px]"></TableHead>}
+                      {canEdit && <TableHead className="w-[120px]"></TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {paginatedProducts.map((product) => (
                       <TableRow key={product.id}>
+                        {isOwner && (
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedIds.has(product.id)}
+                              onCheckedChange={() => toggleSelect(product.id)}
+                            />
+                          </TableCell>
+                        )}
                         <TableCell>
                           <div className="w-10 h-10 rounded bg-muted flex items-center justify-center overflow-hidden">
                             {product.image_url ? (
@@ -537,6 +659,32 @@ export default function Products() {
                                   <Archive className="h-4 w-4" />
                                 )}
                               </Button>
+                              {isOwner && (
+                                <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                    <Button variant="ghost" size="icon">
+                                      <Trash2 className="h-4 w-4 text-destructive" />
+                                    </Button>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>Delete "{product.name}"?</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        This will permanently delete this product. If the product is used in orders, you should archive it instead.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                      <AlertDialogAction
+                                        onClick={() => deleteMutation.mutate({ id: product.id, name: product.name })}
+                                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                      >
+                                        Delete
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              )}
                             </div>
                           </TableCell>
                         )}

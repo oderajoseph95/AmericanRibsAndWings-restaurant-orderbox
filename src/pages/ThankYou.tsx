@@ -25,10 +25,12 @@ import {
   ChefHat,
   CircleDot,
   XCircle,
-  User
+  User,
+  RefreshCw
 } from "lucide-react";
 import { format } from "date-fns";
 import { SEOHead } from "@/components/SEOHead";
+import { cn } from "@/lib/utils";
 import type { Enums } from "@/integrations/supabase/types";
 
 // Types for the secure RPC response
@@ -186,9 +188,11 @@ export default function ThankYou() {
   const [isCreatingAccount, setIsCreatingAccount] = useState(false);
   const [isLiveConnected, setIsLiveConnected] = useState(false);
   const [showStatusFlash, setShowStatusFlash] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Fetch order data using secure RPC function
-  const { data: orderData, isLoading, error } = useQuery({
+  // Fetch order data using secure RPC function with polling fallback
+  const { data: orderData, isLoading, error, refetch } = useQuery({
     queryKey: ['order-tracking', orderId],
     queryFn: async () => {
       if (!orderId) throw new Error('No order ID');
@@ -196,10 +200,26 @@ export default function ThankYou() {
         p_order_id: orderId
       });
       if (error) throw error;
+      setLastUpdated(new Date());
       return data as unknown as OrderTrackingResponse;
     },
     enabled: !!orderId,
+    refetchInterval: 30000, // Poll every 30 seconds as fallback
+    refetchIntervalInBackground: false,
   });
+
+  // Manual refresh handler
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refetch();
+      toast.success('Status updated!');
+    } catch (err) {
+      toast.error('Failed to refresh');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   // Update local tracking data when query data changes
   useEffect(() => {
@@ -414,6 +434,16 @@ export default function ThankYou() {
             )}
           </div>
           <div className="flex gap-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="gap-2"
+            >
+              <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
+              <span className="hidden sm:inline">Refresh</span>
+            </Button>
             <Button variant="outline" size="icon" onClick={handleCopyLink}>
               <Copy className="h-4 w-4" />
             </Button>

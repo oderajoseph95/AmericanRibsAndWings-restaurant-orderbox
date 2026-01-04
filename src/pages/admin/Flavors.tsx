@@ -8,20 +8,24 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
-import { Plus, Pencil, Archive, ArchiveRestore, Loader2 } from 'lucide-react';
+import { Plus, Pencil, Archive, ArchiveRestore, Loader2, Trash2 } from 'lucide-react';
 import type { Tables, Enums } from '@/integrations/supabase/types';
 
 export default function Flavors() {
   const { role } = useAuth();
   const canEdit = role === 'owner' || role === 'manager';
+  const isOwner = role === 'owner';
   const [showArchived, setShowArchived] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingFlavor, setEditingFlavor] = useState<Tables<'flavors'> | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const queryClient = useQueryClient();
 
   const { data: flavors = [], isLoading } = useQuery({
@@ -125,7 +129,6 @@ export default function Flavors() {
         .eq('id', id);
       if (error) throw error;
 
-      // Log archive/restore
       await logAdminAction({
         action: archive ? 'delete' : 'update',
         entityType: 'flavor',
@@ -139,6 +142,78 @@ export default function Flavors() {
       toast.success(archive ? 'Flavor archived' : 'Flavor restored');
     },
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: async ({ id, name }: { id: string; name: string }) => {
+      const { error } = await supabase.from('flavors').delete().eq('id', id);
+      if (error) throw error;
+
+      await logAdminAction({
+        action: 'delete',
+        entityType: 'flavor',
+        entityId: id,
+        entityName: name,
+        details: 'Permanently deleted flavor',
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['flavors'] });
+      setSelectedIds(new Set());
+      toast.success('Flavor deleted permanently');
+    },
+    onError: (error: any) => {
+      if (error.message?.includes('violates foreign key constraint')) {
+        toast.error('Cannot delete: Flavor is used in orders. Archive instead.');
+      } else {
+        toast.error(error.message || 'Failed to delete flavor');
+      }
+    },
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const { error } = await supabase.from('flavors').delete().in('id', ids);
+      if (error) throw error;
+
+      await logAdminAction({
+        action: 'delete',
+        entityType: 'flavor',
+        entityId: ids.join(','),
+        entityName: `${ids.length} flavors`,
+        details: `Permanently deleted ${ids.length} flavors`,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['flavors'] });
+      setSelectedIds(new Set());
+      toast.success('Flavors deleted permanently');
+    },
+    onError: (error: any) => {
+      if (error.message?.includes('violates foreign key constraint')) {
+        toast.error('Cannot delete: Some flavors are used in orders. Archive instead.');
+      } else {
+        toast.error(error.message || 'Failed to delete flavors');
+      }
+    },
+  });
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === flavors.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(flavors.map(f => f.id)));
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    const newSet = new Set(selectedIds);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setSelectedIds(newSet);
+  };
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -257,15 +332,44 @@ export default function Flavors() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg">All Flavors</CardTitle>
-            <div className="flex items-center gap-2">
-              <Switch
-                id="show-archived"
-                checked={showArchived}
-                onCheckedChange={setShowArchived}
-              />
-              <Label htmlFor="show-archived" className="text-sm">
-                Show Archived
-              </Label>
+            <div className="flex items-center gap-4">
+              {isOwner && selectedIds.size > 0 && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" size="sm">
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete ({selectedIds.size})
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete {selectedIds.size} flavor(s)?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will permanently delete the selected flavors. Flavors used in orders cannot be deleted - archive them instead.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      >
+                        Delete Permanently
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="show-archived"
+                  checked={showArchived}
+                  onCheckedChange={setShowArchived}
+                />
+                <Label htmlFor="show-archived" className="text-sm">
+                  Show Archived
+                </Label>
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -282,18 +386,34 @@ export default function Flavors() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  {isOwner && (
+                    <TableHead className="w-10">
+                      <Checkbox
+                        checked={selectedIds.size === flavors.length && flavors.length > 0}
+                        onCheckedChange={toggleSelectAll}
+                      />
+                    </TableHead>
+                  )}
                   <TableHead>Name</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Surcharge</TableHead>
                   <TableHead>Availability</TableHead>
                   <TableHead>Status</TableHead>
-                  {canEdit && <TableHead className="w-[100px]"></TableHead>}
+                  {canEdit && <TableHead className="w-[120px]"></TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {flavors.map((flavor) => (
                   <TableRow key={flavor.id}>
+                    {isOwner && (
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedIds.has(flavor.id)}
+                          onCheckedChange={() => toggleSelect(flavor.id)}
+                        />
+                      </TableCell>
+                    )}
                     <TableCell className="font-medium">{flavor.name}</TableCell>
                     <TableCell>
                       <Badge
@@ -389,6 +509,32 @@ export default function Flavors() {
                               <Archive className="h-4 w-4" />
                             )}
                           </Button>
+                          {isOwner && (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="ghost" size="icon">
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Delete "{flavor.name}"?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This will permanently delete this flavor. Flavors used in orders cannot be deleted - archive them instead.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => deleteMutation.mutate({ id: flavor.id, name: flavor.name })}
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                  >
+                                    Delete
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          )}
                         </div>
                       </TableCell>
                     )}
