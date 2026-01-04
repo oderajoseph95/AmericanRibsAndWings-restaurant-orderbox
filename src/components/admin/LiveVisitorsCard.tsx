@@ -1,25 +1,47 @@
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Eye } from "lucide-react";
 
 export function LiveVisitorsCard() {
-  const { data: liveCount = 0 } = useQuery({
-    queryKey: ["live-visitors"],
-    queryFn: async () => {
-      const oneMinuteAgo = new Date(Date.now() - 60 * 1000).toISOString();
-      
-      const { count, error } = await supabase
-        .from("visitor_sessions")
-        .select("*", { count: "exact", head: true })
-        .eq("is_active", true)
-        .gte("last_seen_at", oneMinuteAgo);
+  const [liveCount, setLiveCount] = useState(0);
 
-      if (error) throw error;
-      return count || 0;
-    },
-    refetchInterval: 10000,
-  });
+  const fetchLiveCount = useCallback(async () => {
+    // Consider visitors active if seen in last 30 seconds (since we ping every 10s)
+    const thirtySecondsAgo = new Date(Date.now() - 30 * 1000).toISOString();
+    
+    const { count, error } = await supabase
+      .from("visitor_sessions")
+      .select("*", { count: "exact", head: true })
+      .gte("last_seen_at", thirtySecondsAgo);
+
+    if (!error) {
+      setLiveCount(count || 0);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Initial fetch
+    fetchLiveCount();
+
+    // Subscribe to realtime changes for instant updates
+    const channel = supabase
+      .channel("live-visitors-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "visitor_sessions" },
+        () => fetchLiveCount()
+      )
+      .subscribe();
+
+    // Fallback polling every 15s in case realtime misses something
+    const interval = setInterval(fetchLiveCount, 15000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
+  }, [fetchLiveCount]);
 
   return (
     <Card className="bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border-primary/20 h-full">

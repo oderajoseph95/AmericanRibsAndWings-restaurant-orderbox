@@ -39,6 +39,7 @@ import { SEOHead } from "@/components/SEOHead";
 import { cn } from "@/lib/utils";
 import type { Enums } from "@/integrations/supabase/types";
 import { CustomerNotificationPrompt } from "@/components/customer/CustomerNotificationPrompt";
+import { useVisitorPresence } from "@/hooks/useVisitorPresence";
 
 // Types for the secure RPC response
 interface OrderTrackingCustomer {
@@ -189,6 +190,7 @@ const deliveryFlow: Enums<'order_status'>[] = ['pending', 'for_verification', 'a
 export default function ThankYou() {
   const { orderId } = useParams<{ orderId: string }>();
   const navigate = useNavigate();
+  useVisitorPresence("/thank-you");
   const [trackingData, setTrackingData] = useState<OrderTrackingResponse | null>(null);
   const [showAccountPrompt, setShowAccountPrompt] = useState(false);
   const [password, setPassword] = useState('');
