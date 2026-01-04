@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -14,18 +14,28 @@ import {
   Phone, 
   Clock, 
   CheckCircle, 
-  Truck, 
   Camera,
   Loader2,
   Navigation,
   User,
-  AlertCircle
+  AlertCircle,
+  Circle,
+  Power,
+  Coffee,
+  Truck
 } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Tables, Enums } from '@/integrations/supabase/types';
 
 type Order = Tables<'orders'> & {
   customers: Tables<'customers'> | null;
+};
+
+type DriverAvailability = 'offline' | 'online' | 'busy' | 'unavailable';
+
+// Extended driver type with availability_status (pending types regeneration)
+type Driver = Tables<'drivers'> & {
+  availability_status?: DriverAvailability | null;
 };
 
 const statusColors: Record<string, string> = {
@@ -44,6 +54,13 @@ const statusLabels: Record<string, string> = {
   completed: 'Completed',
 };
 
+const availabilityConfig: Record<DriverAvailability, { icon: typeof Power; color: string; label: string; bgColor: string }> = {
+  offline: { icon: Power, color: 'text-gray-500', label: 'Offline', bgColor: 'bg-gray-100' },
+  online: { icon: Truck, color: 'text-green-600', label: 'Online', bgColor: 'bg-green-100' },
+  busy: { icon: Coffee, color: 'text-yellow-600', label: 'Busy', bgColor: 'bg-yellow-100' },
+  unavailable: { icon: AlertCircle, color: 'text-red-600', label: 'Unavailable', bgColor: 'bg-red-100' },
+};
+
 export default function DriverDashboard() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -54,7 +71,7 @@ export default function DriverDashboard() {
   const [uploading, setUploading] = useState(false);
 
   // Fetch driver profile
-  const { data: driver } = useQuery({
+  const { data: driver, refetch: refetchDriver } = useQuery({
     queryKey: ['driver-profile', user?.id],
     queryFn: async () => {
       if (!user?.id) return null;
@@ -64,13 +81,13 @@ export default function DriverDashboard() {
         .eq('user_id', user.id)
         .maybeSingle();
       if (error) throw error;
-      return data;
+      return data as Driver | null;
     },
     enabled: !!user?.id,
   });
 
   // Fetch assigned orders
-  const { data: orders = [], isLoading } = useQuery({
+  const { data: orders = [], isLoading, refetch: refetchOrders } = useQuery({
     queryKey: ['driver-orders', driver?.id],
     queryFn: async () => {
       if (!driver?.id) return [];
@@ -84,7 +101,52 @@ export default function DriverDashboard() {
       return data as Order[];
     },
     enabled: !!driver?.id,
-    refetchInterval: 30000, // Refetch every 30 seconds
+  });
+
+  // Setup realtime subscription for orders
+  useEffect(() => {
+    if (!driver?.id) return;
+
+    const channel = supabase
+      .channel('driver-orders-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'orders',
+          filter: `driver_id=eq.${driver.id}`,
+        },
+        (payload) => {
+          console.log('Order change:', payload);
+          refetchOrders();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [driver?.id, refetchOrders]);
+
+  // Update availability status mutation
+  const updateAvailabilityMutation = useMutation({
+    mutationFn: async (status: DriverAvailability) => {
+      if (!driver?.id) throw new Error('No driver profile');
+      // Use type assertion since availability_status is a new column
+      const { error } = await supabase
+        .from('drivers')
+        .update({ availability_status: status } as any)
+        .eq('id', driver.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      refetchDriver();
+      toast.success('Status updated');
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to update status');
+    },
   });
 
   // Update order status mutation
@@ -196,6 +258,8 @@ export default function DriverDashboard() {
     o.updated_at && new Date(o.updated_at).toDateString() === new Date().toDateString()
   ).length;
 
+  const currentAvailability = (driver?.availability_status || 'offline') as DriverAvailability;
+
   if (!driver) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -209,6 +273,42 @@ export default function DriverDashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Availability Status Toggle */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Your Status</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-2 flex-wrap">
+            {(Object.keys(availabilityConfig) as DriverAvailability[]).map((status) => {
+              const config = availabilityConfig[status];
+              const Icon = config.icon;
+              const isActive = currentAvailability === status;
+              
+              return (
+                <Button
+                  key={status}
+                  variant={isActive ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => updateAvailabilityMutation.mutate(status)}
+                  disabled={updateAvailabilityMutation.isPending}
+                  className={isActive ? '' : config.color}
+                >
+                  <Icon className="h-4 w-4 mr-1" />
+                  {config.label}
+                </Button>
+              );
+            })}
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            {currentAvailability === 'online' && 'You are visible and can receive new orders'}
+            {currentAvailability === 'offline' && 'You are not accepting orders'}
+            {currentAvailability === 'busy' && 'Currently on a delivery, will accept next order soon'}
+            {currentAvailability === 'unavailable' && 'Taking a break, not accepting orders'}
+          </p>
+        </CardContent>
+      </Card>
+
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
         <Card>
