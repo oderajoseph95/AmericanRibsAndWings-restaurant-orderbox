@@ -20,6 +20,8 @@ import { Loader2, Upload, X, Check, Package, Truck, CalendarIcon, MapPin, User, 
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { sendPushNotification } from "@/hooks/usePushNotifications";
+import { createAdminNotification } from "@/hooks/useAdminNotifications";
+import { trackAnalyticsEvent } from "@/hooks/useAnalytics";
 import { cn } from "@/lib/utils";
 import { DeliveryMapPicker } from "./DeliveryMapPicker";
 import { AccordionSection } from "./checkout/AccordionSection";
@@ -206,18 +208,27 @@ export function CheckoutSheet({
 
   // Fire Meta Pixel InitiateCheckout event when checkout opens
   useEffect(() => {
-    if (open && typeof (window as any).fbq === 'function') {
-      (window as any).fbq('track', 'InitiateCheckout', {
-        content_ids: cart.map(item => item.product.id),
-        contents: cart.map(item => ({
-          id: item.product.id,
-          quantity: item.quantity,
-        })),
-        num_items: cart.reduce((sum, item) => sum + item.quantity, 0),
-        value: total,
-        currency: 'PHP',
-      });
-      console.log('Meta Pixel InitiateCheckout event fired:', total);
+    if (open) {
+      // Track checkout_start analytics
+      trackAnalyticsEvent("checkout_start", {
+        items: cart.length,
+        total: total,
+      }, "/order");
+
+      // Fire Meta Pixel event
+      if (typeof (window as any).fbq === 'function') {
+        (window as any).fbq('track', 'InitiateCheckout', {
+          content_ids: cart.map(item => item.product.id),
+          contents: cart.map(item => ({
+            id: item.product.id,
+            quantity: item.quantity,
+          })),
+          num_items: cart.reduce((sum, item) => sum + item.quantity, 0),
+          value: total,
+          currency: 'PHP',
+        });
+        console.log('Meta Pixel InitiateCheckout event fired:', total);
+      }
     }
   }, [open, cart, total]);
 
@@ -519,7 +530,16 @@ export function CheckoutSheet({
         await supabase.from("orders").update({ status: "for_verification" }).eq("id", order.id);
       }
 
-      // Notify admins about new order
+      // Track checkout complete analytics
+      trackAnalyticsEvent("checkout_complete", {
+        order_id: order.id,
+        order_number: order.order_number,
+        total: grandTotal,
+        items: cart.length,
+        order_type: data.orderType,
+      }, "/order");
+
+      // Notify admins about new order - push notification
       try {
         await sendPushNotification({
           title: "New Order Received! 🔔",
@@ -531,6 +551,18 @@ export function CheckoutSheet({
         });
       } catch (e) {
         console.error("Failed to send admin notification:", e);
+      }
+
+      // Create in-app notification for admins
+      try {
+        await createAdminNotification({
+          title: "New Order Received! 🔔",
+          message: `Order #${order.order_number} from ${data.name} (₱${grandTotal.toLocaleString('en-PH', { minimumFractionDigits: 2 })}) - ${data.orderType === 'delivery' ? 'Delivery' : 'Pickup'}`,
+          type: "order",
+          order_id: order.id,
+        });
+      } catch (e) {
+        console.error("Failed to create admin notification:", e);
       }
 
       toast.success("Order placed successfully!");

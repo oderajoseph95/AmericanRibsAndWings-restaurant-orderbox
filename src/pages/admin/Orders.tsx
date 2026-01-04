@@ -36,6 +36,7 @@ import { logAdminAction } from '@/lib/adminLogger';
 import { RefundDialog } from '@/components/admin/RefundDialog';
 import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package, MoreHorizontal, Link, Share2, Copy, User, AlertTriangle, ChevronDown, Trash2, Camera, Upload } from 'lucide-react';
 import { sendPushNotification } from '@/hooks/usePushNotifications';
+import { createAdminNotification } from '@/hooks/useAdminNotifications';
 import { format } from 'date-fns';
 import type { Tables, Enums } from '@/integrations/supabase/types';
 

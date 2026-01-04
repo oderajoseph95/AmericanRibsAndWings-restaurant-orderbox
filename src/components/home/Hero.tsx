@@ -62,8 +62,8 @@ export function Hero() {
 
       <div className="container relative z-10 px-4 py-12 md:py-16">
         <div className="max-w-3xl mx-auto text-center">
-          {/* Badge */}
-          <div className="inline-flex items-center gap-2 bg-white/20 text-white px-3 py-1.5 rounded-full text-sm font-medium mb-4">
+          {/* Badge - hidden on mobile (shown in navbar), visible on tablet+ */}
+          <div className="hidden md:inline-flex items-center gap-2 bg-white/20 text-white px-3 py-1.5 rounded-full text-sm font-medium mb-4">
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-accent"></span>

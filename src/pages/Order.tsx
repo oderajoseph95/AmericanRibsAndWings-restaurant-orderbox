@@ -17,6 +17,8 @@ import { BundleWizard } from "@/components/customer/BundleWizard";
 import { CheckoutSheet } from "@/components/customer/CheckoutSheet";
 import { SEOHead } from "@/components/SEOHead";
 import { useSalesPopContext } from "@/contexts/SalesPopContext";
+import { useVisitorPresence } from "@/hooks/useVisitorPresence";
+import { trackAnalyticsEvent } from "@/hooks/useAnalytics";
 import type { Tables } from "@/integrations/supabase/types";
 
 export type CartItem = {
@@ -30,6 +32,13 @@ export type CartItem = {
 export type OrderType = "dine_in" | "pickup" | "delivery";
 
 const Order = () => {
+  // Track visitor presence
+  useVisitorPresence("/order");
+
+  // Track page view on mount
+  useEffect(() => {
+    trackAnalyticsEvent("page_view", { page: "order" }, "/order");
+  }, []);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { setIsCheckoutOpen: setSalesPopCheckoutOpen } = useSalesPopContext();
@@ -120,6 +129,13 @@ const Order = () => {
 
   // Add to cart handler
   const handleAddToCart = (product: Tables<"products">) => {
+    // Track analytics event
+    trackAnalyticsEvent("add_to_cart", { 
+      product_id: product.id, 
+      product_name: product.name,
+      price: product.price 
+    }, "/order");
+
     // Fire Meta Pixel AddToCart event
     if (typeof (window as any).fbq === 'function') {
       (window as any).fbq('track', 'AddToCart', {
