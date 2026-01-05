@@ -71,10 +71,10 @@ export function CompactOrderSummary({
                     {item.flavors.map((flavor, idx) => (
                       <div key={idx} className="flex justify-between text-xs text-muted-foreground">
                         <span>
-                          • {flavor.name} {flavor.quantity > 1 && `(${flavor.quantity}x)`}
+                          • {flavor.name} ({flavor.quantity} pcs)
                         </span>
                         {flavor.surcharge > 0 && (
-                          <span className="text-primary">+₱{(flavor.surcharge * flavor.quantity).toFixed(2)}</span>
+                          <span className="text-primary">+₱{flavor.surcharge.toFixed(2)}</span>
                         )}
                       </div>
                     ))}

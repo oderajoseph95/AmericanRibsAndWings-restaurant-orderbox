@@ -72,13 +72,16 @@ export function FlavorModal({
   // Validate selection
   const isValid = selectedCount === totalUnits && flavorCount >= minFlavors;
 
-  // Calculate surcharge
+  // Calculate surcharge - PER DISTINCT SPECIAL FLAVOR (not per piece or slot)
+  // Rule: ₱40 charge per unique special flavor selected, regardless of how many pieces
   const totalSurcharge = useMemo(() => {
     return Object.entries(selectedFlavors).reduce((sum, [flavorId, qty]) => {
+      if (qty <= 0) return sum;
       const flavor = flavors.find((f) => f.id === flavorId);
-      return sum + (flavor?.surcharge || 0) * (qty / unitsPerFlavor);
+      // Charge the surcharge ONCE per distinct flavor, not per piece
+      return sum + (flavor?.surcharge || 0);
     }, 0);
-  }, [selectedFlavors, flavors, unitsPerFlavor]);
+  }, [selectedFlavors, flavors]);
 
   // Filter to only wing flavors for Ala Carte products (include unavailable ones for display)
   const availableFlavors = useMemo(() => {
@@ -114,11 +117,12 @@ export function FlavorModal({
       .filter(([_, qty]) => qty > 0)
       .map(([flavorId, qty]) => {
         const flavor = flavors.find((f) => f.id === flavorId)!;
+        // Surcharge is charged ONCE per distinct flavor (not per piece)
         return {
           id: flavorId,
           name: flavor.name,
-          quantity: qty,
-          surcharge: flavor.surcharge || 0,
+          quantity: qty, // pieces selected with this flavor
+          surcharge: flavor.surcharge || 0, // total surcharge for this flavor (one-time)
         };
       });
 
@@ -186,7 +190,7 @@ export function FlavorModal({
                     {!isOutOfStock && (
                       flavor.surcharge && flavor.surcharge > 0 ? (
                         <p className="text-xs text-accent">
-                          +₱{flavor.surcharge.toFixed(2)} per {unitsPerFlavor}pcs
+                          +₱{flavor.surcharge.toFixed(2)} (one-time upgrade)
                         </p>
                       ) : (
                         <p className="text-xs flex items-center gap-1">

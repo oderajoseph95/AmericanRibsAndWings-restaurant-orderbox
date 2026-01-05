@@ -53,7 +53,7 @@ export function Cart({ items, onUpdateQuantity, onRemove, onCheckout, total }: C
                 {/* Flavors */}
                 {item.flavors && item.flavors.length > 0 && (
                   <p className="text-xs text-muted-foreground line-clamp-1">
-                    {item.flavors.map((f) => `${f.name} (${f.quantity})`).join(", ")}
+                    {item.flavors.map((f) => `${f.name} (${f.quantity} pcs)`).join(", ")}
                   </p>
                 )}
 
