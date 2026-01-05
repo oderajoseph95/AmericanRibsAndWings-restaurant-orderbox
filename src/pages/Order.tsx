@@ -201,8 +201,9 @@ const Order = () => {
     product: Tables<"products">,
     selectedFlavors: { id: string; name: string; quantity: number; surcharge: number }[]
   ) => {
+    // Surcharge is per distinct flavor, NOT per piece - just sum them directly
     const flavorSurcharge = selectedFlavors.reduce(
-      (sum, f) => sum + f.surcharge * f.quantity,
+      (sum, f) => sum + f.surcharge,
       0
     );
     const lineTotal = product.price + flavorSurcharge;
@@ -229,8 +230,9 @@ const Order = () => {
           if (item.id !== itemId) return item;
           const newQty = item.quantity + delta;
           if (newQty <= 0) return null;
+          // Surcharge is per distinct flavor, NOT per piece - just sum them directly
           const flavorSurcharge = item.flavors?.reduce(
-            (sum, f) => sum + f.surcharge * f.quantity,
+            (sum, f) => sum + f.surcharge,
             0
           ) || 0;
           return {
