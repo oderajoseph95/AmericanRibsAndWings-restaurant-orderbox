@@ -11,7 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowLeft, ArrowRight, Check, Loader2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Loader2, Minus, Plus } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
 
 interface BundleWizardProps {
@@ -29,6 +29,9 @@ type BundleComponent = Tables<"bundle_components"> & {
   component_product: Tables<"products">;
 };
 
+// Multi-slot selections for wings, single flavor for drinks/fries
+type StepSelection = Record<string, number> | string;
+
 export function BundleWizard({
   open,
   onOpenChange,
@@ -37,7 +40,7 @@ export function BundleWizard({
   onConfirm,
 }: BundleWizardProps) {
   const [currentStep, setCurrentStep] = useState(0);
-  const [selections, setSelections] = useState<Record<number, string>>({});
+  const [selections, setSelections] = useState<Record<number, StepSelection>>({});
 
   // Fetch bundle components
   const { data: bundleComponents, isLoading } = useQuery({
@@ -77,22 +80,98 @@ export function BundleWizard({
     return flavors.filter((f) => f.flavor_category === category && f.is_active);
   }, [currentComponent, flavors]);
 
+  // Check if this step is multi-slot (e.g., 6 pcs wings = 2 slots)
+  const isMultiSlotStep = useMemo(() => {
+    if (!currentComponent) return false;
+    const totalUnits = currentComponent.total_units || 0;
+    const unitsPerFlavor = currentComponent.units_per_flavor || 3;
+    return totalUnits > unitsPerFlavor;
+  }, [currentComponent]);
+
+  const totalSlots = useMemo(() => {
+    if (!currentComponent) return 1;
+    const totalUnits = currentComponent.total_units || 0;
+    const unitsPerFlavor = currentComponent.units_per_flavor || 3;
+    return Math.ceil(totalUnits / unitsPerFlavor);
+  }, [currentComponent]);
+
+  const unitsPerSlot = currentComponent?.units_per_flavor || 3;
+  const totalUnits = currentComponent?.total_units || 0;
+
+  // Calculate selected pieces for current step (multi-slot)
+  const currentStepSelections = useMemo(() => {
+    const sel = selections[currentStep];
+    if (!sel || typeof sel === 'string') return {};
+    return sel as Record<string, number>;
+  }, [selections, currentStep]);
+
+  const selectedPcs = useMemo(() => {
+    return Object.values(currentStepSelections).reduce((sum, qty) => sum + qty, 0);
+  }, [currentStepSelections]);
+
+  const selectedSlots = useMemo(() => {
+    return selectedPcs / unitsPerSlot;
+  }, [selectedPcs, unitsPerSlot]);
+
   const totalSteps = bundleComponents?.length || 0;
   const isLastStep = currentStep === totalSteps - 1;
-  const canProceed = selections[currentStep] !== undefined;
+  
+  // Can proceed if: multi-slot has all pieces selected, or single-slot has selection
+  const canProceed = useMemo(() => {
+    if (isMultiSlotStep) {
+      return selectedPcs === totalUnits;
+    }
+    return selections[currentStep] !== undefined;
+  }, [isMultiSlotStep, selectedPcs, totalUnits, selections, currentStep]);
 
-  // Calculate total surcharge
+  // Calculate total surcharge - PER SLOT that uses a special flavor
   const totalSurcharge = useMemo(() => {
-    return Object.entries(selections).reduce((sum, [stepIdx, flavorId]) => {
-      const flavor = flavors.find((f) => f.id === flavorId);
-      return sum + (flavor?.surcharge || 0);
+    return Object.entries(selections).reduce((sum, [stepIdx, stepData]) => {
+      const component = bundleComponents?.[Number(stepIdx)];
+      const stepUnitsPerSlot = component?.units_per_flavor || 3;
+      
+      if (typeof stepData === 'string') {
+        // Single selection (drinks, fries)
+        const flavor = flavors.find((f) => f.id === stepData);
+        return sum + (flavor?.surcharge || 0);
+      } else {
+        // Multi-slot selection (wings) - charge per slot that uses special flavor
+        return sum + Object.entries(stepData).reduce((stepSum, [flavorId, qty]) => {
+          if (qty <= 0) return stepSum;
+          const flavor = flavors.find((f) => f.id === flavorId);
+          const slotsUsed = qty / stepUnitsPerSlot;
+          return stepSum + ((flavor?.surcharge || 0) * slotsUsed);
+        }, 0);
+      }
     }, 0);
-  }, [selections, flavors]);
+  }, [selections, flavors, bundleComponents]);
 
+  // Handle single flavor selection (for drinks, fries)
   const handleFlavorSelect = (flavorId: string, isAvailable: boolean) => {
-    // Don't allow selection of unavailable flavors
     if (!isAvailable) return;
     setSelections((prev) => ({ ...prev, [currentStep]: flavorId }));
+  };
+
+  // Handle multi-slot flavor change (for wings)
+  const handleSlotChange = (flavorId: string, delta: number) => {
+    const currentQty = currentStepSelections[flavorId] || 0;
+    const newQty = Math.max(0, currentQty + delta * unitsPerSlot);
+    
+    // Validate total doesn't exceed component total_units
+    const newTotal = selectedPcs - currentQty + newQty;
+    if (newTotal > totalUnits) return;
+    
+    setSelections((prev) => {
+      const prevStep = (prev[currentStep] as Record<string, number>) || {};
+      if (newQty === 0) {
+        const { [flavorId]: _, ...rest } = prevStep;
+        return { ...prev, [currentStep]: rest };
+      }
+      return {
+        ...prev,
+        [currentStep]: { ...prevStep, [flavorId]: newQty }
+      };
+    });
   };
 
   const handleNext = () => {
@@ -108,15 +187,34 @@ export function BundleWizard({
   };
 
   const handleConfirm = () => {
-    const selectedFlavors = Object.entries(selections).map(([stepIdx, flavorId]) => {
+    const selectedFlavors = Object.entries(selections).flatMap(([stepIdx, stepData]) => {
       const component = bundleComponents?.[Number(stepIdx)];
-      const flavor = flavors.find((f) => f.id === flavorId)!;
-      return {
-        id: flavorId,
-        name: flavor.name,
-        quantity: component?.total_units || 1,
-        surcharge: flavor.surcharge || 0,
-      };
+      const stepUnitsPerSlot = component?.units_per_flavor || 3;
+      
+      if (typeof stepData === 'string') {
+        // Single selection (drinks, fries)
+        const flavor = flavors.find((f) => f.id === stepData)!;
+        return [{
+          id: stepData,
+          name: flavor.name,
+          quantity: component?.total_units || 1,
+          surcharge: flavor.surcharge || 0,
+        }];
+      } else {
+        // Multi-slot selection (wings) - charge per slot
+        return Object.entries(stepData)
+          .filter(([_, qty]) => qty > 0)
+          .map(([flavorId, qty]) => {
+            const flavor = flavors.find((f) => f.id === flavorId)!;
+            const slotsUsed = qty / stepUnitsPerSlot;
+            return {
+              id: flavorId,
+              name: flavor.name,
+              quantity: qty,
+              surcharge: (flavor.surcharge || 0) * slotsUsed,
+            };
+          });
+      }
     });
 
     onConfirm(product, selectedFlavors);
@@ -180,6 +278,20 @@ export function BundleWizard({
                   {currentComponent.component_product.name}
                   {currentComponent.total_units && ` (${currentComponent.total_units} pcs)`}
                 </p>
+                {/* Slot progress for multi-slot items */}
+                {isMultiSlotStep && (
+                  <div className="mt-2">
+                    <p className="text-sm font-medium text-primary">
+                      Selected: {selectedSlots} / {totalSlots} flavor slots
+                    </p>
+                    <div className="w-full bg-secondary rounded-full h-2 mt-1">
+                      <div
+                        className="bg-primary h-2 rounded-full transition-all"
+                        style={{ width: `${(selectedPcs / totalUnits) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -191,65 +303,142 @@ export function BundleWizard({
                   </p>
                 ) : (
                   stepFlavors.map((flavor) => {
-                    const isSelected = selections[currentStep] === flavor.id;
                     const isUnavailable = flavor.is_available === false;
-
-                    return (
-                      <button
-                        key={flavor.id}
-                        onClick={() => handleFlavorSelect(flavor.id, !isUnavailable)}
-                        disabled={isUnavailable}
-                        className={`w-full flex items-center justify-between p-3 rounded-lg border transition-colors text-left ${
-                          isUnavailable
-                            ? "border-border bg-muted/50 opacity-60 cursor-not-allowed"
-                            : isSelected
-                            ? "border-primary bg-primary/5"
-                            : "border-border hover:border-primary/50"
-                        }`}
-                      >
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className={`font-medium ${isUnavailable ? "text-muted-foreground" : ""}`}>
-                              {flavor.name}
-                            </span>
-                            {isUnavailable && (
-                              <Badge variant="destructive" className="text-xs">
-                                Out of Stock
-                              </Badge>
-                            )}
-                            {!isUnavailable && flavor.flavor_type === "special" && (
-                              <Badge variant="secondary" className="text-xs">
-                                Special
-                              </Badge>
-                            )}
-                          </div>
-                          {!isUnavailable && (
-                            flavor.surcharge && flavor.surcharge > 0 ? (
-                              <p className="text-xs text-accent">
-                                +₱{flavor.surcharge.toFixed(2)}
-                              </p>
-                            ) : (
-                              <p className="text-xs flex items-center gap-1">
-                                <span className="line-through text-muted-foreground">₱0.00</span>
-                                <Badge variant="secondary" className="text-[10px] px-1 py-0">FREE</Badge>
-                              </p>
-                            )
-                          )}
-                        </div>
-
+                    
+                    if (isMultiSlotStep) {
+                      // Plus/minus slot-based UI for wings
+                      const qty = currentStepSelections[flavor.id] || 0;
+                      const isSelected = qty > 0;
+                      
+                      return (
                         <div
-                          className={`h-5 w-5 rounded-full border-2 flex items-center justify-center transition-colors ${
+                          key={flavor.id}
+                          className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
                             isUnavailable
-                              ? "border-muted-foreground/50"
+                              ? "border-border bg-muted/50 opacity-60"
                               : isSelected
-                              ? "border-primary bg-primary"
-                              : "border-muted-foreground"
+                              ? "border-primary bg-primary/5"
+                              : "border-border hover:border-primary/50"
                           }`}
                         >
-                          {isSelected && !isUnavailable && <Check className="h-3 w-3 text-primary-foreground" />}
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className={`font-medium ${isUnavailable ? "text-muted-foreground" : ""}`}>
+                                {flavor.name}
+                              </span>
+                              {isUnavailable && (
+                                <Badge variant="destructive" className="text-xs">
+                                  Out of Stock
+                                </Badge>
+                              )}
+                              {!isUnavailable && flavor.flavor_type === "special" && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Special
+                                </Badge>
+                              )}
+                            </div>
+                            {!isUnavailable && (
+                              flavor.surcharge && flavor.surcharge > 0 ? (
+                                <p className="text-xs text-accent">
+                                  +₱{flavor.surcharge.toFixed(2)} per {unitsPerSlot} pcs
+                                </p>
+                              ) : (
+                                <p className="text-xs flex items-center gap-1">
+                                  <span className="line-through text-muted-foreground">₱0.00</span>
+                                  <Badge variant="secondary" className="text-[10px] px-1 py-0">FREE</Badge>
+                                </p>
+                              )
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {isSelected && (
+                              <span className="text-sm font-medium text-primary">
+                                {qty} pcs
+                              </span>
+                            )}
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => handleSlotChange(flavor.id, -1)}
+                              disabled={qty === 0 || isUnavailable}
+                            >
+                              <Minus className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => handleSlotChange(flavor.id, 1)}
+                              disabled={selectedPcs >= totalUnits || isUnavailable}
+                            >
+                              <Plus className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
-                      </button>
-                    );
+                      );
+                    } else {
+                      // Radio-style single selection for drinks, fries
+                      const isSelected = selections[currentStep] === flavor.id;
+                      
+                      return (
+                        <button
+                          key={flavor.id}
+                          onClick={() => handleFlavorSelect(flavor.id, !isUnavailable)}
+                          disabled={isUnavailable}
+                          className={`w-full flex items-center justify-between p-3 rounded-lg border transition-colors text-left ${
+                            isUnavailable
+                              ? "border-border bg-muted/50 opacity-60 cursor-not-allowed"
+                              : isSelected
+                              ? "border-primary bg-primary/5"
+                              : "border-border hover:border-primary/50"
+                          }`}
+                        >
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className={`font-medium ${isUnavailable ? "text-muted-foreground" : ""}`}>
+                                {flavor.name}
+                              </span>
+                              {isUnavailable && (
+                                <Badge variant="destructive" className="text-xs">
+                                  Out of Stock
+                                </Badge>
+                              )}
+                              {!isUnavailable && flavor.flavor_type === "special" && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Special
+                                </Badge>
+                              )}
+                            </div>
+                            {!isUnavailable && (
+                              flavor.surcharge && flavor.surcharge > 0 ? (
+                                <p className="text-xs text-accent">
+                                  +₱{flavor.surcharge.toFixed(2)}
+                                </p>
+                              ) : (
+                                <p className="text-xs flex items-center gap-1">
+                                  <span className="line-through text-muted-foreground">₱0.00</span>
+                                  <Badge variant="secondary" className="text-[10px] px-1 py-0">FREE</Badge>
+                                </p>
+                              )
+                            )}
+                          </div>
+
+                          <div
+                            className={`h-5 w-5 rounded-full border-2 flex items-center justify-center transition-colors ${
+                              isUnavailable
+                                ? "border-muted-foreground/50"
+                                : isSelected
+                                ? "border-primary bg-primary"
+                                : "border-muted-foreground"
+                            }`}
+                          >
+                            {isSelected && !isUnavailable && <Check className="h-3 w-3 text-primary-foreground" />}
+                          </div>
+                        </button>
+                      );
+                    }
                   })
                 )}
               </div>
