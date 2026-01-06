@@ -500,7 +500,7 @@ export function CheckoutSheet({
           p_quantity: item.quantity,
           p_unit_price: item.product.price,
           p_subtotal: item.quantity * item.product.price,
-          p_flavor_surcharge_total: item.flavors?.reduce((sum, f) => sum + f.surcharge * f.quantity, 0) || 0
+          p_flavor_surcharge_total: item.flavors?.reduce((sum, f) => sum + f.surcharge, 0) || 0
         });
         if (itemError) throw itemError;
 
@@ -541,23 +541,22 @@ export function CheckoutSheet({
         order_type: data.orderType,
       }, "/order");
 
-      // Notify admins about new order - push notification
-      try {
-        await sendPushNotification({
+      // Show success and redirect immediately (don't wait for notifications)
+      toast.success("Order placed successfully!");
+      window.location.href = `/thank-you/${order.id}`;
+
+      // Fire notifications in background (don't block redirect)
+      Promise.all([
+        sendPushNotification({
           title: "New Order Received! 🔔",
           body: `Order #${order.order_number} from ${data.name} (₱${grandTotal.toLocaleString()})`,
           url: `/admin/orders`,
           userType: "admin",
           orderId: order.id,
           orderNumber: order.order_number,
-        });
-      } catch (e) {
-        console.error("Failed to send admin notification:", e);
-      }
-
-      // Create in-app notification for admins with rich metadata
-      try {
-        await createAdminNotification({
+        }).catch(e => console.error("Push notification failed:", e)),
+        
+        createAdminNotification({
           title: "New Order Received! 🔔",
           message: `Order #${order.order_number} from ${data.name} (₱${grandTotal.toLocaleString('en-PH', { minimumFractionDigits: 2 })}) - ${data.orderType === 'delivery' ? 'Delivery' : 'Pickup'}`,
           type: "order",
@@ -576,19 +575,9 @@ export function CheckoutSheet({
             delivery_address: data.orderType === "delivery" ? `${data.streetAddress}, ${barangay}, ${data.city}` : undefined,
           },
           action_url: `/admin/orders?search=${order.order_number}`,
-        });
-      } catch (e) {
-        console.error("Failed to create admin notification:", e);
-      }
-
-      // Send email notifications
-      try {
-        const deliveryAddress = data.orderType === "delivery" 
-          ? `${data.streetAddress}, ${barangay}, ${data.city}` 
-          : undefined;
-
-        // Email admin about new order
-        await sendEmailNotification({
+        }).catch(e => console.error("Admin notification failed:", e)),
+        
+        sendEmailNotification({
           type: "new_order",
           recipientEmail: ADMIN_EMAIL,
           orderId: order.id,
@@ -598,28 +587,21 @@ export function CheckoutSheet({
           customerEmail: data.email || undefined,
           totalAmount: grandTotal,
           orderType: data.orderType,
-          deliveryAddress,
-        });
+          deliveryAddress: data.orderType === "delivery" ? `${data.streetAddress}, ${barangay}, ${data.city}` : undefined,
+        }).catch(e => console.error("Admin email failed:", e)),
+        
+        data.email ? sendEmailNotification({
+          type: "new_order",
+          recipientEmail: data.email,
+          orderId: order.id,
+          orderNumber: order.order_number,
+          customerName: data.name,
+          totalAmount: grandTotal,
+          orderType: data.orderType,
+          deliveryAddress: data.orderType === "delivery" ? `${data.streetAddress}, ${barangay}, ${data.city}` : undefined,
+        }).catch(e => console.error("Customer email failed:", e)) : Promise.resolve(),
+      ]);
 
-        // Email customer confirmation (if email provided)
-        if (data.email) {
-          await sendEmailNotification({
-            type: "new_order",
-            recipientEmail: data.email,
-            orderId: order.id,
-            orderNumber: order.order_number,
-            customerName: data.name,
-            totalAmount: grandTotal,
-            orderType: data.orderType,
-            deliveryAddress,
-          });
-        }
-      } catch (e) {
-        console.error("Failed to send email notification:", e);
-      }
-      toast.success("Order placed successfully!");
-      // Navigate to thank you page
-      window.location.href = `/thank-you/${order.id}`;
       form.reset();
       clearPaymentProof();
       setDeliveryFee(null);
