@@ -124,27 +124,25 @@ export function BundleWizard({
     return selections[currentStep] !== undefined;
   }, [isMultiSlotStep, selectedPcs, totalUnits, selections, currentStep]);
 
-  // Calculate total surcharge - PER SLOT that uses a special flavor
+  // Calculate total surcharge - PER DISTINCT SPECIAL FLAVOR USED
+  // Rule: ₱40 per distinct special flavor, regardless of how many pieces/slots it covers
   const totalSurcharge = useMemo(() => {
     return Object.entries(selections).reduce((sum, [stepIdx, stepData]) => {
-      const component = bundleComponents?.[Number(stepIdx)];
-      const stepUnitsPerSlot = component?.units_per_flavor || 3;
-      
       if (typeof stepData === 'string') {
         // Single selection (drinks, fries)
         const flavor = flavors.find((f) => f.id === stepData);
         return sum + (flavor?.surcharge || 0);
       } else {
-        // Multi-slot selection (wings) - charge per slot that uses special flavor
+        // Multi-slot selection (wings) - charge ONCE per distinct special flavor
         return sum + Object.entries(stepData).reduce((stepSum, [flavorId, qty]) => {
           if (qty <= 0) return stepSum;
           const flavor = flavors.find((f) => f.id === flavorId);
-          const slotsUsed = qty / stepUnitsPerSlot;
-          return stepSum + ((flavor?.surcharge || 0) * slotsUsed);
+          // Charge ONCE per distinct flavor (not per slot)
+          return stepSum + (flavor?.surcharge || 0);
         }, 0);
       }
     }, 0);
-  }, [selections, flavors, bundleComponents]);
+  }, [selections, flavors]);
 
   // Handle single flavor selection (for drinks, fries)
   const handleFlavorSelect = (flavorId: string, isAvailable: boolean) => {
@@ -189,7 +187,6 @@ export function BundleWizard({
   const handleConfirm = () => {
     const selectedFlavors = Object.entries(selections).flatMap(([stepIdx, stepData]) => {
       const component = bundleComponents?.[Number(stepIdx)];
-      const stepUnitsPerSlot = component?.units_per_flavor || 3;
       
       if (typeof stepData === 'string') {
         // Single selection (drinks, fries)
@@ -201,17 +198,16 @@ export function BundleWizard({
           surcharge: flavor.surcharge || 0,
         }];
       } else {
-        // Multi-slot selection (wings) - charge per slot
+        // Multi-slot selection (wings) - charge ONCE per distinct special flavor
         return Object.entries(stepData)
           .filter(([_, qty]) => qty > 0)
           .map(([flavorId, qty]) => {
             const flavor = flavors.find((f) => f.id === flavorId)!;
-            const slotsUsed = qty / stepUnitsPerSlot;
             return {
               id: flavorId,
               name: flavor.name,
               quantity: qty,
-              surcharge: (flavor.surcharge || 0) * slotsUsed,
+              surcharge: flavor.surcharge || 0, // one-time per distinct flavor
             };
           });
       }
@@ -340,7 +336,7 @@ export function BundleWizard({
                             {!isUnavailable && (
                               flavor.surcharge && flavor.surcharge > 0 ? (
                                 <p className="text-xs text-accent">
-                                  +₱{flavor.surcharge.toFixed(2)} per {unitsPerSlot} pcs
+                                  +₱{flavor.surcharge.toFixed(2)} per special flavor
                                 </p>
                               ) : (
                                 <p className="text-xs flex items-center gap-1">
