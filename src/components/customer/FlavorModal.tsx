@@ -72,18 +72,17 @@ export function FlavorModal({
   // Validate selection
   const isValid = selectedCount === totalUnits && flavorCount >= minFlavors;
 
-  // Calculate surcharge - PER SPECIAL FLAVOR SLOT USED
-  // Rule: ₱40 per 3-piece slot that uses a special flavor
-  // Example: 6 pcs all special = 2 slots = ₱80, 6 pcs 1 slot special = ₱40
+  // Calculate surcharge - PER DISTINCT SPECIAL FLAVOR USED
+  // Rule: ₱40 per distinct special flavor, regardless of how many pieces it covers
+  // Example: 6 pcs all same special = ₱40, 6 pcs 2 different special = ₱80
   const totalSurcharge = useMemo(() => {
     return Object.entries(selectedFlavors).reduce((sum, [flavorId, qty]) => {
       if (qty <= 0) return sum;
       const flavor = flavors.find((f) => f.id === flavorId);
-      // Charge per SLOT that uses a special flavor
-      const slotsUsed = qty / unitsPerFlavor;
-      return sum + ((flavor?.surcharge || 0) * slotsUsed);
+      // Charge ONCE per distinct special flavor (not per slot)
+      return sum + (flavor?.surcharge || 0);
     }, 0);
-  }, [selectedFlavors, flavors, unitsPerFlavor]);
+  }, [selectedFlavors, flavors]);
 
   // Filter to only wing flavors for Ala Carte products (include unavailable ones for display)
   const availableFlavors = useMemo(() => {
@@ -119,13 +118,12 @@ export function FlavorModal({
       .filter(([_, qty]) => qty > 0)
       .map(([flavorId, qty]) => {
         const flavor = flavors.find((f) => f.id === flavorId)!;
-        // Surcharge is charged per SLOT that uses this flavor
-        const slotsUsed = qty / unitsPerFlavor;
+        // Surcharge is charged ONCE per distinct special flavor
         return {
           id: flavorId,
           name: flavor.name,
           quantity: qty, // pieces selected with this flavor
-          surcharge: (flavor.surcharge || 0) * slotsUsed, // surcharge × slots used
+          surcharge: flavor.surcharge || 0, // one-time surcharge per distinct flavor
         };
       });
 
@@ -193,7 +191,7 @@ export function FlavorModal({
                     {!isOutOfStock && (
                       flavor.surcharge && flavor.surcharge > 0 ? (
                         <p className="text-xs text-accent">
-                          +₱{flavor.surcharge.toFixed(2)} per {unitsPerFlavor} pcs
+                          +₱{flavor.surcharge.toFixed(2)} per special flavor
                         </p>
                       ) : (
                         <p className="text-xs flex items-center gap-1">
