@@ -52,9 +52,24 @@ export function Cart({ items, onUpdateQuantity, onRemove, onCheckout, total }: C
 
                 {/* Flavors */}
                 {item.flavors && item.flavors.length > 0 && (
-                  <p className="text-xs text-muted-foreground line-clamp-1">
-                    {item.flavors.map((f) => `${f.name} (${f.quantity} pcs)`).join(", ")}
-                  </p>
+                  <div className="mt-1 space-y-0.5">
+                    {item.flavors.map((flavor, idx) => (
+                      <div key={idx} className="flex justify-between text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <span className="text-muted-foreground/70">•</span>
+                          <span>{flavor.name}</span>
+                          <span className="text-muted-foreground/60">
+                            {flavor.surcharge > 0 
+                              ? `(Special flavor for ${flavor.quantity} pcs)` 
+                              : `(Free flavor for ${flavor.quantity} pcs)`}
+                          </span>
+                        </span>
+                        {flavor.surcharge > 0 && (
+                          <span className="text-primary shrink-0 ml-1">+₱{flavor.surcharge.toFixed(2)}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 )}
 
                 {/* Price */}
