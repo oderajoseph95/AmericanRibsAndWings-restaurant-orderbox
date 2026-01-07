@@ -8,7 +8,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, ShoppingCart } from "lucide-react";
+import { ArrowLeft, ShoppingCart, Filter } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProductCard } from "@/components/customer/ProductCard";
 import { Cart } from "@/components/customer/Cart";
@@ -322,19 +322,22 @@ const Order = () => {
         </div>
 
         {/* Category selector - Mobile dropdown */}
-        <div className="sm:hidden border-t border-border px-4 py-3 space-y-2">
-          <label className="text-sm font-medium text-muted-foreground">
-            Filter by Category
-          </label>
+        <div className="sm:hidden border-t border-border px-4 py-3">
+          <div className="flex items-center gap-2 mb-2">
+            <Filter className="h-4 w-4 text-primary" />
+            <label className="text-sm font-bold text-foreground">
+              Filter by Category
+            </label>
+          </div>
           <Select 
             value={activeCategory} 
             onValueChange={(v) => setSearchParams({ category: v })}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="w-full bg-primary/5 border-primary/30 ring-2 ring-primary/20 animate-[pulse_2s_ease-in-out_3] font-medium">
               <SelectValue placeholder="Select Category" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="all">All Categories</SelectItem>
               {categories?.map((cat) => (
                 <SelectItem key={cat.id} value={cat.name.toLowerCase()}>
                   {cat.name}
