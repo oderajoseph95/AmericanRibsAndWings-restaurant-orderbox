@@ -1131,10 +1131,10 @@ export function CheckoutSheet({
                             {item.flavors.map((flavor, idx) => (
                               <div key={idx} className="flex justify-between text-xs text-muted-foreground">
                                 <span>
-                                  • {flavor.name} {flavor.quantity > 1 && `(${flavor.quantity}x)`}
+                                  • {flavor.name} {flavor.surcharge > 0 ? `(Special flavor for ${flavor.quantity} wings)` : `(Free flavor for ${flavor.quantity} wings)`}
                                 </span>
                                 {flavor.surcharge > 0 && (
-                                  <span className="text-primary">+₱{(flavor.surcharge * flavor.quantity).toFixed(2)}</span>
+                                  <span className="text-primary">+₱{flavor.surcharge.toFixed(2)}</span>
                                 )}
                               </div>
                             ))}

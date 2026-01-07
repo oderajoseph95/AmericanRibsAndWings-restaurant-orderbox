@@ -1262,9 +1262,11 @@ export default function Orders() {
                           <div className="pl-4 text-xs text-muted-foreground">
                             {item.order_item_flavors.map((f, idx) => (
                               <div key={idx} className="flex justify-between">
-                                <span>{f.quantity}x {f.flavor_name}</span>
+                                <span>
+                                  {f.flavor_name} {f.surcharge_applied && f.surcharge_applied > 0 ? `(Special flavor for ${f.quantity} wings)` : `(Free flavor for ${f.quantity} wings)`}
+                                </span>
                                 {f.surcharge_applied && f.surcharge_applied > 0 && (
-                                  <span>+₱{(f.surcharge_applied * (f.quantity || 1)).toFixed(2)}</span>
+                                  <span>+₱{f.surcharge_applied.toFixed(2)}</span>
                                 )}
                               </div>
                             ))}
