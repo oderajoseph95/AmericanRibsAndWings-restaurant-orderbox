@@ -853,10 +853,10 @@ export default function ThankYou() {
                     {item.flavors.map((flavor, idx) => (
                       <div key={idx} className="flex justify-between">
                         <span>
-                          - {flavor.flavor_name} {flavor.quantity > 1 && `(${flavor.quantity}x)`}
+                          - {flavor.flavor_name} {flavor.surcharge_applied > 0 ? `(Special flavor for ${flavor.quantity} wings)` : `(Free flavor for ${flavor.quantity} wings)`}
                         </span>
                         {flavor.surcharge_applied > 0 && (
-                          <span>+₱{(flavor.surcharge_applied * flavor.quantity).toFixed(2)}</span>
+                          <span>+₱{flavor.surcharge_applied.toFixed(2)}</span>
                         )}
                       </div>
                     ))}
