@@ -3,13 +3,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const SEMAPHORE_API_KEY = Deno.env.get("SEMAPHORE_API_KEY");
 const SEMAPHORE_API_URL = "https://api.semaphore.co/api/v4/messages";
-// Removed custom sender name - use Semaphore's default to avoid "invalid senderName" errors
-
-// Admin backup numbers - ALWAYS receive copies of all SMS
-const ADMIN_BACKUP_NUMBERS = [
-  "+639214080286",
-  "+639569669710"
-];
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -253,15 +246,52 @@ serve(async (req: Request): Promise<Response> => {
       message = getDefaultMessage(payload.type, payload);
     }
     
-    // Build recipient list: customer + admin backups
-    const recipients: string[] = [...ADMIN_BACKUP_NUMBERS];
+    // Fetch admin backup settings
+    let adminBackupEnabled = false;
+    let adminBackupNumbers: string[] = [];
+    
+    try {
+      const { data: backupEnabledSetting } = await supabase
+        .from("settings")
+        .select("value")
+        .eq("key", "sms_admin_backup_enabled")
+        .maybeSingle();
+      
+      const { data: backupNumbersSetting } = await supabase
+        .from("settings")
+        .select("value")
+        .eq("key", "sms_admin_backup_numbers")
+        .maybeSingle();
+      
+      adminBackupEnabled = backupEnabledSetting?.value === true || backupEnabledSetting?.value === "true";
+      if (backupNumbersSetting?.value && Array.isArray(backupNumbersSetting.value)) {
+        adminBackupNumbers = backupNumbersSetting.value as string[];
+      }
+    } catch (error) {
+      console.error("Error fetching admin backup settings:", error);
+    }
+    
+    // Build recipient list
+    const recipients: string[] = [];
     if (payload.recipientPhone) {
-      // Add customer phone at the beginning
-      recipients.unshift(payload.recipientPhone);
+      recipients.push(payload.recipientPhone);
+    }
+    
+    // Add admin backup numbers only if enabled
+    if (adminBackupEnabled && adminBackupNumbers.length > 0) {
+      recipients.push(...adminBackupNumbers);
     }
     
     // Remove duplicates
-    const uniqueRecipients = [...new Set(recipients.map(r => formatPhilippineNumber(r)))];
+    const uniqueRecipients = [...new Set(recipients.map(r => formatPhilippineNumber(r)))].filter(Boolean);
+    
+    if (uniqueRecipients.length === 0) {
+      console.log("No recipients to send SMS to");
+      return new Response(
+        JSON.stringify({ success: true, skipped: true, reason: "no_recipients" }),
+        { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
     
     console.log(`Sending SMS to ${uniqueRecipients.length} recipients for type: ${payload.type}`);
     

@@ -54,6 +54,7 @@ const navItems = [
   { title: 'Payouts', url: '/admin/payouts', icon: Wallet, roles: ['owner', 'manager'] },
   { title: 'Reports', url: '/admin/reports', icon: BarChart3, roles: ['owner', 'manager'] },
   { title: 'Website', url: '/admin/website', icon: Globe, roles: ['owner', 'manager'] },
+  { title: 'Sitemap', url: '/admin/sitemap', icon: Globe, roles: ['owner', 'manager'] },
   { title: 'Email Templates', url: '/admin/email-templates', icon: Mail, roles: ['owner', 'manager'] },
   { title: 'SMS', url: '/admin/sms', icon: MessageSquare, roles: ['owner', 'manager'] },
   { title: 'Users', url: '/admin/users', icon: UserCog, roles: ['owner'] },
