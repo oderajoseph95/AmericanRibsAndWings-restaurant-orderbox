@@ -29,40 +29,94 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Look up user_id from user_roles by username
-    const { data: roleData, error: roleError } = await adminClient
-      .from("user_roles")
-      .select("user_id, role")
-      .eq("username", username.toLowerCase().trim())
-      .maybeSingle();
+    const loginInput = username.trim().toLowerCase();
+    const isEmail = loginInput.includes('@');
 
-    if (roleError) {
-      console.error("Error looking up username:", roleError);
-      return new Response(
-        JSON.stringify({ error: "Invalid username or password" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    let email: string;
+    let roleData: { user_id: string; role: string } | null = null;
+
+    if (isEmail) {
+      // Email login - only allowed for Super Owners
+      const { data: listData, error: listError } = await adminClient.auth.admin.listUsers();
+      
+      if (listError) {
+        console.error("Error listing users:", listError);
+        return new Response(
+          JSON.stringify({ error: "Invalid email or password" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const foundUser = listData?.users?.find(u => u.email?.toLowerCase() === loginInput);
+      
+      if (!foundUser) {
+        return new Response(
+          JSON.stringify({ error: "Invalid email or password" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Check if user is a super owner (only super owners can login via email)
+      const { data: roleCheck, error: roleCheckError } = await adminClient
+        .from("user_roles")
+        .select("user_id, role, is_super_owner")
+        .eq("user_id", foundUser.id)
+        .maybeSingle();
+
+      if (roleCheckError || !roleCheck) {
+        console.error("Error checking role:", roleCheckError);
+        return new Response(
+          JSON.stringify({ error: "Invalid email or password" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (!roleCheck.is_super_owner) {
+        return new Response(
+          JSON.stringify({ error: "Email login is only available for Super Owners. Please use your username instead." }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      email = foundUser.email!;
+      roleData = { user_id: roleCheck.user_id, role: roleCheck.role };
+    } else {
+      // Username login - existing logic for all admin roles
+      const { data: usernameRoleData, error: roleError } = await adminClient
+        .from("user_roles")
+        .select("user_id, role")
+        .eq("username", loginInput)
+        .maybeSingle();
+
+      if (roleError) {
+        console.error("Error looking up username:", roleError);
+        return new Response(
+          JSON.stringify({ error: "Invalid username or password" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (!usernameRoleData) {
+        return new Response(
+          JSON.stringify({ error: "Invalid username or password" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Get email from auth.users using admin API
+      const { data: userData, error: userError } = await adminClient.auth.admin.getUserById(usernameRoleData.user_id);
+
+      if (userError || !userData?.user?.email) {
+        console.error("Error fetching user email:", userError);
+        return new Response(
+          JSON.stringify({ error: "Invalid username or password" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      email = userData.user.email;
+      roleData = usernameRoleData;
     }
-
-    if (!roleData) {
-      return new Response(
-        JSON.stringify({ error: "Invalid username or password" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Get email from auth.users using admin API
-    const { data: userData, error: userError } = await adminClient.auth.admin.getUserById(roleData.user_id);
-
-    if (userError || !userData?.user?.email) {
-      console.error("Error fetching user email:", userError);
-      return new Response(
-        JSON.stringify({ error: "Invalid username or password" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const email = userData.user.email;
 
     // Now authenticate with email and password using a regular client
     const authClient = createClient(supabaseUrl, supabaseAnonKey);
