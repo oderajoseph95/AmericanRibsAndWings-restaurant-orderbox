@@ -70,20 +70,56 @@ const Order = () => {
     setSalesPopCheckoutOpen(isCheckoutOpen);
   }, [isCheckoutOpen, setSalesPopCheckoutOpen]);
 
-  // Handle recovery URL - restore abandoned cart
+  // Handle recovery URL - restore abandoned cart (enterprise-grade)
   useEffect(() => {
     if (recoverId && !isRecoveryMode) {
       const recoverCart = async () => {
         try {
+          // Fetch the abandoned checkout - allow abandoned OR recovering status
           const { data: checkout, error } = await supabase
             .from("abandoned_checkouts")
             .select("*")
             .eq("id", recoverId)
-            .single();
+            .maybeSingle();
 
-          if (error || !checkout) {
+          if (error) {
             console.error("Failed to recover cart:", error);
-            toast.error("Could not recover your cart");
+            toast.error("Could not recover your cart. Please try again.");
+            return;
+          }
+
+          // Handle various edge cases with helpful messages
+          if (!checkout) {
+            toast.error("This recovery link has expired or is invalid.", {
+              description: "Please contact us if you need help with your order.",
+            });
+            return;
+          }
+
+          // Check if already recovered
+          if (checkout.status === "recovered") {
+            toast.info("Great news! This cart was already completed. 🎉", {
+              description: "Check your order history or contact us for details.",
+            });
+            return;
+          }
+
+          // Check if expired
+          if (checkout.status === "expired") {
+            toast.error("This recovery link has expired.", {
+              description: "Your cart session has ended. Please add items again.",
+            });
+            return;
+          }
+
+          // Check if cart is too old (72 hours)
+          const createdAt = new Date(checkout.created_at || 0);
+          const now = new Date();
+          const hoursSinceCreated = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
+          if (hoursSinceCreated > 72) {
+            toast.error("This recovery link has expired.", {
+              description: "Cart sessions are valid for 72 hours. Please add items again.",
+            });
             return;
           }
 
@@ -92,55 +128,66 @@ const Order = () => {
             await supabase.from("abandoned_checkout_events").insert({
               abandoned_checkout_id: recoverId,
               event_type: "link_clicked",
-              metadata: { user_agent: navigator.userAgent }
+              metadata: { user_agent: navigator.userAgent, browser: navigator.platform }
             });
           } catch (e) {
             console.error("Failed to track link click:", e);
           }
 
-          // Restore cart items
-          if (checkout.cart_items && Array.isArray(checkout.cart_items) && checkout.cart_items.length > 0) {
-            // Map abandoned cart items to proper cart format
-            const recoveredItems = checkout.cart_items.map((item: any) => ({
-              id: crypto.randomUUID(),
-              product: item.product || item,
-              quantity: item.quantity || 1,
-              flavors: item.flavors || [],
-              lineTotal: item.lineTotal || item.product?.price * (item.quantity || 1) || 0,
-            }));
-
-            setCart(recoveredItems);
-            setIsRecoveryMode(true);
-
-            toast.success("Welcome back! 🎉", {
-              description: "We've restored your cart. Ready to complete your order?",
-              duration: 5000,
-              action: {
-                label: "Checkout",
-                onClick: () => setIsCheckoutOpen(true),
-              },
-            });
-
-            // Track cart restored event
-            try {
-              await supabase.from("abandoned_checkout_events").insert({
-                abandoned_checkout_id: recoverId,
-                event_type: "cart_restored",
-                metadata: { items_count: recoveredItems.length }
-              });
-            } catch (e) {
-              console.error("Failed to track cart restore:", e);
-            }
-
-            // Update recovery_started_at but DO NOT mark as recovered yet
-            // Will only mark as recovered when order is actually placed
-            await supabase
-              .from("abandoned_checkouts")
-              .update({ 
-                recovery_started_at: new Date().toISOString()
-              })
-              .eq("id", recoverId);
+          // Validate and parse cart_items
+          let cartItems = checkout.cart_items;
+          if (typeof cartItems === 'string') {
+            try { cartItems = JSON.parse(cartItems); } catch { cartItems = []; }
           }
+          
+          if (!Array.isArray(cartItems) || cartItems.length === 0) {
+            toast.error("Your saved cart is empty.", {
+              description: "Please add items to your cart to continue.",
+            });
+            return;
+          }
+
+          // Map abandoned cart items to proper cart format
+          const recoveredItems = cartItems.map((item: any) => ({
+            id: crypto.randomUUID(),
+            product: item.product || item,
+            quantity: item.quantity || 1,
+            flavors: item.flavors || [],
+            lineTotal: item.lineTotal || (item.product?.price || 0) * (item.quantity || 1),
+          }));
+
+          setCart(recoveredItems);
+          setIsRecoveryMode(true);
+
+          toast.success("Welcome back! 🎉", {
+            description: "We've restored your cart. Ready to complete your order?",
+            duration: 5000,
+            action: {
+              label: "Checkout",
+              onClick: () => setIsCheckoutOpen(true),
+            },
+          });
+
+          // Track cart restored event
+          try {
+            await supabase.from("abandoned_checkout_events").insert({
+              abandoned_checkout_id: recoverId,
+              event_type: "cart_restored",
+              metadata: { items_count: recoveredItems.length, cart_total: checkout.cart_total }
+            });
+          } catch (e) {
+            console.error("Failed to track cart restore:", e);
+          }
+
+          // Update to recovering status - DO NOT mark as recovered yet
+          // Will only mark as recovered when order is actually placed
+          await supabase
+            .from("abandoned_checkouts")
+            .update({ 
+              status: "recovering",
+              recovery_started_at: new Date().toISOString()
+            })
+            .eq("id", recoverId);
 
           // Clear recover param from URL
           const newParams = new URLSearchParams(searchParams);
@@ -151,6 +198,7 @@ const Order = () => {
           setSearchParams(newParams, { replace: true });
         } catch (err) {
           console.error("Recovery error:", err);
+          toast.error("Something went wrong. Please try again or contact support.");
         }
       };
 
@@ -503,7 +551,8 @@ const Order = () => {
                 onClearCart={clearCart}
                 onCheckout={() => {
                   setIsCartOpen(false);
-                  setIsCheckoutOpen(true);
+                  // Small delay to allow cart drawer to close before checkout opens
+                  setTimeout(() => setIsCheckoutOpen(true), 100);
                 }}
                 onClose={() => setIsCartOpen(false)}
                 total={cartTotal}

@@ -175,7 +175,11 @@ export default function Dashboard() {
       const recovered = data?.filter(c => c.status === 'recovered') || [];
       const expired = data?.filter(c => c.status === 'expired') || [];
       
-      const potentialRevenue = abandoned.reduce((sum, c) => sum + (c.cart_total || 0), 0);
+      // At-risk value = abandoned + recovering (carts not yet completed)
+      const atRiskCarts = [...abandoned, ...recovering];
+      const atRiskValue = atRiskCarts.reduce((sum, c) => sum + (c.cart_total || 0), 0);
+      const abandonedValue = abandoned.reduce((sum, c) => sum + (c.cart_total || 0), 0);
+      const recoveringValue = recovering.reduce((sum, c) => sum + (c.cart_total || 0), 0);
       const recoveredRevenue = recovered.reduce((sum, c) => sum + (c.cart_total || 0), 0);
       const totalAttempted = recovering.length + recovered.length + expired.length;
       const recoveryRate = totalAttempted > 0 ? (recovered.length / totalAttempted * 100) : 0;
@@ -185,7 +189,9 @@ export default function Dashboard() {
         recoveringCount: recovering.length,
         recoveredCount: recovered.length,
         expiredCount: expired.length,
-        potentialRevenue,
+        atRiskValue, // Combined abandoned + recovering value
+        abandonedValue,
+        recoveringValue,
         recoveredRevenue,
         recoveryRate,
       };
@@ -470,36 +476,26 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
+        {/* At-Risk Value Card - Shows combined abandoned + recovering */}
         <Card className="border-orange-500/20 bg-orange-500/5">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Abandoned Value</CardTitle>
+            <CardTitle className="text-sm font-medium">At Risk Value</CardTitle>
             <ShoppingBag className="h-4 w-4 text-orange-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-600">₱{(abandonedCartsStats?.potentialRevenue || 0).toLocaleString('en-PH')}</div>
+            <div className="text-2xl font-bold text-orange-600">₱{(abandonedCartsStats?.atRiskValue || 0).toLocaleString('en-PH')}</div>
             <p className="text-xs text-muted-foreground">
-              {abandonedCartsStats?.abandonedCount || 0} abandoned carts
+              {(abandonedCartsStats?.abandonedCount || 0) + (abandonedCartsStats?.recoveringCount || 0)} carts at risk
             </p>
+            {(abandonedCartsStats?.recoveringCount || 0) > 0 && (
+              <Link to="/admin/abandoned-checkouts" className="text-xs text-orange-600 hover:underline mt-1 inline-flex items-center gap-1">
+                <RotateCcw className="h-3 w-3 animate-spin" style={{ animationDuration: '3s' }} />
+                {abandonedCartsStats?.recoveringCount} in recovery
+              </Link>
+            )}
           </CardContent>
         </Card>
       </div>
-
-      {/* Recovery Queue Card - Always show if there are carts in recovery */}
-      {(abandonedCartsStats?.recoveringCount || 0) > 0 && (
-        <Card className="border-blue-500/20 bg-blue-500/5">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">In Recovery Queue</CardTitle>
-            <RotateCcw className="h-4 w-4 text-blue-500 animate-spin" style={{ animationDuration: '3s' }} />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{abandonedCartsStats?.recoveringCount || 0}</div>
-            <p className="text-xs text-muted-foreground">Reminders being sent</p>
-            <Link to="/admin/abandoned-checkouts" className="text-xs text-blue-600 hover:underline mt-1 inline-block">
-              View queue →
-            </Link>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Cart Recovery Stats - only show if there's activity */}
       {((abandonedCartsStats?.recoveredCount || 0) + (abandonedCartsStats?.expiredCount || 0)) > 0 && (
@@ -769,7 +765,7 @@ export default function Dashboard() {
                     {abandonedCartsStats?.abandonedCount} abandoned cart{(abandonedCartsStats?.abandonedCount || 0) > 1 ? 's' : ''}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    ₱{(abandonedCartsStats?.potentialRevenue || 0).toLocaleString('en-PH')} potential revenue
+                    ₱{(abandonedCartsStats?.atRiskValue || 0).toLocaleString('en-PH')} at risk
                   </p>
                 </div>
                 <Link to="/admin/abandoned-checkouts">
