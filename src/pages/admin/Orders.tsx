@@ -1508,7 +1508,28 @@ export default function Orders() {
 
                 {/* Order Photos */}
                 <div className="space-y-2">
-                  <h4 className="font-medium">Order Photos</h4>
+                  <h4 className="font-medium flex items-center gap-2">
+                    Order Photos
+                    {/* Show warning badges for missing photos on delivery orders */}
+                    {selectedOrder.order_type === 'delivery' && (
+                      <>
+                        {['picked_up', 'in_transit', 'delivered', 'completed'].includes(selectedOrder.status || '') && 
+                         !deliveryPhotos.some(p => p.photo_type === 'pickup') && (
+                          <Badge variant="outline" className="bg-yellow-500/20 text-yellow-700 border-yellow-500/30 text-xs">
+                            <AlertTriangle className="h-3 w-3 mr-1" />
+                            Missing Pickup Photo
+                          </Badge>
+                        )}
+                        {['delivered', 'completed'].includes(selectedOrder.status || '') && 
+                         !deliveryPhotos.some(p => p.photo_type === 'delivery') && (
+                          <Badge variant="outline" className="bg-red-500/20 text-red-700 border-red-500/30 text-xs">
+                            <AlertTriangle className="h-3 w-3 mr-1" />
+                            Missing Delivery Photo
+                          </Badge>
+                        )}
+                      </>
+                    )}
+                  </h4>
                   
                   {/* Hidden file input for admin photo upload */}
                   <input
@@ -1559,7 +1580,16 @@ export default function Orders() {
                       ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-muted-foreground">No photos uploaded yet</p>
+                    <div className="text-sm text-muted-foreground space-y-1">
+                      <p>No photos uploaded yet</p>
+                      {selectedOrder.order_type === 'delivery' && 
+                       ['waiting_for_rider', 'picked_up', 'in_transit', 'delivered', 'completed'].includes(selectedOrder.status || '') && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3" />
+                          Driver should upload pickup & delivery photos
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
 
