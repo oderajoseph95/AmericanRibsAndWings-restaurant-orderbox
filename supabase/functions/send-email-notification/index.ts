@@ -1004,8 +1004,32 @@ const handler = async (req: Request): Promise<Response> => {
     
     console.log(`Sending to ${allAdminRecipients.size} admin recipients`);
 
-    const adminSubject = getAdminNotificationSubject(type, orderNumber, payload);
-    const adminHtml = getAdminNotificationTemplate(type, payload);
+    // Try to fetch admin template from database first
+    const adminTemplateType = `${type}_admin`;
+    let adminSubject: string;
+    let adminHtml: string;
+
+    try {
+      const { data: adminTemplate, error: adminTemplateError } = await supabase
+        .from('email_templates')
+        .select('subject, content, is_active')
+        .eq('type', adminTemplateType)
+        .single();
+
+      if (!adminTemplateError && adminTemplate && adminTemplate.is_active) {
+        console.log(`Using database admin template for ${adminTemplateType}`);
+        adminSubject = replaceVariables(adminTemplate.subject, payload);
+        adminHtml = wrapWithEmailLayout(replaceVariables(adminTemplate.content, payload));
+      } else {
+        console.log(`Using default admin template for ${type}`);
+        adminSubject = getAdminNotificationSubject(type, orderNumber, payload);
+        adminHtml = getAdminNotificationTemplate(type, payload);
+      }
+    } catch (adminDbError) {
+      console.error("Admin template fetch error:", adminDbError);
+      adminSubject = getAdminNotificationSubject(type, orderNumber, payload);
+      adminHtml = getAdminNotificationTemplate(type, payload);
+    }
 
     let adminEmailsSent = 0;
     for (const adminEmail of allAdminRecipients) {
@@ -1035,24 +1059,27 @@ const handler = async (req: Request): Promise<Response> => {
         let subject: string;
         let html: string;
 
+        // Look for customer-specific template with _customer suffix
+        const customerTemplateType = `${type}_customer`;
+        
         try {
           const { data: template, error } = await supabase
             .from('email_templates')
             .select('subject, content, is_active')
-            .eq('type', type)
+            .eq('type', customerTemplateType)
             .single();
 
           if (!error && template && template.is_active) {
-            console.log(`Using database template for ${type}`);
+            console.log(`Using database customer template for ${customerTemplateType}`);
             subject = replaceVariables(template.subject, payload);
             html = wrapWithEmailLayout(replaceVariables(template.content, payload));
           } else {
-            console.log(`Using default template for ${type}`);
+            console.log(`Using default template for ${type} (no customer template found)`);
             subject = getDefaultSubject(type, orderNumber);
             html = getDefaultTemplate(payload);
           }
         } catch (dbError) {
-          console.error("Template fetch error:", dbError);
+          console.error("Customer template fetch error:", dbError);
           subject = getDefaultSubject(type, orderNumber);
           html = getDefaultTemplate(payload);
         }

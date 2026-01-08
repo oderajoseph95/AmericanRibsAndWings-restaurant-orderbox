@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -14,7 +14,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Mail, Loader2, Edit, Eye, Copy, RefreshCw, Info, History, CheckCircle, XCircle, AlertCircle, Clock, MessageSquare } from 'lucide-react';
+import { Mail, Loader2, Edit, Eye, Copy, RefreshCw, Info, History, CheckCircle, XCircle, AlertCircle, Clock, MessageSquare, Users, ShieldCheck, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import { format } from 'date-fns';
 
 type EmailTemplate = {
@@ -95,6 +95,8 @@ const conditionalHelp = [
   { syntax: '{{#if driver_name}}...{{/if}}', description: 'Show driver info only when assigned' },
 ];
 
+const ITEMS_PER_PAGE = 10;
+
 export default function EmailTemplates() {
   const queryClient = useQueryClient();
   const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
@@ -105,6 +107,10 @@ export default function EmailTemplates() {
   const [showPreview, setShowPreview] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('templates');
+  const [emailSubTab, setEmailSubTab] = useState<'customer' | 'admin'>('customer');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [logsPage, setLogsPage] = useState(1);
 
   const { data: templates = [], isLoading } = useQuery({
     queryKey: ['email-templates'],
@@ -117,6 +123,43 @@ export default function EmailTemplates() {
       return data as EmailTemplate[];
     },
   });
+
+  // Separate customer and admin templates
+  const { customerTemplates, adminTemplates } = useMemo(() => {
+    const customer = templates.filter(t => t.type.endsWith('_customer'));
+    const admin = templates.filter(t => t.type.endsWith('_admin'));
+    return { customerTemplates: customer, adminTemplates: admin };
+  }, [templates]);
+
+  // Filter and paginate templates
+  const filteredTemplates = useMemo(() => {
+    const sourceTemplates = emailSubTab === 'customer' ? customerTemplates : adminTemplates;
+    if (!searchQuery.trim()) return sourceTemplates;
+    const query = searchQuery.toLowerCase();
+    return sourceTemplates.filter(t => 
+      t.name.toLowerCase().includes(query) || 
+      t.type.toLowerCase().includes(query) ||
+      t.subject.toLowerCase().includes(query)
+    );
+  }, [emailSubTab, customerTemplates, adminTemplates, searchQuery]);
+
+  const paginatedTemplates = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredTemplates.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredTemplates, currentPage]);
+
+  const totalPages = Math.ceil(filteredTemplates.length / ITEMS_PER_PAGE);
+
+  // Reset page when switching tabs or searching
+  const handleSubTabChange = (tab: 'customer' | 'admin') => {
+    setEmailSubTab(tab);
+    setCurrentPage(1);
+  };
+
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    setCurrentPage(1);
+  };
 
   // Fetch SMS templates
   const { data: smsTemplates = [], isLoading: isLoadingSms } = useQuery({
@@ -144,6 +187,14 @@ export default function EmailTemplates() {
       return data as EmailLog[];
     },
   });
+
+  // Paginate logs
+  const paginatedLogs = useMemo(() => {
+    const start = (logsPage - 1) * ITEMS_PER_PAGE;
+    return emailLogs.slice(start, start + ITEMS_PER_PAGE);
+  }, [emailLogs, logsPage]);
+
+  const totalLogsPages = Math.ceil(emailLogs.length / ITEMS_PER_PAGE);
 
   // Fetch SMS logs
   const { data: smsLogs = [], isLoading: isLoadingSmsLogs, refetch: refetchSmsLogs } = useQuery({
@@ -300,6 +351,8 @@ export default function EmailTemplates() {
   };
 
   const getEmailTypeLabel = (type: string) => {
+    // Remove _customer or _admin suffix for display
+    const baseType = type.replace(/_customer$/, '').replace(/_admin$/, '');
     const labels: Record<string, { label: string; color: string }> = {
       new_order: { label: 'New Order', color: 'bg-blue-500/20 text-blue-700' },
       order_pending: { label: 'Pending', color: 'bg-yellow-500/20 text-yellow-700' },
@@ -320,7 +373,7 @@ export default function EmailTemplates() {
       payout_approved: { label: 'Payout', color: 'bg-green-500/20 text-green-700' },
       payout_rejected: { label: 'Payout', color: 'bg-red-500/20 text-red-700' },
     };
-    return labels[type] || { label: type, color: 'bg-muted' };
+    return labels[baseType] || { label: baseType, color: 'bg-muted' };
   };
 
   const getStatusIcon = (status: string) => {
@@ -352,6 +405,38 @@ export default function EmailTemplates() {
     return colors[status] || 'bg-muted text-muted-foreground';
   };
 
+  // Pagination component
+  const Pagination = ({ current, total, onChange }: { current: number; total: number; onChange: (page: number) => void }) => {
+    if (total <= 1) return null;
+    return (
+      <div className="flex items-center justify-between px-2 py-4 border-t">
+        <p className="text-sm text-muted-foreground">
+          Page {current} of {total}
+        </p>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onChange(current - 1)}
+            disabled={current <= 1}
+          >
+            <ChevronLeft className="h-4 w-4 mr-1" />
+            Previous
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onChange(current + 1)}
+            disabled={current >= total}
+          >
+            Next
+            <ChevronRight className="h-4 w-4 ml-1" />
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
@@ -370,6 +455,7 @@ export default function EmailTemplates() {
           <TabsTrigger value="templates" className="gap-2">
             <Mail className="h-4 w-4" />
             Email
+            <Badge variant="secondary" className="ml-1 text-xs">{templates.length}</Badge>
           </TabsTrigger>
           <TabsTrigger value="sms" className="gap-2">
             <MessageSquare className="h-4 w-4" />
@@ -384,15 +470,62 @@ export default function EmailTemplates() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="templates" className="mt-4">
+        <TabsContent value="templates" className="mt-4 space-y-4">
+          {/* Sub-tabs for Customer vs Admin */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex gap-2">
+              <Button
+                variant={emailSubTab === 'customer' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleSubTabChange('customer')}
+                className="gap-2"
+              >
+                <Users className="h-4 w-4" />
+                Customer Templates
+                <Badge variant="secondary" className="ml-1">{customerTemplates.length}</Badge>
+              </Button>
+              <Button
+                variant={emailSubTab === 'admin' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleSubTabChange('admin')}
+                className="gap-2"
+              >
+                <ShieldCheck className="h-4 w-4" />
+                Admin Templates
+                <Badge variant="secondary" className="ml-1">{adminTemplates.length}</Badge>
+              </Button>
+            </div>
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search templates..."
+                value={searchQuery}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+          </div>
+
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Mail className="h-5 w-5" />
-                Email Templates
+                {emailSubTab === 'customer' ? (
+                  <>
+                    <Users className="h-5 w-5" />
+                    Customer Email Templates
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck className="h-5 w-5" />
+                    Admin Email Templates
+                  </>
+                )}
               </CardTitle>
               <CardDescription>
-                Edit subject lines and content for each email type. Use variables like {"{{order_number}}"} to insert dynamic data.
+                {emailSubTab === 'customer' 
+                  ? 'Emails sent to customers when order status changes. These are the order confirmation and update emails your customers receive.'
+                  : 'Notification emails sent to admins and owners. These help you stay informed about new orders and status changes.'
+                }
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -400,10 +533,88 @@ export default function EmailTemplates() {
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 </div>
-              ) : templates.length === 0 ? (
+              ) : paginatedTemplates.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <Mail className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p>No email templates found</p>
+                  <p>{searchQuery ? 'No templates match your search' : 'No templates found'}</p>
+                </div>
+              ) : (
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Template</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Subject</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="w-[100px]">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {paginatedTemplates.map((template) => {
+                        const typeInfo = getEmailTypeLabel(template.type);
+                        return (
+                          <TableRow key={template.id}>
+                            <TableCell className="font-medium">{template.name}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className={typeInfo.color}>
+                                {typeInfo.label}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="max-w-[300px] truncate text-sm text-muted-foreground">
+                              {template.subject}
+                            </TableCell>
+                            <TableCell>
+                              <Switch
+                                checked={template.is_active}
+                                onCheckedChange={() => handleToggleActive(template)}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleEditTemplate(template)}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                  <Pagination
+                    current={currentPage}
+                    total={totalPages}
+                    onChange={setCurrentPage}
+                  />
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="sms" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <MessageSquare className="h-5 w-5" />
+                SMS Templates
+              </CardTitle>
+              <CardDescription>
+                Customize SMS messages sent to customers. Use variables to insert dynamic data.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isLoadingSms ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : smsTemplates.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No SMS templates found</p>
                 </div>
               ) : (
                 <Table>
@@ -411,13 +622,13 @@ export default function EmailTemplates() {
                     <TableRow>
                       <TableHead>Template</TableHead>
                       <TableHead>Type</TableHead>
-                      <TableHead>Subject</TableHead>
+                      <TableHead>Content Preview</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="w-[100px]">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {templates.map((template) => {
+                    {smsTemplates.map((template) => {
                       const typeInfo = getEmailTypeLabel(template.type);
                       return (
                         <TableRow key={template.id}>
@@ -428,19 +639,19 @@ export default function EmailTemplates() {
                             </Badge>
                           </TableCell>
                           <TableCell className="max-w-[300px] truncate text-sm text-muted-foreground">
-                            {template.subject}
+                            {template.content.substring(0, 60)}...
                           </TableCell>
                           <TableCell>
                             <Switch
                               checked={template.is_active}
-                              onCheckedChange={() => handleToggleActive(template)}
+                              onCheckedChange={() => handleToggleSmsActive(template)}
                             />
                           </TableCell>
                           <TableCell>
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => handleEditTemplate(template)}
+                              onClick={() => handleEditSmsTemplate(template)}
                             >
                               <Edit className="h-4 w-4" />
                             </Button>
@@ -486,52 +697,59 @@ export default function EmailTemplates() {
                   <p className="text-xs mt-1">Logs will appear here when emails are sent and webhooks are received</p>
                 </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Recipient</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Event</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {emailLogs.map((log) => {
-                      const typeInfo = log.email_type ? getEmailTypeLabel(log.email_type) : null;
-                      return (
-                        <TableRow key={log.id}>
-                          <TableCell className="text-sm">
-                            {format(new Date(log.created_at), 'MMM d, h:mm a')}
-                          </TableCell>
-                          <TableCell className="font-medium truncate max-w-[200px]">
-                            {log.recipient_email}
-                          </TableCell>
-                          <TableCell>
-                            {typeInfo ? (
-                              <Badge variant="outline" className={typeInfo.color}>
-                                {typeInfo.label}
-                              </Badge>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              {getStatusIcon(log.status)}
-                              <Badge variant="outline" className={getStatusBadge(log.status)}>
-                                {log.status}
-                              </Badge>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-sm text-muted-foreground">
-                            {log.event_type || '-'}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Recipient</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Event</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {paginatedLogs.map((log) => {
+                        const typeInfo = log.email_type ? getEmailTypeLabel(log.email_type) : null;
+                        return (
+                          <TableRow key={log.id}>
+                            <TableCell className="text-sm">
+                              {format(new Date(log.created_at), 'MMM d, h:mm a')}
+                            </TableCell>
+                            <TableCell className="font-medium truncate max-w-[200px]">
+                              {log.recipient_email}
+                            </TableCell>
+                            <TableCell>
+                              {typeInfo ? (
+                                <Badge variant="outline" className={typeInfo.color}>
+                                  {typeInfo.label}
+                                </Badge>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                {getStatusIcon(log.status)}
+                                <Badge variant="outline" className={getStatusBadge(log.status)}>
+                                  {log.status}
+                                </Badge>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {log.event_type || '-'}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                  <Pagination
+                    current={logsPage}
+                    total={totalLogsPages}
+                    onChange={setLogsPage}
+                  />
+                </>
               )}
             </CardContent>
           </Card>
@@ -546,11 +764,29 @@ export default function EmailTemplates() {
               <SheetHeader>
                 <SheetTitle>Edit: {selectedTemplate.name}</SheetTitle>
                 <SheetDescription>
-                  Customize the email subject and content. Use variables to insert dynamic data.
+                  {selectedTemplate.type.endsWith('_customer') 
+                    ? 'This email is sent to customers.'
+                    : 'This email is sent to admins and owners.'
+                  }
                 </SheetDescription>
               </SheetHeader>
               <ScrollArea className="h-[calc(100vh-200px)] mt-6 pr-4">
                 <div className="space-y-6">
+                  {/* Recipient Badge */}
+                  <div className="flex gap-2">
+                    {selectedTemplate.type.endsWith('_customer') ? (
+                      <Badge className="bg-blue-500/20 text-blue-700">
+                        <Users className="h-3 w-3 mr-1" />
+                        Sent to Customer
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-purple-500/20 text-purple-700">
+                        <ShieldCheck className="h-3 w-3 mr-1" />
+                        Sent to Admins
+                      </Badge>
+                    )}
+                  </div>
+
                   {/* Subject Line */}
                   <div className="space-y-2">
                     <Label htmlFor="subject">Subject Line</Label>
@@ -580,7 +816,7 @@ export default function EmailTemplates() {
                       <Info className="h-4 w-4 text-muted-foreground" />
                       <Label>Available Variables</Label>
                     </div>
-                    <div className="bg-muted rounded-lg p-3 space-y-1">
+                    <div className="bg-muted rounded-lg p-3 space-y-1 max-h-[200px] overflow-y-auto">
                       {variablesList.map((v) => (
                         <div key={v.variable} className="flex items-center justify-between text-sm">
                           <button
@@ -635,6 +871,55 @@ export default function EmailTemplates() {
         </SheetContent>
       </Sheet>
 
+      {/* SMS Edit Sheet */}
+      <Sheet open={!!selectedSmsTemplate} onOpenChange={() => setSelectedSmsTemplate(null)}>
+        <SheetContent className="w-full sm:max-w-xl">
+          {selectedSmsTemplate && (
+            <>
+              <SheetHeader>
+                <SheetTitle>Edit SMS: {selectedSmsTemplate.name}</SheetTitle>
+                <SheetDescription>
+                  Customize the SMS message. Keep it under 160 characters for single SMS.
+                </SheetDescription>
+              </SheetHeader>
+              <div className="mt-6 space-y-6">
+                <div className="space-y-2">
+                  <Label htmlFor="sms-content">SMS Content</Label>
+                  <Textarea
+                    id="sms-content"
+                    value={editSmsContent}
+                    onChange={(e) => setEditSmsContent(e.target.value)}
+                    placeholder="SMS message..."
+                    className="min-h-[150px]"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {editSmsContent.length} characters ({Math.ceil(editSmsContent.length / 160)} SMS)
+                  </p>
+                </div>
+
+                <div className="flex gap-2 pt-4 border-t">
+                  <Button
+                    variant="outline"
+                    onClick={() => setSelectedSmsTemplate(null)}
+                    className="flex-1"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleSaveSmsTemplate}
+                    disabled={updateSmsMutation.isPending}
+                    className="flex-1"
+                  >
+                    {updateSmsMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                    Save SMS Template
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
+
       {/* Preview Dialog */}
       <Dialog open={showPreview} onOpenChange={setShowPreview}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
@@ -644,7 +929,7 @@ export default function EmailTemplates() {
           <div className="space-y-4">
             <div className="bg-muted rounded-lg p-3">
               <p className="text-sm font-medium">Subject:</p>
-              <p className="text-sm">{editSubject.replace(/\{\{order_number\}\}/g, 'ORD-20260104-XYZ789')}</p>
+              <p className="text-sm">{editSubject.replace(/\{\{order_number\}\}/g, 'ORD-20260108-XYZ789')}</p>
             </div>
             <div className="border rounded-lg p-4 bg-white">
               <div 
