@@ -49,6 +49,15 @@ export function useStoreStatus(): StoreStatus {
   });
 
   const status = useMemo(() => {
+    // Don't claim open while still loading
+    if (isLoading) {
+      return {
+        isOpen: false,
+        opensAt: null,
+        closesAt: null,
+      };
+    }
+
     if (!storeHours) {
       return {
         isOpen: true, // Default to open if no hours configured

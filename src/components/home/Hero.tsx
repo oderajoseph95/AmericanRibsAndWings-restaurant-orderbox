@@ -42,7 +42,7 @@ export function Hero() {
   
   // Dynamic badge based on store status
   const getDynamicBadge = () => {
-    if (storeStatusLoading) return "Loading...";
+    if (storeStatusLoading) return "Checking Hours...";
     if (isStoreOpen) return "Now Open for Orders";
     if (opensAt) return `Order for Later · We Open at ${opensAt}`;
     return "Pre-order for Tomorrow";
