@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Minus, Plus, Trash2, ShoppingBag } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import type { CartItem } from "@/pages/Order";
 
 interface CartProps {
@@ -13,14 +14,19 @@ interface CartProps {
 }
 
 export function Cart({ items, onUpdateQuantity, onRemove, onCheckout, total }: CartProps) {
+  const navigate = useNavigate();
+
   if (items.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
         <ShoppingBag className="h-12 w-12 text-muted-foreground/50 mb-4" />
         <p className="text-muted-foreground mb-2">Your cart is empty</p>
-        <p className="text-sm text-muted-foreground/70">
+        <p className="text-sm text-muted-foreground/70 mb-4">
           Add some delicious items to get started!
         </p>
+        <Button onClick={() => navigate("/order")}>
+          Browse Menu
+        </Button>
       </div>
     );
   }
