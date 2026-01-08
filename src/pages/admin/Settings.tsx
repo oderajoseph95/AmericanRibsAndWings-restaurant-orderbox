@@ -361,8 +361,12 @@ export default function Settings() {
               />
             </div>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Store open/closed status is displayed on the admin dashboard.
+          <div className="flex items-center gap-2 mt-2 p-2 bg-muted/50 rounded-md">
+            <span className="text-xs text-muted-foreground">🌏 Timezone:</span>
+            <span className="text-xs font-medium">Asia/Manila (Philippines, UTC+8)</span>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            All times are in Philippines Standard Time (PST). Store open/closed status is displayed on the admin dashboard.
           </p>
         </CardContent>
       </Card>

@@ -266,6 +266,24 @@ Deno.serve(async (req) => {
           .update({ status: 'failed', error_message: sendError.message })
           .eq('id', reminder.id);
       }
+
+      // Check if all reminders for this checkout have been sent/failed
+      const { count: pendingCount } = await supabase
+        .from('abandoned_checkout_reminders')
+        .select('*', { count: 'exact', head: true })
+        .eq('abandoned_checkout_id', checkout.id)
+        .eq('status', 'pending');
+
+      // If no more pending reminders and checkout is still in recovering status, mark as expired
+      if (pendingCount === 0) {
+        await supabase
+          .from('abandoned_checkouts')
+          .update({ status: 'expired' })
+          .eq('id', checkout.id)
+          .eq('status', 'recovering');
+        
+        console.log(`Checkout ${checkout.id} marked as expired - all reminders sent without conversion`);
+      }
     }
 
     console.log(`Sent ${sentCount} reminders, ${failedCount} failed`);

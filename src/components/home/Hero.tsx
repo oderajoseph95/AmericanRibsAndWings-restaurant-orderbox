@@ -5,6 +5,7 @@ import { ChevronRight, MapPin, Clock, Phone } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MenuModal } from "./MenuModal";
+import { useStoreStatus } from "@/hooks/useStoreStatus";
 
 interface HeroContent {
   badge?: string;
@@ -22,6 +23,7 @@ interface HeroContent {
 
 export function Hero() {
   const [menuModalOpen, setMenuModalOpen] = useState(false);
+  const { isOpen: isStoreOpen, opensAt, isLoading: storeStatusLoading } = useStoreStatus();
 
   const { data: sectionConfig } = useQuery({
     queryKey: ["homepage-section", "hero"],
@@ -38,8 +40,16 @@ export function Hero() {
 
   const content = (sectionConfig?.content as HeroContent) || {};
   
+  // Dynamic badge based on store status
+  const getDynamicBadge = () => {
+    if (storeStatusLoading) return "Loading...";
+    if (isStoreOpen) return "Now Open for Orders";
+    if (opensAt) return `Order for Later · We Open at ${opensAt}`;
+    return "Pre-order for Tomorrow";
+  };
+  
   // Default values
-  const badge = content.badge || "Now Open for Orders";
+  const badge = getDynamicBadge();
   const headline = content.headline || "American Ribs";
   const headlineAccent = content.headlineAccent || "& Wings";
   const tagline = content.tagline || "Authentic American BBQ crafted with passion. Smoky ribs, crispy wings, and flavors that'll make you come back for more.";
@@ -67,10 +77,10 @@ export function Hero() {
         <div className="container relative z-10 px-4 pt-8 pb-12 md:pt-10 md:pb-16">
           <div className="max-w-3xl mx-auto text-center">
             {/* Badge - hidden on mobile (shown in navbar), visible on tablet+ */}
-            <div className="hidden md:inline-flex items-center gap-2 bg-white/20 text-white px-3 py-1.5 rounded-full text-sm font-medium mb-4">
+            <div className={`hidden md:inline-flex items-center gap-2 ${isStoreOpen ? 'bg-white/20' : 'bg-white/10'} text-white px-3 py-1.5 rounded-full text-sm font-medium mb-4`}>
               <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-accent"></span>
+                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isStoreOpen ? 'bg-accent' : 'bg-orange-400'} opacity-75`}></span>
+                <span className={`relative inline-flex rounded-full h-2 w-2 ${isStoreOpen ? 'bg-accent' : 'bg-orange-400'}`}></span>
               </span>
               {badge}
             </div>
