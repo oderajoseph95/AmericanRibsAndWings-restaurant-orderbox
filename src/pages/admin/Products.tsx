@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
-import { Plus, Pencil, Archive, ArchiveRestore, Search, Loader2, Upload, ImageIcon, Trash2, RefreshCw } from 'lucide-react';
+import { Plus, Pencil, Archive, ArchiveRestore, Search, Loader2, Upload, ImageIcon, Trash2, RefreshCw, Star } from 'lucide-react';
 import type { Tables, Enums } from '@/integrations/supabase/types';
 import { generateSlug } from '@/lib/productUtils';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -309,6 +309,8 @@ export default function Products() {
       slug = generateSlug(name);
     }
     
+    const isFeatured = form.get('is_featured') === 'on';
+    
     saveMutation.mutate({
       name,
       sku: form.get('sku') as string,
@@ -322,6 +324,8 @@ export default function Products() {
       slug: slug || null,
       seo_title: form.get('seo_title') as string || null,
       seo_description: form.get('seo_description') as string || null,
+      is_featured: isFeatured,
+      featured_sort_order: isFeatured ? parseInt(form.get('featured_sort_order') as string) || 1 : 0,
     } as any);
   };
 
@@ -498,7 +502,7 @@ export default function Products() {
                       </Select>
                     </div>
                   </div>
-                  <div className="flex items-center gap-6">
+                  <div className="flex flex-wrap items-center gap-4 sm:gap-6">
                     <div className="flex items-center gap-2">
                       <Switch
                         id="is_active"
@@ -515,6 +519,34 @@ export default function Products() {
                       />
                       <Label htmlFor="stock_enabled">Track Stock</Label>
                     </div>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="is_featured"
+                        name="is_featured"
+                        defaultChecked={(editingProduct as any)?.is_featured ?? false}
+                      />
+                      <Label htmlFor="is_featured" className="flex items-center gap-1">
+                        <Star className="h-3 w-3 text-amber-500" />
+                        Featured
+                      </Label>
+                    </div>
+                  </div>
+                  
+                  {/* Featured Sort Order - shown conditionally */}
+                  <div className="space-y-2">
+                    <Label htmlFor="featured_sort_order">Featured Order (1-6)</Label>
+                    <Input
+                      id="featured_sort_order"
+                      name="featured_sort_order"
+                      type="number"
+                      min="1"
+                      max="6"
+                      placeholder="1"
+                      defaultValue={(editingProduct as any)?.featured_sort_order || 1}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Controls display order in "Customer Favorites" section on homepage
+                    </p>
                   </div>
 
                   {/* SEO Settings */}

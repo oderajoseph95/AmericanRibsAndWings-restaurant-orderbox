@@ -65,6 +65,24 @@ export function FeaturedMenu() {
   const { data: products, isLoading } = useQuery({
     queryKey: ["featured-products"],
     queryFn: async () => {
+      // First try: Get admin-curated featured products
+      const { data: featured, error: featuredError } = await supabase
+        .from("products")
+        .select("*, categories(name)")
+        .eq("is_active", true)
+        .is("archived_at", null)
+        .eq("is_featured", true)
+        .order("featured_sort_order", { ascending: true })
+        .limit(6);
+      
+      if (featuredError) throw featuredError;
+      
+      // If admin has set featured products, use those
+      if (featured && featured.length > 0) {
+        return featured as Product[];
+      }
+      
+      // Fallback: Get bundles and popular items
       const { data, error } = await supabase
         .from("products")
         .select("*, categories(name)")
