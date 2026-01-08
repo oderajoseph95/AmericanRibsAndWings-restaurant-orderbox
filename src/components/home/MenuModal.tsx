@@ -88,8 +88,13 @@ export function MenuModal({ open, onOpenChange }: MenuModalProps) {
         
         <ScrollArea className="max-h-[calc(90vh-80px)]">
           {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <div className="flex flex-col items-center justify-center py-16 gap-4">
+              <div className="relative">
+                <Loader2 className="h-12 w-12 animate-spin text-primary" />
+                <span className="absolute -top-1 -right-1 text-2xl animate-bounce">🍖</span>
+              </div>
+              <p className="text-foreground font-medium text-lg">Loading our delicious menu...</p>
+              <p className="text-muted-foreground text-sm">Please wait, don't close!</p>
             </div>
           ) : menuImages && menuImages.length > 0 ? (
             <div className="space-y-0">

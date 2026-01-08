@@ -155,6 +155,30 @@ Deno.serve(async (req) => {
 
     if (updateError) throw updateError;
 
+    // Send admin notification about recovery queue
+    const { data: admins } = await supabase
+      .from('user_roles')
+      .select('user_id')
+      .in('role', ['owner', 'manager']);
+
+    if (admins && admins.length > 0) {
+      const notifications = admins.map(admin => ({
+        user_id: admin.user_id,
+        title: '🔄 Cart Recovery Started',
+        message: `${checkout.customer_name || 'Customer'} (₱${checkout.cart_total?.toLocaleString() || '0'}) - ${reminders.length} reminders queued`,
+        type: 'system',
+        action_url: '/admin/abandoned-checkouts',
+        metadata: {
+          checkout_id: abandoned_checkout_id,
+          cart_total: checkout.cart_total,
+          customer_name: checkout.customer_name,
+          reminder_count: reminders.length,
+        },
+      }));
+
+      await supabase.from('admin_notifications').insert(notifications);
+    }
+
     console.log(`Recovery started for checkout ${abandoned_checkout_id}, ${reminders.length} reminders scheduled during store hours (${storeHours.open} - ${storeHours.close})`);
 
     return new Response(

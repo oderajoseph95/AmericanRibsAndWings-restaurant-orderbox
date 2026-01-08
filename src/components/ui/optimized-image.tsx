@@ -65,9 +65,12 @@ export function OptimizedImage({
 
   return (
     <div className={cn("relative overflow-hidden", className)}>
-      {/* Skeleton placeholder */}
+      {/* Animated skeleton placeholder */}
       {isLoading && showSkeleton && !hasError && (
-        <Skeleton className="absolute inset-0" />
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted">
+          <Skeleton className="absolute inset-0" />
+          <span className="relative text-2xl animate-pulse z-10">🍗</span>
+        </div>
       )}
       
       {/* Actual image */}

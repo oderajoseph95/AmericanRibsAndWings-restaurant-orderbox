@@ -5,8 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { 
-  ShoppingCart, DollarSign, Clock, AlertTriangle, Loader2, TrendingUp, 
-  MapPin, Activity, Calendar, ChevronRight, Users, Truck, Package, Award, XCircle, RefreshCw
+  ShoppingCart, DollarSign, Clock, Loader2, TrendingUp, 
+  MapPin, Activity, Calendar, ChevronRight, Users, Truck, Package, Award, XCircle, RefreshCw, ShoppingBag, RotateCcw
 } from 'lucide-react';
 import { startOfDay, endOfDay, subDays, startOfWeek, startOfMonth, format } from 'date-fns';
 import { Link } from 'react-router-dom';
@@ -158,17 +158,37 @@ export default function Dashboard() {
     },
   });
 
-  // Low stock alerts
-  const { data: lowStockCount = 0 } = useQuery({
-    queryKey: ['dashboard', 'low-stock'],
+  // Abandoned carts stats
+  const { data: abandonedCartsStats } = useQuery({
+    queryKey: ['dashboard', 'abandoned-carts', dateFilter],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('stock')
-        .select('current_stock, low_stock_threshold, is_enabled')
-        .eq('is_enabled', true);
+        .from('abandoned_checkouts')
+        .select('id, cart_total, status')
+        .gte('created_at', dateRange.start.toISOString())
+        .lte('created_at', dateRange.end.toISOString());
 
       if (error) throw error;
-      return data?.filter(s => s.current_stock <= s.low_stock_threshold).length || 0;
+      
+      const abandoned = data?.filter(c => c.status === 'abandoned') || [];
+      const recovering = data?.filter(c => c.status === 'recovering') || [];
+      const recovered = data?.filter(c => c.status === 'recovered') || [];
+      const expired = data?.filter(c => c.status === 'expired') || [];
+      
+      const potentialRevenue = abandoned.reduce((sum, c) => sum + (c.cart_total || 0), 0);
+      const recoveredRevenue = recovered.reduce((sum, c) => sum + (c.cart_total || 0), 0);
+      const totalAttempted = recovering.length + recovered.length + expired.length;
+      const recoveryRate = totalAttempted > 0 ? (recovered.length / totalAttempted * 100) : 0;
+      
+      return {
+        abandonedCount: abandoned.length,
+        recoveringCount: recovering.length,
+        recoveredCount: recovered.length,
+        expiredCount: expired.length,
+        potentialRevenue,
+        recoveredRevenue,
+        recoveryRate,
+      };
     },
   });
 
@@ -435,17 +455,64 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-orange-500/20 bg-orange-500/5">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Low Stock Alerts</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Abandoned Carts</CardTitle>
+            <ShoppingBag className="h-4 w-4 text-orange-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{lowStockCount}</div>
-            <p className="text-xs text-muted-foreground">Items need restocking</p>
+            <div className="text-2xl font-bold text-orange-600">{abandonedCartsStats?.abandonedCount || 0}</div>
+            <p className="text-xs text-muted-foreground">
+              ₱{(abandonedCartsStats?.potentialRevenue || 0).toLocaleString('en-PH')} potential
+            </p>
+            {(abandonedCartsStats?.recoveringCount || 0) > 0 && (
+              <p className="text-xs text-blue-600 mt-0.5">
+                {abandonedCartsStats?.recoveringCount} in recovery queue
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
+
+      {/* Cart Recovery Stats - only show if there's activity */}
+      {((abandonedCartsStats?.recoveredCount || 0) + (abandonedCartsStats?.expiredCount || 0)) > 0 && (
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card className="border-green-500/20 bg-green-500/5">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Recovered Carts</CardTitle>
+              <RotateCcw className="h-4 w-4 text-green-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600">{abandonedCartsStats?.recoveredCount || 0}</div>
+              <p className="text-xs text-muted-foreground">
+                ₱{(abandonedCartsStats?.recoveredRevenue || 0).toLocaleString('en-PH')} recovered
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-red-500/20 bg-red-500/5">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Failed Recovery</CardTitle>
+              <XCircle className="h-4 w-4 text-red-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-red-600">{abandonedCartsStats?.expiredCount || 0}</div>
+              <p className="text-xs text-muted-foreground">Reminders exhausted</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-blue-500/20 bg-blue-500/5">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Recovery Rate</CardTitle>
+              <TrendingUp className="h-4 w-4 text-blue-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-blue-600">{(abandonedCartsStats?.recoveryRate || 0).toFixed(1)}%</div>
+              <p className="text-xs text-muted-foreground">Of attempted recoveries</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Cancelled/Refund Stats - only show if there are any */}
       {((periodStats?.cancelledCount || 0) + (periodStats?.rejectedCount || 0)) > 0 && (
@@ -666,19 +733,21 @@ export default function Dashboard() {
           </Card>
         )}
 
-        {lowStockCount > 0 && (
-          <Card className="border-red-500/30 bg-red-500/5">
+        {(abandonedCartsStats?.abandonedCount || 0) > 0 && (
+          <Card className="border-orange-500/30 bg-orange-500/5">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-semibold text-red-700 dark:text-red-400">
-                    {lowStockCount} item{lowStockCount > 1 ? 's' : ''} running low
+                  <p className="font-semibold text-orange-700 dark:text-orange-400">
+                    {abandonedCartsStats?.abandonedCount} abandoned cart{(abandonedCartsStats?.abandonedCount || 0) > 1 ? 's' : ''}
                   </p>
-                  <p className="text-sm text-muted-foreground">Check inventory levels</p>
+                  <p className="text-sm text-muted-foreground">
+                    ₱{(abandonedCartsStats?.potentialRevenue || 0).toLocaleString('en-PH')} potential revenue
+                  </p>
                 </div>
-                <Link to="/admin/stock">
+                <Link to="/admin/abandoned-checkouts">
                   <Button size="sm" variant="outline">
-                    View <ChevronRight className="h-4 w-4 ml-1" />
+                    Recover <ChevronRight className="h-4 w-4 ml-1" />
                   </Button>
                 </Link>
               </div>

@@ -149,8 +149,9 @@ export function ProductDetailModal({
 
   const handleClose = () => {
     onOpenChange(false);
-    // Navigate back to return path without reload
-    navigate(returnPath, { replace: true });
+    // Navigate back to return path preserving query params (like category filter)
+    const currentSearch = window.location.search;
+    navigate(`${returnPath}${currentSearch}`, { replace: true });
   };
 
   const handleShare = () => {
