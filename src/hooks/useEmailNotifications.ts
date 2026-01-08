@@ -19,6 +19,7 @@ export type EmailType =
   | "payout_requested"
   | "payout_approved"
   | "payout_rejected"
+  | "review_request"
   | "test_email";
 
 export interface OrderItem {
