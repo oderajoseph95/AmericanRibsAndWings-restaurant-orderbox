@@ -184,22 +184,37 @@ export default function EmailTemplates() {
 
   const totalLogsPages = Math.ceil(filteredLogs.length / ITEMS_PER_PAGE);
 
-  // Analytics
+  // Analytics - count unique emails by email_id to avoid counting duplicate status updates
   const analytics = useMemo(() => {
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const recentLogs = emailLogs.filter(log => new Date(log.created_at) >= sevenDaysAgo);
     
-    const total = recentLogs.length;
-    const sent = recentLogs.filter(l => l.status === 'sent').length;
-    const delivered = recentLogs.filter(l => l.status === 'delivered').length;
-    const opened = recentLogs.filter(l => l.status === 'opened').length;
-    const bounced = recentLogs.filter(l => l.status === 'bounced').length;
-    const testEmails = recentLogs.filter(l => l.is_test).length;
+    // Group by email_id to get unique emails
+    const uniqueEmails = new Map<string, EmailLog>();
+    recentLogs.forEach(log => {
+      const key = log.email_id || log.id;
+      const existing = uniqueEmails.get(key);
+      // Keep the latest status for each unique email
+      if (!existing || new Date(log.created_at) > new Date(existing.created_at)) {
+        uniqueEmails.set(key, log);
+      }
+    });
+    
+    const uniqueEmailList = Array.from(uniqueEmails.values());
+    
+    // Count initial sends (actual emails sent, not status updates)
+    const total = recentLogs.filter(l => l.status === 'sent' && !l.event_type).length;
+    const testEmails = uniqueEmailList.filter(l => l.is_test).length;
+    
+    // Count final statuses from unique emails
+    const delivered = uniqueEmailList.filter(l => l.status === 'delivered').length;
+    const opened = uniqueEmailList.filter(l => l.status === 'opened' || l.status === 'clicked').length;
+    const bounced = uniqueEmailList.filter(l => l.status === 'bounced' || l.status === 'complained').length;
     
     return {
-      total,
-      sent,
+      total: total || uniqueEmailList.length, // Fallback to unique count if no 'sent' entries
+      sent: total,
       delivered,
       opened,
       bounced,

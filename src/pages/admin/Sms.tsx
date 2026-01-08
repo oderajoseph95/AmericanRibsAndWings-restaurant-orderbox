@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -12,7 +12,6 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFo
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import { 
@@ -28,7 +27,11 @@ import {
   Send,
   Phone,
   AlertCircle,
-  Users
+  Users,
+  Clock,
+  TrendingUp,
+  BarChart3,
+  RefreshCcw
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -48,10 +51,12 @@ type SmsLog = {
   sms_type: string | null;
   message: string;
   status: string | null;
+  semaphore_status: string | null;
   message_id: string | null;
   order_id: string | null;
   network: string | null;
   created_at: string | null;
+  updated_at: string | null;
   metadata: any;
 };
 
@@ -73,6 +78,7 @@ export default function Sms() {
   const [editContent, setEditContent] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('templates');
+  const [isSyncing, setIsSyncing] = useState(false);
   
   // Test SMS state
   const [testPhone, setTestPhone] = useState('');
@@ -100,11 +106,41 @@ export default function Sms() {
         .from('sms_logs')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(100);
+        .limit(200);
       if (error) throw error;
       return data as SmsLog[];
     },
   });
+
+  // SMS Analytics
+  const analytics = useMemo(() => {
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const recentLogs = smsLogs.filter(log => log.created_at && new Date(log.created_at) >= sevenDaysAgo);
+    
+    const total = recentLogs.length;
+    
+    // Count by Semaphore status (actual delivery status)
+    const delivered = recentLogs.filter(l => l.semaphore_status?.toLowerCase() === 'sent').length;
+    const pending = recentLogs.filter(l => 
+      l.semaphore_status?.toLowerCase() === 'pending' || 
+      l.semaphore_status?.toLowerCase() === 'queued' ||
+      !l.semaphore_status
+    ).length;
+    const failed = recentLogs.filter(l => 
+      l.semaphore_status?.toLowerCase() === 'failed' || 
+      l.semaphore_status?.toLowerCase() === 'refunded'
+    ).length;
+    
+    return {
+      total,
+      delivered,
+      pending,
+      failed,
+      deliveryRate: total > 0 ? Math.round((delivered / total) * 100) : 0,
+      failureRate: total > 0 ? Math.round((failed / total) * 100) : 0,
+    };
+  }, [smsLogs]);
 
   // Update SMS template mutation
   const updateMutation = useMutation({
@@ -161,6 +197,28 @@ export default function Sms() {
     setTimeout(() => setIsRefreshing(false), 500);
   };
 
+  const handleSyncStatus = async () => {
+    setIsSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('sync-sms-status', {
+        body: { syncAll: true },
+      });
+      
+      if (error) {
+        toast.error('Failed to sync: ' + error.message);
+      } else if (data?.success) {
+        toast.success(`Synced ${data.synced} SMS statuses`);
+        refetchLogs();
+      } else {
+        toast.error(data?.error || 'Sync failed');
+      }
+    } catch (error: any) {
+      toast.error('Failed to sync SMS statuses');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleSendTestSms = async () => {
     if (!testPhone || testPhone.length < 11) {
       toast.error('Please enter a valid phone number');
@@ -214,10 +272,21 @@ export default function Sms() {
     return labels[type] || { label: type, color: 'bg-muted' };
   };
 
-  const getStatusBadge = (status: string | null) => {
-    if (status === 'sent') return 'bg-green-500/20 text-green-700';
-    if (status === 'failed') return 'bg-red-500/20 text-red-700';
-    return 'bg-muted text-muted-foreground';
+  const getSemaphoreStatusBadge = (status: string | null) => {
+    const normalizedStatus = status?.toLowerCase() || '';
+    switch (normalizedStatus) {
+      case 'sent':
+        return { color: 'bg-green-500/20 text-green-700', icon: CheckCircle, label: 'Delivered' };
+      case 'pending':
+      case 'queued':
+        return { color: 'bg-yellow-500/20 text-yellow-700', icon: Clock, label: status || 'Pending' };
+      case 'failed':
+        return { color: 'bg-red-500/20 text-red-700', icon: XCircle, label: 'Failed' };
+      case 'refunded':
+        return { color: 'bg-amber-500/20 text-amber-700', icon: RefreshCcw, label: 'Refunded' };
+      default:
+        return { color: 'bg-muted text-muted-foreground', icon: Clock, label: 'Unknown' };
+    }
   };
 
   // Calculate character count and SMS segments
@@ -235,6 +304,66 @@ export default function Sms() {
           <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
           Refresh
         </Button>
+      </div>
+
+      {/* SMS Analytics Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Total Sent</p>
+                <p className="text-2xl font-bold">{analytics.total}</p>
+                <p className="text-xs text-muted-foreground">Last 7 days</p>
+              </div>
+              <div className="h-10 w-10 rounded-full bg-blue-500/10 flex items-center justify-center">
+                <Send className="h-5 w-5 text-blue-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Delivered</p>
+                <p className="text-2xl font-bold text-green-600">{analytics.delivered}</p>
+                <p className="text-xs text-muted-foreground">{analytics.deliveryRate}% success</p>
+              </div>
+              <div className="h-10 w-10 rounded-full bg-green-500/10 flex items-center justify-center">
+                <CheckCircle className="h-5 w-5 text-green-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Pending</p>
+                <p className="text-2xl font-bold text-yellow-600">{analytics.pending}</p>
+                <p className="text-xs text-muted-foreground">Awaiting sync</p>
+              </div>
+              <div className="h-10 w-10 rounded-full bg-yellow-500/10 flex items-center justify-center">
+                <Clock className="h-5 w-5 text-yellow-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Failed</p>
+                <p className="text-2xl font-bold text-red-600">{analytics.failed}</p>
+                <p className="text-xs text-muted-foreground">{analytics.failureRate}% failure</p>
+              </div>
+              <div className="h-10 w-10 rounded-full bg-red-500/10 flex items-center justify-center">
+                <XCircle className="h-5 w-5 text-red-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Recipients Info Card */}
@@ -396,13 +525,28 @@ export default function Sms() {
                     SMS Delivery Logs
                   </CardTitle>
                   <CardDescription>
-                    Track all SMS sent via Semaphore API
+                    Track all SMS sent via Semaphore API - Sync to get actual delivery status
                   </CardDescription>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => refetchLogs()}>
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Refresh
-                </Button>
+                <div className="flex gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={handleSyncStatus}
+                    disabled={isSyncing}
+                  >
+                    {isSyncing ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <TrendingUp className="h-4 w-4 mr-2" />
+                    )}
+                    Sync Status
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => refetchLogs()}>
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Refresh
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -424,7 +568,8 @@ export default function Sms() {
                         <TableHead>Date</TableHead>
                         <TableHead>Recipient</TableHead>
                         <TableHead>Type</TableHead>
-                        <TableHead>Status</TableHead>
+                        <TableHead>Our Status</TableHead>
+                        <TableHead>Semaphore Status</TableHead>
                         <TableHead>Network</TableHead>
                         <TableHead>Message ID</TableHead>
                       </TableRow>
@@ -432,6 +577,9 @@ export default function Sms() {
                     <TableBody>
                       {smsLogs.map((log) => {
                         const typeInfo = getTypeLabel(log.sms_type || 'unknown');
+                        const semaphoreInfo = getSemaphoreStatusBadge(log.semaphore_status);
+                        const StatusIcon = semaphoreInfo.icon;
+                        
                         return (
                           <TableRow key={log.id}>
                             <TableCell className="text-sm">
@@ -447,13 +595,19 @@ export default function Sms() {
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-1.5">
-                                {log.status === 'sent' ? (
+                                {log.status === 'sent' || log.status === 'delivered' ? (
                                   <CheckCircle className="h-4 w-4 text-green-600" />
                                 ) : (
                                   <XCircle className="h-4 w-4 text-red-600" />
                                 )}
-                                <Badge variant="outline" className={getStatusBadge(log.status)}>
-                                  {log.status || 'unknown'}
+                                <span className="text-sm capitalize">{log.status || 'unknown'}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-1.5">
+                                <StatusIcon className="h-4 w-4" />
+                                <Badge variant="outline" className={semaphoreInfo.color}>
+                                  {log.semaphore_status || 'Not synced'}
                                 </Badge>
                               </div>
                             </TableCell>
