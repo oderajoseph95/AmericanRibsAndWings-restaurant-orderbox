@@ -146,8 +146,8 @@ export function Navbar() {
                 onClearCart={clearCart}
                 onCheckout={() => {
                   setIsCartOpen(false);
-                  // Small delay to allow cart drawer to close smoothly
-                  setTimeout(() => navigate("/order"), 100);
+                  // Small delay to allow cart drawer to close smoothly, then navigate with openCheckout param
+                  setTimeout(() => navigate("/order?openCheckout=true"), 100);
                 }}
                 onClose={() => setIsCartOpen(false)}
                 total={cartTotal}
@@ -191,8 +191,8 @@ export function Navbar() {
                 onClearCart={clearCart}
                 onCheckout={() => {
                   setIsCartOpen(false);
-                  // Small delay to allow cart drawer to close smoothly
-                  setTimeout(() => navigate("/order"), 100);
+                  // Small delay to allow cart drawer to close smoothly, then navigate with openCheckout param
+                  setTimeout(() => navigate("/order?openCheckout=true"), 100);
                 }}
                 onClose={() => setIsCartOpen(false)}
                 total={cartTotal}

@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 
 const CHECKOUT_STORAGE_KEY = "arw_checkout_data";
 const CHECKOUT_EXPIRY_HOURS = 72;
-const CHECKOUT_RESUME_KEY = "arw_checkout_resume_shown";
 
 export interface PersistedCheckoutData {
   orderType?: "pickup" | "delivery";
@@ -21,7 +20,6 @@ export interface PersistedCheckoutData {
 
 export function usePersistedCheckout() {
   const [isLoaded, setIsLoaded] = useState(false);
-  const [showResumePrompt, setShowResumePrompt] = useState(false);
   const [savedData, setSavedData] = useState<PersistedCheckoutData | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -39,12 +37,6 @@ export function usePersistedCheckout() {
           // Check if there's meaningful data (at least name or phone)
           if (parsed.name || parsed.phone || parsed.email) {
             setSavedData(parsed);
-            
-            // Show resume prompt once per session
-            const alreadyShown = sessionStorage.getItem(CHECKOUT_RESUME_KEY);
-            if (!alreadyShown) {
-              setShowResumePrompt(true);
-            }
           }
         } else {
           // Data expired, clear it
@@ -87,18 +79,6 @@ export function usePersistedCheckout() {
     setSavedData(null);
   }, []);
 
-  const dismissResumePrompt = useCallback(() => {
-    setShowResumePrompt(false);
-    sessionStorage.setItem(CHECKOUT_RESUME_KEY, "true");
-    // Clear saved data since user wants to start fresh
-    clearCheckoutData();
-  }, [clearCheckoutData]);
-
-  const acceptResume = useCallback(() => {
-    setShowResumePrompt(false);
-    sessionStorage.setItem(CHECKOUT_RESUME_KEY, "true");
-  }, []);
-
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -111,10 +91,7 @@ export function usePersistedCheckout() {
   return {
     isLoaded,
     savedData,
-    showResumePrompt,
     saveCheckoutData,
     clearCheckoutData,
-    dismissResumePrompt,
-    acceptResume,
   };
 }

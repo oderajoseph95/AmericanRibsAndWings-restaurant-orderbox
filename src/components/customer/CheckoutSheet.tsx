@@ -166,11 +166,8 @@ export function CheckoutSheet({
   // Checkout persistence hook
   const { 
     savedData, 
-    showResumePrompt, 
     saveCheckoutData, 
     clearCheckoutData,
-    dismissResumePrompt,
-    acceptResume 
   } = usePersistedCheckout();
 
   // Fetch payment settings
@@ -397,10 +394,10 @@ export function CheckoutSheet({
     }
   }, [paymentMethod, paymentProof, orderType, grandTotal, isCashAllowed]);
 
-  // Restore checkout data when user accepts resume
+  // Auto-restore checkout data when sheet opens
   useEffect(() => {
-    if (savedData && open && !hasRestoredData && !showResumePrompt) {
-      // User accepted to resume - restore data
+    if (savedData && open && !hasRestoredData) {
+      // Automatically restore saved data
       setHasRestoredData(true);
       if (savedData.name) form.setValue("name", savedData.name);
       if (savedData.phone) form.setValue("phone", savedData.phone);
@@ -414,9 +411,12 @@ export function CheckoutSheet({
       if (savedData.customerLng) form.setValue("customerLng", savedData.customerLng);
       if (savedData.activeSection) setActiveSection(savedData.activeSection as SectionId);
       
-      toast.success("Welcome back! Your checkout progress has been restored.");
+      toast.success("Your checkout progress has been restored", {
+        description: "Use 'Clear Form' in the form to start fresh.",
+        duration: 4000,
+      });
     }
-  }, [savedData, open, hasRestoredData, showResumePrompt, form]);
+  }, [savedData, open, hasRestoredData, form]);
 
   // Save checkout data on form changes (debounced via hook)
   const customerEmail = form.watch("email");
@@ -791,88 +791,49 @@ export function CheckoutSheet({
     }
   };
 
-  return (
-    <>
-      {/* Continue Checkout Dialog - Fixed with proper event handling and close button */}
-      {showResumePrompt && savedData && open && (
-        <div 
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 animate-in fade-in"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            dismissResumePrompt();
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              dismissResumePrompt();
-            }
-          }}
-        >
-          <div 
-            className="bg-background rounded-lg p-6 max-w-sm mx-4 shadow-xl animate-in fade-in zoom-in border"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10">
-                  <ShoppingBag className="h-5 w-5 text-primary" />
-                </div>
-                <h3 className="text-lg font-bold">Continue Checkout?</h3>
-              </div>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-8 w-8 -mr-2"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  dismissResumePrompt();
-                }}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-            <p className="text-sm text-muted-foreground mb-4">
-              Welcome back! We saved your checkout progress. Would you like to continue where you left off?
-            </p>
-            {savedData.name && (
-              <p className="text-xs text-muted-foreground mb-4 bg-muted p-2 rounded">
-                <strong>Saved info:</strong> {savedData.name}
-                {savedData.phone && ` • ${savedData.phone.slice(0, 4)}***`}
-              </p>
-            )}
-            <div className="flex gap-2">
-              <Button 
-                variant="outline" 
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  dismissResumePrompt();
-                }} 
-                className="flex-1"
-              >
-                Start Fresh
-              </Button>
-              <Button 
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  acceptResume();
-                }} 
-                className="flex-1"
-              >
-                Continue
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+  // Clear form handler
+  const handleClearForm = () => {
+    form.reset({
+      orderType: "delivery",
+      name: "",
+      phone: "",
+      email: "",
+      streetAddress: "",
+      city: "",
+      landmark: "",
+      notes: "",
+      paymentMethod: "gcash"
+    });
+    setBarangay("");
+    setGeocodedAddress("");
+    setDeliveryFee(null);
+    setDeliveryDistance(null);
+    setActiveSection("delivery-address");
+    setCompletedSections(new Set(["order-type"]));
+    clearCheckoutData();
+    toast.success("Form cleared");
+  };
 
-      <Sheet open={open} onOpenChange={handleSheetOpenChange}>
-        <SheetContent side="right" className="w-full sm:max-w-lg p-0">
-          <SheetHeader className="p-4 border-b">
+  return (
+    <Sheet open={open} onOpenChange={handleSheetOpenChange}>
+      <SheetContent side="right" className="w-full sm:max-w-lg p-0">
+        <SheetHeader className="p-4 border-b">
+          <div className="flex items-center justify-between">
             <SheetTitle>Checkout</SheetTitle>
-          </SheetHeader>
+            {(customerName || customerPhone) && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleClearForm}
+                className="text-xs text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3 w-3 mr-1" />
+                Clear Form
+              </Button>
+            )}
+          </div>
+        </SheetHeader>
 
           <ScrollArea className="h-[calc(100vh-80px)]">
             <Form {...form}>
@@ -1484,6 +1445,5 @@ export function CheckoutSheet({
         </ScrollArea>
         </SheetContent>
       </Sheet>
-    </>
   );
 }

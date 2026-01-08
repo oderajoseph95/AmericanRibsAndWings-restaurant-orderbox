@@ -221,6 +221,21 @@ const Order = () => {
     }
   }, [showWelcomeBack, dismissWelcomeBack, isRecoveryMode]);
 
+  // Handle openCheckout URL param - auto-open checkout sheet when coming from homepage cart
+  useEffect(() => {
+    const openCheckout = searchParams.get('openCheckout');
+    if (openCheckout === 'true' && cart.length > 0) {
+      // Small delay to ensure page is ready
+      setTimeout(() => {
+        setIsCheckoutOpen(true);
+        // Remove the param to prevent re-triggering
+        const newParams = new URLSearchParams(searchParams);
+        newParams.delete('openCheckout');
+        setSearchParams(newParams, { replace: true });
+      }, 300);
+    }
+  }, [searchParams, cart.length, setSearchParams]);
+
   const activeCategory = searchParams.get("category") || "all";
   const addToCartId = searchParams.get("addToCart");
 
