@@ -60,7 +60,7 @@ const navItems = [
 export function AdminSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { role, signOut, username, isSuperOwner } = useAuth();
+  const { role, signOut, username, displayName, isSuperOwner } = useAuth();
   const { state, toggleSidebar } = useSidebar();
   const collapsed = state === 'collapsed';
 
@@ -129,13 +129,16 @@ export function AdminSidebar() {
         {!collapsed && (
           <div className="px-2 py-2 rounded-lg bg-sidebar-accent">
             <div className="flex items-center gap-1.5">
-              <p className="text-xs text-sidebar-accent-foreground truncate font-mono">
-                {username || 'No username'}
+              <p className="text-sm text-sidebar-accent-foreground truncate font-medium">
+                {displayName || username || 'No name'}
               </p>
               {isSuperOwner && (
                 <Crown className="w-3 h-3 text-amber-500 flex-shrink-0" />
               )}
             </div>
+            <p className="text-[10px] text-muted-foreground font-mono truncate">
+              @{username || 'no_username'}
+            </p>
             <div className="flex items-center gap-1.5 mt-0.5">
               <p className="text-xs font-medium text-sidebar-accent-foreground capitalize">
                 {role}

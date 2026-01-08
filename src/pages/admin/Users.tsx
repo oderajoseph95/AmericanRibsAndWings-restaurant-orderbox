@@ -19,6 +19,7 @@ import type { Enums } from '@/integrations/supabase/types';
 interface UserData {
   email: string | null;
   username: string | null;
+  display_name: string | null;
   is_super_owner: boolean;
 }
 
@@ -33,10 +34,12 @@ export default function Users() {
     userId: string; 
     currentRole: Enums<'app_role'>; 
     currentUsername: string;
+    currentDisplayName: string;
     isSuperOwner: boolean;
   } | null>(null);
   const [newRole, setNewRole] = useState<Enums<'app_role'>>('cashier');
   const [newUsername, setNewUsername] = useState('');
+  const [newDisplayName, setNewDisplayName] = useState('');
   const [userDataMap, setUserDataMap] = useState<Record<string, UserData>>({});
   const [dataLoading, setDataLoading] = useState(false);
   const [callerIsSuperOwner, setCallerIsSuperOwner] = useState(false);
@@ -193,6 +196,30 @@ export default function Users() {
     },
   });
 
+  // Update display name mutation
+  const updateDisplayNameMutation = useMutation({
+    mutationFn: async ({ userId, newDisplayName }: { userId: string; newDisplayName: string }) => {
+      const response = await supabase.functions.invoke('admin-user-management', {
+        body: { action: 'update-display-name', userId, newDisplayName }
+      });
+      if (response.error) throw new Error(response.error.message);
+      if (response.data?.error) throw new Error(response.data.error);
+      return response.data;
+    },
+    onSuccess: (data) => {
+      if (editingUser) {
+        setUserDataMap(prev => ({
+          ...prev,
+          [editingUser.userId]: { ...prev[editingUser.userId], display_name: data.newDisplayName }
+        }));
+      }
+      toast.success(`Display name updated`);
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to update display name');
+    },
+  });
+
   // Update role mutation
   const updateRoleMutation = useMutation({
     mutationFn: async ({ id, userId, newRole, oldRole }: { id: string; userId: string; newRole: Enums<'app_role'>; oldRole: Enums<'app_role'> }) => {
@@ -265,6 +292,13 @@ export default function Users() {
       }));
     }
     
+    if (newDisplayName !== editingUser.currentDisplayName) {
+      promises.push(updateDisplayNameMutation.mutateAsync({ 
+        userId: editingUser.userId, 
+        newDisplayName 
+      }));
+    }
+    
     if (newRole !== editingUser.currentRole) {
       promises.push(updateRoleMutation.mutateAsync({
         id: editingUser.id,
@@ -295,10 +329,12 @@ export default function Users() {
       userId, 
       currentRole, 
       currentUsername: userData?.username || '',
+      currentDisplayName: userData?.display_name || '',
       isSuperOwner: userData?.is_super_owner || false,
     });
     setNewRole(currentRole);
     setNewUsername(userData?.username || '');
+    setNewDisplayName(userData?.display_name || '');
     setEditDialogOpen(true);
   };
 
@@ -308,13 +344,14 @@ export default function Users() {
     return (
       ur.user_id.toLowerCase().includes(searchLower) ||
       (userData?.username || '').toLowerCase().includes(searchLower) ||
+      (userData?.display_name || '').toLowerCase().includes(searchLower) ||
       (userData?.email || '').toLowerCase().includes(searchLower)
     );
   });
 
   const usersWithoutUsernames = userRoles.filter(ur => !userDataMap[ur.user_id]?.username).length;
-  const isSaving = updateUsernameMutation.isPending || updateRoleMutation.isPending;
-  const hasChanges = editingUser && (newUsername !== editingUser.currentUsername || newRole !== editingUser.currentRole);
+  const isSaving = updateUsernameMutation.isPending || updateRoleMutation.isPending || updateDisplayNameMutation.isPending;
+  const hasChanges = editingUser && (newUsername !== editingUser.currentUsername || newRole !== editingUser.currentRole || newDisplayName !== editingUser.currentDisplayName);
 
   if (role !== 'owner') {
     return (
@@ -424,6 +461,7 @@ export default function Users() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>Name</TableHead>
                   <TableHead>Username</TableHead>
                   {callerIsSuperOwner && <TableHead>Email</TableHead>}
                   <TableHead>Role</TableHead>
@@ -438,9 +476,8 @@ export default function Users() {
                     <TableRow key={ur.id}>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <User className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-mono text-sm">
-                            {userData?.username || <span className="text-muted-foreground italic">No username</span>}
+                          <span className="font-medium">
+                            {userData?.display_name || <span className="text-muted-foreground italic">No name</span>}
                           </span>
                           {userData?.is_super_owner && (
                             <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/30">
@@ -450,6 +487,14 @@ export default function Users() {
                           {ur.user_id === user?.id && (
                             <Badge variant="outline" className="text-xs">You</Badge>
                           )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <User className="h-4 w-4 text-muted-foreground" />
+                          <span className="font-mono text-sm text-muted-foreground">
+                            @{userData?.username || <span className="italic">no_username</span>}
+                          </span>
                         </div>
                       </TableCell>
                       {callerIsSuperOwner && (
@@ -502,6 +547,16 @@ export default function Users() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
+              <Label htmlFor="edit-display-name">Display Name</Label>
+              <Input
+                id="edit-display-name"
+                value={newDisplayName}
+                onChange={(e) => setNewDisplayName(e.target.value)}
+                placeholder="John Dela Cruz"
+              />
+              <p className="text-xs text-muted-foreground">This name is shown in the sidebar and user list</p>
+            </div>
+            <div className="space-y-2">
               <Label htmlFor="edit-username">Username</Label>
               <Input
                 id="edit-username"
@@ -509,7 +564,7 @@ export default function Users() {
                 onChange={(e) => setNewUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
                 placeholder="owner_swift_123"
               />
-              <p className="text-xs text-muted-foreground">Lowercase, letters, numbers, and underscores only</p>
+              <p className="text-xs text-muted-foreground">Lowercase, letters, numbers, and underscores only (used for login)</p>
             </div>
             <div className="space-y-2">
               <Label>Role</Label>

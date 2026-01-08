@@ -89,28 +89,30 @@ Deno.serve(async (req) => {
         );
       }
 
-      // Fetch usernames from user_roles
+      // Fetch usernames and display names from user_roles
       const { data: roleData } = await adminClient
         .from("user_roles")
-        .select("user_id, username, is_super_owner")
+        .select("user_id, username, display_name, is_super_owner")
         .in("user_id", userIds);
 
-      const usernameMap: Record<string, { username: string | null; is_super_owner: boolean }> = {};
+      const usernameMap: Record<string, { username: string | null; display_name: string | null; is_super_owner: boolean }> = {};
       for (const role of roleData || []) {
         usernameMap[role.user_id] = { 
           username: role.username, 
+          display_name: role.display_name,
           is_super_owner: role.is_super_owner || false 
         };
       }
 
       // Create a map of user_id -> user data
       // Only super owner can see emails
-      const userDataMap: Record<string, { email: string | null; username: string | null; is_super_owner: boolean }> = {};
+      const userDataMap: Record<string, { email: string | null; username: string | null; display_name: string | null; is_super_owner: boolean }> = {};
       for (const u of users) {
         if (userIds.includes(u.id)) {
           userDataMap[u.id] = {
             email: isSuperOwner ? (u.email || "No email") : null,
             username: usernameMap[u.id]?.username || null,
+            display_name: usernameMap[u.id]?.display_name || null,
             is_super_owner: usernameMap[u.id]?.is_super_owner || false,
           };
         }
@@ -298,6 +300,68 @@ Deno.serve(async (req) => {
 
       return new Response(
         JSON.stringify({ success: true, oldUsername, newUsername: cleanUsername }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Action: Update display name
+    if (action === "update-display-name") {
+      const { userId, newDisplayName } = params as { userId: string; newDisplayName: string };
+
+      // Only super owner can update display names
+      if (!isSuperOwner) {
+        return new Response(
+          JSON.stringify({ error: "Only super owner can update display names" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (!userId) {
+        return new Response(
+          JSON.stringify({ error: "userId is required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const cleanDisplayName = (newDisplayName || "").trim();
+
+      // Get old display name for logging
+      const { data: oldData } = await adminClient
+        .from("user_roles")
+        .select("display_name")
+        .eq("user_id", userId)
+        .single();
+
+      const oldDisplayName = oldData?.display_name;
+
+      // Update display name
+      const { error: updateError } = await adminClient
+        .from("user_roles")
+        .update({ display_name: cleanDisplayName || null })
+        .eq("user_id", userId);
+
+      if (updateError) {
+        return new Response(
+          JSON.stringify({ error: "Failed to update display name" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Log the change
+      await adminClient.from("admin_logs").insert({
+        user_id: user.id,
+        user_email: user.email || "super_owner",
+        action: "update",
+        entity_type: "display_name",
+        entity_id: userId,
+        entity_name: cleanDisplayName,
+        old_values: { display_name: oldDisplayName },
+        new_values: { display_name: cleanDisplayName },
+        details: `Changed display name from "${oldDisplayName || 'none'}" to "${cleanDisplayName || 'none'}"`
+      });
+
+      return new Response(
+        JSON.stringify({ success: true, oldDisplayName, newDisplayName: cleanDisplayName }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

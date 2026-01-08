@@ -7,6 +7,7 @@ type AppRole = 'owner' | 'manager' | 'cashier' | 'driver';
 interface UserRoleData {
   role: AppRole;
   username: string | null;
+  display_name: string | null;
   is_super_owner: boolean;
 }
 
@@ -15,6 +16,7 @@ interface AuthContextType {
   session: Session | null;
   role: AppRole | null;
   username: string | null;
+  displayName: string | null;
   isSuperOwner: boolean;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
@@ -37,13 +39,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [role, setRole] = useState<AppRole | null>(null);
   const [username, setUsername] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState<string | null>(null);
   const [isSuperOwner, setIsSuperOwner] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const fetchUserRole = async (userId: string): Promise<UserRoleData | null> => {
     const { data, error } = await supabase
       .from('user_roles')
-      .select('role, username, is_super_owner')
+      .select('role, username, display_name, is_super_owner')
       .eq('user_id', userId)
       .maybeSingle();
     
@@ -55,6 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return data ? {
       role: data.role as AppRole,
       username: data.username,
+      display_name: data.display_name,
       is_super_owner: data.is_super_owner || false,
     } : null;
   };
@@ -73,6 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             fetchUserRole(session.user.id).then((fetchedData) => {
               setRole(fetchedData?.role || null);
               setUsername(fetchedData?.username || null);
+              setDisplayName(fetchedData?.display_name || null);
               setIsSuperOwner(fetchedData?.is_super_owner || false);
               setLoading(false);
             });
@@ -80,6 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else {
           setRole(null);
           setUsername(null);
+          setDisplayName(null);
           setIsSuperOwner(false);
           setLoading(false);
         }
@@ -95,6 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         fetchUserRole(session.user.id).then((fetchedData) => {
           setRole(fetchedData?.role || null);
           setUsername(fetchedData?.username || null);
+          setDisplayName(fetchedData?.display_name || null);
           setIsSuperOwner(fetchedData?.is_super_owner || false);
           setLoading(false);
         });
@@ -159,6 +166,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
     setRole(null);
     setUsername(null);
+    setDisplayName(null);
     setIsSuperOwner(false);
   };
 
@@ -177,6 +185,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         session,
         role,
         username,
+        displayName,
         isSuperOwner,
         loading,
         signIn,
