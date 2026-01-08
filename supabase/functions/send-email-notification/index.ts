@@ -329,7 +329,7 @@ async function logEmailSent(
   }
 }
 
-// Create admin notifications
+// Create admin notifications for email events
 async function createEmailNotification(supabase: any, payload: EmailPayload, recipientType: string): Promise<void> {
   try {
     const { data: adminRoles, error: rolesError } = await supabase
@@ -341,12 +341,17 @@ async function createEmailNotification(supabase: any, payload: EmailPayload, rec
 
     const notifications = adminRoles.map((role: any) => ({
       user_id: role.user_id,
-      title: `📧 Email Sent`,
-      message: `${getEmailTypeLabel(payload.type)} email sent (${recipientType})${payload.orderNumber ? ` for order #${payload.orderNumber}` : ''}`,
-      type: 'email_sent',
+      title: `📧 ${getEmailTypeLabel(payload.type)}`,
+      message: `Email sent to ${recipientType}${payload.orderNumber ? ` for order #${payload.orderNumber}` : ''}`,
+      type: 'email',
       order_id: payload.orderId || null,
-      action_url: payload.orderId ? `/admin/orders?order=${payload.orderId}` : '/admin/email-templates',
-      metadata: { email_type: payload.type, recipient_type: recipientType, order_number: payload.orderNumber },
+      action_url: payload.orderId ? `/admin/orders?orderId=${payload.orderId}` : '/admin/email-templates',
+      metadata: { 
+        email_type: payload.type, 
+        recipient_type: recipientType, 
+        order_number: payload.orderNumber,
+        event: payload.type,
+      },
     }));
 
     await supabase.from('admin_notifications').insert(notifications);

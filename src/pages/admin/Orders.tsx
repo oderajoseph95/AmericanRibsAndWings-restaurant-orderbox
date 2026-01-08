@@ -483,12 +483,56 @@ export default function Orders() {
 
       return { id, status };
     },
-    onSuccess: (_, variables) => {
+    onSuccess: async (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
       // Update local selected order state so buttons refresh immediately
       if (selectedOrder?.id === variables.id) {
         setSelectedOrder(prev => prev ? { ...prev, status: variables.status } : null);
       }
+      
+      // Create admin notification for the status change
+      const order = orders.find(o => o.id === variables.id);
+      const orderNum = variables.orderNumber || order?.order_number || '';
+      
+      // Map status to notification title and message
+      const statusNotificationMap: Record<string, { title: string; message: string }> = {
+        for_verification: { title: "💳 Payment Proof Uploaded", message: `Order #${orderNum} has payment proof awaiting verification` },
+        approved: { title: "✅ Payment Verified", message: `Order #${orderNum} payment has been verified and approved` },
+        preparing: { title: "👨‍🍳 Order Preparing", message: `Order #${orderNum} is now being prepared` },
+        ready_for_pickup: { title: "📦 Order Ready", message: `Order #${orderNum} is ready for pickup` },
+        waiting_for_rider: { title: "🕐 Waiting for Rider", message: `Order #${orderNum} is waiting for a driver` },
+        picked_up: { title: "🚗 Order Picked Up", message: `Order #${orderNum} has been picked up by driver` },
+        in_transit: { title: "🚚 Order In Transit", message: `Order #${orderNum} is on the way to customer` },
+        delivered: { title: "🎉 Order Delivered", message: `Order #${orderNum} has been delivered successfully` },
+        completed: { title: "✅ Order Completed", message: `Order #${orderNum} has been completed` },
+        rejected: { title: "❌ Order Rejected", message: `Order #${orderNum} has been rejected` },
+        cancelled: { title: "🚫 Order Cancelled", message: `Order #${orderNum} has been cancelled` },
+      };
+      
+      const notificationInfo = statusNotificationMap[variables.status];
+      if (notificationInfo) {
+        try {
+          await createAdminNotification({
+            title: notificationInfo.title,
+            message: notificationInfo.message,
+            type: "order",
+            order_id: variables.id,
+            metadata: {
+              order_number: orderNum,
+              customer_name: order?.customers?.name,
+              customer_phone: order?.customers?.phone || undefined,
+              order_type: order?.order_type || undefined,
+              total_amount: order?.total_amount || undefined,
+              delivery_address: order?.delivery_address || undefined,
+              event: variables.status,
+            },
+            action_url: `/admin/orders?orderId=${variables.id}`,
+          });
+        } catch (e) {
+          console.error("Failed to create admin notification:", e);
+        }
+      }
+      
       toast.success('Order status updated');
     },
     onError: (error) => {
@@ -603,8 +647,40 @@ export default function Orders() {
         }
       }
     },
-    onSuccess: () => {
+    onSuccess: async (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
+      
+      // Create admin notification for driver assignment
+      if (variables.driverId) {
+        const order = orders.find(o => o.id === variables.orderId);
+        const orderNum = variables.orderNumber || order?.order_number || '';
+        const driverRecord = availableDrivers.find(d => d.id === variables.driverId);
+        
+        try {
+          await createAdminNotification({
+            title: "🚗 Driver Assigned",
+            message: `${driverRecord?.name || 'Driver'} has been assigned to Order #${orderNum}`,
+            type: "driver",
+            order_id: variables.orderId,
+            metadata: {
+              order_number: orderNum,
+              customer_name: order?.customers?.name,
+              customer_phone: order?.customers?.phone || undefined,
+              order_type: order?.order_type || undefined,
+              total_amount: order?.total_amount || undefined,
+              delivery_address: order?.delivery_address || undefined,
+              driver_name: driverRecord?.name,
+              driver_id: variables.driverId,
+              driver_phone: driverRecord?.phone,
+              event: "driver_assigned",
+            },
+            action_url: `/admin/orders?orderId=${variables.orderId}`,
+          });
+        } catch (e) {
+          console.error("Failed to create driver assignment notification:", e);
+        }
+      }
+      
       toast.success('Driver assigned');
     },
     onError: (error: any) => {
