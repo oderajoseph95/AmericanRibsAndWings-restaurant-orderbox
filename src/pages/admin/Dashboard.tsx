@@ -14,6 +14,7 @@ import { DashboardChart } from '@/components/admin/DashboardChart';
 import { ActivityFeed } from '@/components/admin/ActivityFeed';
 import { LiveVisitorsCard } from '@/components/admin/LiveVisitorsCard';
 import { ConversionFunnelCard } from '@/components/admin/ConversionFunnelCard';
+import { DashboardCommandHeader } from '@/components/admin/DashboardCommandHeader';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -330,44 +331,52 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Header with live indicator */}
+      {/* Header with live indicator and command header */}
       <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Dashboard</h1>
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-            </span>
-            <span className="text-xs font-medium text-green-600 dark:text-green-400">Live</span>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-            className="h-8 w-8"
-          >
-            <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
-          </Button>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          Last updated: {format(lastUpdate, 'h:mm:ss a')}
-        </p>
+        <div className="flex items-start justify-between gap-4">
+          {/* Left side: Title & controls */}
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Dashboard</h1>
+              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                </span>
+                <span className="text-xs font-medium text-green-600 dark:text-green-400">Live</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="h-8 w-8"
+              >
+                <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
+              </Button>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Last updated: {format(lastUpdate, 'h:mm:ss a')}
+            </p>
 
-        {/* Date filter buttons - scrollable on mobile */}
-        <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-lg overflow-x-auto w-fit max-w-full">
-          {(['today', 'yesterday', 'week', 'month'] as DateFilter[]).map((filter) => (
-            <Button
-              key={filter}
-              variant={dateFilter === filter ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setDateFilter(filter)}
-              className="capitalize whitespace-nowrap text-xs sm:text-sm"
-            >
-              {filter === 'week' ? 'This Week' : filter === 'month' ? 'This Month' : filter}
-            </Button>
-          ))}
+            {/* Date filter buttons - scrollable on mobile */}
+            <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-lg overflow-x-auto w-fit max-w-full">
+              {(['today', 'yesterday', 'week', 'month'] as DateFilter[]).map((filter) => (
+                <Button
+                  key={filter}
+                  variant={dateFilter === filter ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setDateFilter(filter)}
+                  className="capitalize whitespace-nowrap text-xs sm:text-sm"
+                >
+                  {filter === 'week' ? 'This Week' : filter === 'month' ? 'This Month' : filter}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          {/* Right side: Command header (desktop only) */}
+          <DashboardCommandHeader />
         </div>
       </div>
 

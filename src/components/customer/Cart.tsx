@@ -52,6 +52,8 @@ export function Cart({ items, onUpdateQuantity, onRemove, onCheckout, onClose, t
                   <img
                     src={item.product.image_url}
                     alt={item.product.name}
+                    loading="lazy"
+                    decoding="async"
                     className="w-full h-full object-cover"
                   />
                 ) : (

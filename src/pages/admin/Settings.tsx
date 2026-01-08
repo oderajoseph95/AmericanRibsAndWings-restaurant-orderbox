@@ -308,6 +308,67 @@ export default function Settings() {
 
       <Separator />
 
+      {/* Store Hours */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Store Hours</CardTitle>
+          <CardDescription>Set your store's operating hours (displayed on the dashboard)</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="store_open">Opening Time</Label>
+              <Input
+                id="store_open"
+                type="time"
+                defaultValue={
+                  (() => {
+                    const setting = settings.find((s) => s.key === 'store_hours');
+                    const value = setting?.value as { open?: string } | null;
+                    return value?.open || '10:00';
+                  })()
+                }
+                onBlur={(e) => {
+                  const current = settings.find((s) => s.key === 'store_hours');
+                  const currentValue = (current?.value || {}) as { open?: string; close?: string; timezone?: string };
+                  saveSettingMutation.mutate({
+                    key: 'store_hours',
+                    value: { ...currentValue, open: e.target.value },
+                  });
+                }}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="store_close">Closing Time</Label>
+              <Input
+                id="store_close"
+                type="time"
+                defaultValue={
+                  (() => {
+                    const setting = settings.find((s) => s.key === 'store_hours');
+                    const value = setting?.value as { close?: string } | null;
+                    return value?.close || '22:00';
+                  })()
+                }
+                onBlur={(e) => {
+                  const current = settings.find((s) => s.key === 'store_hours');
+                  const currentValue = (current?.value || {}) as { open?: string; close?: string; timezone?: string };
+                  saveSettingMutation.mutate({
+                    key: 'store_hours',
+                    value: { ...currentValue, close: e.target.value },
+                  });
+                }}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Store open/closed status is displayed on the admin dashboard.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Separator />
+
       {/* Business Information */}
       <Card>
         <CardHeader>
