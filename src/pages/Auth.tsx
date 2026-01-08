@@ -69,13 +69,13 @@ export default function AuthPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
+              <Label htmlFor="username">Username or Email</Label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   id="username"
                   type="text"
-                  placeholder="owner_swift_123"
+                  placeholder="username or email"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   required
@@ -83,6 +83,9 @@ export default function AuthPage() {
                   className="pl-10"
                 />
               </div>
+              <p className="text-xs text-muted-foreground">
+                Super Owners can use email or username. Other admins use username only.
+              </p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
