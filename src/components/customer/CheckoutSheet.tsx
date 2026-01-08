@@ -793,15 +793,44 @@ export function CheckoutSheet({
 
   return (
     <>
-      {/* Continue Checkout Dialog */}
+      {/* Continue Checkout Dialog - Fixed with proper event handling and close button */}
       {showResumePrompt && savedData && open && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 animate-in fade-in">
-          <div className="bg-background rounded-lg p-6 max-w-sm mx-4 shadow-xl animate-in fade-in zoom-in border">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10">
-                <ShoppingBag className="h-5 w-5 text-primary" />
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 animate-in fade-in"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dismissResumePrompt();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              dismissResumePrompt();
+            }
+          }}
+        >
+          <div 
+            className="bg-background rounded-lg p-6 max-w-sm mx-4 shadow-xl animate-in fade-in zoom-in border"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10">
+                  <ShoppingBag className="h-5 w-5 text-primary" />
+                </div>
+                <h3 className="text-lg font-bold">Continue Checkout?</h3>
               </div>
-              <h3 className="text-lg font-bold">Continue Checkout?</h3>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="h-8 w-8 -mr-2"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  dismissResumePrompt();
+                }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
             </div>
             <p className="text-sm text-muted-foreground mb-4">
               Welcome back! We saved your checkout progress. Would you like to continue where you left off?
@@ -813,10 +842,25 @@ export function CheckoutSheet({
               </p>
             )}
             <div className="flex gap-2">
-              <Button variant="outline" onClick={dismissResumePrompt} className="flex-1">
+              <Button 
+                variant="outline" 
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  dismissResumePrompt();
+                }} 
+                className="flex-1"
+              >
                 Start Fresh
               </Button>
-              <Button onClick={acceptResume} className="flex-1">
+              <Button 
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  acceptResume();
+                }} 
+                className="flex-1"
+              >
                 Continue
               </Button>
             </div>
