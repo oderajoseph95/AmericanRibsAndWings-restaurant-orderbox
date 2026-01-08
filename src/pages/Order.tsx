@@ -486,17 +486,48 @@ const Order = () => {
   };
 
   // Handle order confirmation - redirect to tracking page
-  const handleOrderConfirmed = (
+  const handleOrderConfirmed = async (
     orderNumber: string, 
     orderId: string, 
     orderType: OrderType,
     pickupDate?: string,
     pickupTime?: string
   ) => {
+    // Track checkout completed event for recovery
+    if (recoverId) {
+      try {
+        await supabase.from("abandoned_checkout_events").insert({
+          abandoned_checkout_id: recoverId,
+          event_type: "checkout_completed",
+          metadata: { order_id: orderId, order_number: orderNumber }
+        });
+      } catch (e) {
+        console.error("Failed to track checkout completion:", e);
+      }
+    }
+    
     setIsCheckoutOpen(false);
     clearCart();
     // Navigate to the order tracking page
     navigate(`/order/${orderId}`);
+  };
+
+  // Track when checkout sheet opens
+  const handleCheckoutOpen = async () => {
+    setIsCheckoutOpen(true);
+    
+    // Track checkout started event for recovery
+    if (recoverId) {
+      try {
+        await supabase.from("abandoned_checkout_events").insert({
+          abandoned_checkout_id: recoverId,
+          event_type: "checkout_started",
+          metadata: { cart_total: cartTotal, items_count: cart.length }
+        });
+      } catch (e) {
+        console.error("Failed to track checkout start:", e);
+      }
+    }
   };
 
   // Handle add from detail modal
