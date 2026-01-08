@@ -4,12 +4,63 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
 const FROM_EMAIL = "American Ribs & Wings <team@updates.arwfloridablanca.shop>";
-const BUSINESS_NAME = "American Ribs & Wings";
-const BUSINESS_ADDRESS = "Floridablanca, Pampanga";
-const BUSINESS_PHONE = "+63 921 408 0286";
+
+// Default fallback values - will be overridden by settings from DB
+const DEFAULT_BUSINESS_NAME = "American Ribs & Wings";
+const DEFAULT_BUSINESS_ADDRESS = "Floridablanca, Pampanga";
+const DEFAULT_BUSINESS_PHONE = "+63 921 408 0286";
 
 // CRITICAL: General notification email - ALWAYS receives admin notifications
 const GENERAL_NOTIFICATION_EMAIL = "arwfloridablancapampanga@gmail.com";
+
+// Business settings interface
+interface BusinessSettings {
+  businessName: string;
+  businessAddress: string;
+  businessPhone: string;
+}
+
+// Fetch business settings from database
+async function getBusinessSettings(supabase: any): Promise<BusinessSettings> {
+  try {
+    const { data: settings, error } = await supabase
+      .from('settings')
+      .select('key, value')
+      .in('key', ['store_name', 'business_address', 'business_phone']);
+    
+    if (error) {
+      console.error("Error fetching business settings:", error);
+      return {
+        businessName: DEFAULT_BUSINESS_NAME,
+        businessAddress: DEFAULT_BUSINESS_ADDRESS,
+        businessPhone: DEFAULT_BUSINESS_PHONE,
+      };
+    }
+
+    const settingsMap: Record<string, string> = {};
+    settings?.forEach((s: any) => {
+      settingsMap[s.key] = s.value as string;
+    });
+
+    return {
+      businessName: settingsMap['store_name'] || DEFAULT_BUSINESS_NAME,
+      businessAddress: settingsMap['business_address'] || DEFAULT_BUSINESS_ADDRESS,
+      businessPhone: settingsMap['business_phone'] || DEFAULT_BUSINESS_PHONE,
+    };
+  } catch (error) {
+    console.error("Error in getBusinessSettings:", error);
+    return {
+      businessName: DEFAULT_BUSINESS_NAME,
+      businessAddress: DEFAULT_BUSINESS_ADDRESS,
+      businessPhone: DEFAULT_BUSINESS_PHONE,
+    };
+  }
+}
+
+// Module-level business settings (set at start of each request)
+let BUSINESS_NAME = DEFAULT_BUSINESS_NAME;
+let BUSINESS_ADDRESS = DEFAULT_BUSINESS_ADDRESS;
+let BUSINESS_PHONE = DEFAULT_BUSINESS_PHONE;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1102,11 +1153,18 @@ const handler = async (req: Request): Promise<Response> => {
     const payload: EmailPayload = await req.json();
     console.log("Email notification request:", JSON.stringify(payload));
 
-    const { type, recipientEmail, orderNumber, isTest, templateType, testRecipientEmail } = payload;
-
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Fetch and set business settings at the start of each request
+    const businessSettings = await getBusinessSettings(supabase);
+    BUSINESS_NAME = businessSettings.businessName;
+    BUSINESS_ADDRESS = businessSettings.businessAddress;
+    BUSINESS_PHONE = businessSettings.businessPhone;
+    console.log("Business settings loaded:", businessSettings);
+
+    const { type, recipientEmail, orderNumber, isTest, templateType, testRecipientEmail } = payload;
 
     // ===== HANDLE TEST EMAIL =====
     if (type === 'test_email' && templateType && testRecipientEmail) {
@@ -1114,7 +1172,6 @@ const handler = async (req: Request): Promise<Response> => {
       
       // Generate test data
       const testPayload = getTestDataPayload();
-      testPayload.type = templateType.replace(/_customer$/, '').replace(/_admin$/, '');
       
       // Determine if customer or admin template
       const isCustomerTemplate = templateType.endsWith('_customer');

@@ -553,7 +553,7 @@ export default function Products() {
                   <div className="space-y-4 border-t pt-4 mt-4">
                     <h4 className="font-medium text-foreground">SEO Settings</h4>
                     <p className="text-xs text-muted-foreground">
-                      These settings control how the product appears in search engines and when shared on social media.
+                      Used for link previews (Messenger, Viber) and search engines only. Not shown in app UI.
                     </p>
                     
                     <div className="space-y-2">
@@ -574,11 +574,11 @@ export default function Products() {
                       <Input
                         id="seo_title"
                         name="seo_title"
-                        placeholder="Chicken Wings 6pcs | American Ribs & Wings"
+                        placeholder="Chicken Wings 6pcs"
                         maxLength={60}
                         defaultValue={(editingProduct as any)?.seo_title || ''}
                       />
-                      <p className="text-xs text-muted-foreground">Max 60 characters</p>
+                      <p className="text-xs text-muted-foreground">Max 60 chars. Store name is auto-appended.</p>
                     </div>
                     
                     <div className="space-y-2">
@@ -591,6 +591,22 @@ export default function Products() {
                         defaultValue={(editingProduct as any)?.seo_description || ''}
                       />
                       <p className="text-xs text-muted-foreground">Max 160 characters</p>
+                    </div>
+                    
+                    {/* SEO Preview */}
+                    <div className="p-3 bg-muted rounded-lg space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Link Preview</p>
+                      <div className="bg-background border rounded-md p-3 space-y-1">
+                        <p className="text-sm font-medium text-primary truncate">
+                          {(editingProduct as any)?.seo_title || editingProduct?.name || 'Product Name'} | Store Name
+                        </p>
+                        <p className="text-xs text-muted-foreground line-clamp-2">
+                          {(editingProduct as any)?.seo_description || editingProduct?.description?.slice(0, 160) || 'Product description will appear here...'}
+                        </p>
+                        <p className="text-xs text-green-600">
+                          {window.location.origin}/product/{(editingProduct as any)?.slug || 'product-slug'}
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </div>
