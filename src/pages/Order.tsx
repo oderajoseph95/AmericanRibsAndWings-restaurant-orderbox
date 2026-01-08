@@ -379,6 +379,7 @@ const Order = () => {
                   setIsCartOpen(false);
                   setIsCheckoutOpen(true);
                 }}
+                onClose={() => setIsCartOpen(false)}
                 total={cartTotal}
               />
             </SheetContent>
