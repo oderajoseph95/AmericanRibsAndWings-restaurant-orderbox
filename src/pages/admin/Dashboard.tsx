@@ -6,9 +6,10 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { 
   ShoppingCart, DollarSign, Clock, Loader2, TrendingUp, 
-  MapPin, Activity, Calendar, ChevronRight, Users, Truck, Package, Award, XCircle, RefreshCw, ShoppingBag, RotateCcw
+  MapPin, Activity, Calendar as CalendarIcon, ChevronRight, Users, Truck, Package, Award, XCircle, RefreshCw, ShoppingBag, RotateCcw,
+  Mail, MessageSquare, Timer, UserCheck
 } from 'lucide-react';
-import { startOfDay, endOfDay, subDays, startOfWeek, startOfMonth, format } from 'date-fns';
+import { startOfDay, endOfDay, subDays, startOfWeek, startOfMonth, format, differenceInMinutes } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { DashboardChart } from '@/components/admin/DashboardChart';
 import { ActivityFeed } from '@/components/admin/ActivityFeed';
@@ -18,6 +19,8 @@ import { DashboardCommandHeader } from '@/components/admin/DashboardCommandHeade
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { Database } from '@/integrations/supabase/types';
 
 type OrderStatus = Database['public']['Enums']['order_status'];
@@ -28,24 +31,46 @@ const SALES_STATUSES: OrderStatus[] = [
   'picked_up', 'in_transit', 'delivered', 'completed'
 ];
 
-type DateFilter = 'today' | 'yesterday' | 'week' | 'month';
+type DateFilter = 'today' | 'yesterday' | 'week' | 'month' | 'custom';
+
+interface CustomDateRange {
+  from: Date;
+  to: Date;
+}
 
 export default function Dashboard() {
   const { role } = useAuth();
   const queryClient = useQueryClient();
   const [dateFilter, setDateFilter] = useState<DateFilter>('today');
+  const [customDateRange, setCustomDateRange] = useState<CustomDateRange | null>(null);
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // Refresh all dashboard data
+  const refreshAllData = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+      queryClient.invalidateQueries({ queryKey: ['conversion-funnel'] }),
+      queryClient.invalidateQueries({ queryKey: ['live-visitors'] }),
+    ]);
+    setLastUpdate(new Date());
+  };
+
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-    await queryClient.invalidateQueries({ queryKey: ['conversion-funnel'] });
-    await queryClient.invalidateQueries({ queryKey: ['live-visitors'] });
-    setLastUpdate(new Date());
+    await refreshAllData();
     toast.success('Dashboard refreshed');
     setTimeout(() => setIsRefreshing(false), 500);
   };
+
+  // Auto-refresh every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refreshAllData();
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [queryClient]);
 
   // Calculate date range based on filter
   const dateRange = useMemo(() => {
@@ -60,10 +85,19 @@ export default function Dashboard() {
         return { start: startOfWeek(now), end: endOfDay(now), label: 'This Week' };
       case 'month':
         return { start: startOfMonth(now), end: endOfDay(now), label: 'This Month' };
+      case 'custom':
+        if (customDateRange) {
+          return {
+            start: startOfDay(customDateRange.from),
+            end: endOfDay(customDateRange.to),
+            label: `${format(customDateRange.from, 'MMM d')} - ${format(customDateRange.to, 'MMM d')}`
+          };
+        }
+        return { start: startOfDay(now), end: endOfDay(now), label: 'Today' };
       default:
         return { start: startOfDay(now), end: endOfDay(now), label: 'Today' };
     }
-  }, [dateFilter]);
+  }, [dateFilter, customDateRange]);
 
   // Setup realtime subscription
   useEffect(() => {
@@ -359,6 +393,75 @@ export default function Dashboard() {
     },
   });
 
+  // Communication stats (emails and SMS sent)
+  const { data: commStats } = useQuery({
+    queryKey: ['dashboard', 'communication-stats', dateFilter, customDateRange],
+    queryFn: async () => {
+      const [emailRes, smsRes] = await Promise.all([
+        supabase.from('email_logs')
+          .select('*', { count: 'exact', head: true })
+          .in('status', ['sent', 'delivered'])
+          .gte('created_at', dateRange.start.toISOString())
+          .lte('created_at', dateRange.end.toISOString()),
+        supabase.from('sms_logs')
+          .select('*', { count: 'exact', head: true })
+          .in('status', ['sent', 'delivered'])
+          .gte('created_at', dateRange.start.toISOString())
+          .lte('created_at', dateRange.end.toISOString()),
+      ]);
+      
+      return {
+        emailsSent: emailRes.count || 0,
+        smsSent: smsRes.count || 0,
+      };
+    },
+  });
+
+  // Order handling time stats
+  const { data: handlingStats } = useQuery({
+    queryKey: ['dashboard', 'handling-stats', dateFilter, customDateRange],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('orders')
+        .select('created_at, status_changed_at')
+        .in('status', ['delivered', 'completed'])
+        .not('status_changed_at', 'is', null)
+        .gte('created_at', dateRange.start.toISOString())
+        .lte('created_at', dateRange.end.toISOString());
+      
+      if (!data?.length) return { avgHandlingMinutes: 0, orderCount: 0 };
+      
+      const handlingTimes = data
+        .filter(o => o.created_at && o.status_changed_at)
+        .map(o => differenceInMinutes(new Date(o.status_changed_at!), new Date(o.created_at!)));
+      
+      const validTimes = handlingTimes.filter(t => t > 0 && t < 10080); // Filter out invalid (>7 days)
+      const avgMinutes = validTimes.length > 0 
+        ? validTimes.reduce((a, b) => a + b, 0) / validTimes.length 
+        : 0;
+      
+      return { 
+        avgHandlingMinutes: Math.round(avgMinutes),
+        orderCount: validTimes.length
+      };
+    },
+  });
+
+  // Repeat customers count
+  const { data: repeatCustomerStats } = useQuery({
+    queryKey: ['dashboard', 'repeat-customers', dateFilter, customDateRange],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('customers')
+        .select('id, total_orders')
+        .gte('total_orders', 2);
+      
+      return {
+        repeatCount: data?.length || 0,
+      };
+    },
+  });
+
   // Random loading messages for engaging UX
   const loadingMessages = [
     "Crunching the numbers...",
@@ -408,7 +511,7 @@ export default function Dashboard() {
 
             {/* Date filter buttons - scrollable on mobile */}
             <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-lg overflow-x-auto w-fit max-w-full">
-              {(['today', 'yesterday', 'week', 'month'] as DateFilter[]).map((filter) => (
+              {(['today', 'yesterday', 'week', 'month'] as const).map((filter) => (
                 <Button
                   key={filter}
                   variant={dateFilter === filter ? 'default' : 'ghost'}
@@ -419,6 +522,40 @@ export default function Dashboard() {
                   {filter === 'week' ? 'This Week' : filter === 'month' ? 'This Month' : filter}
                 </Button>
               ))}
+              
+              {/* Custom Date Picker */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant={dateFilter === 'custom' ? 'default' : 'ghost'}
+                    size="sm"
+                    className="gap-1.5 whitespace-nowrap text-xs sm:text-sm"
+                  >
+                    <CalendarIcon className="h-3.5 w-3.5" />
+                    {dateFilter === 'custom' && customDateRange
+                      ? `${format(customDateRange.from, 'MMM d')} - ${format(customDateRange.to, 'MMM d')}`
+                      : 'Custom'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    initialFocus
+                    mode="range"
+                    defaultMonth={customDateRange?.from}
+                    selected={customDateRange ? { from: customDateRange.from, to: customDateRange.to } : undefined}
+                    onSelect={(range) => {
+                      if (range?.from && range?.to) {
+                        setCustomDateRange({ from: range.from, to: range.to });
+                        setDateFilter('custom');
+                      } else if (range?.from) {
+                        setCustomDateRange({ from: range.from, to: range.from });
+                      }
+                    }}
+                    numberOfMonths={2}
+                    className={cn("p-3 pointer-events-auto")}
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
 
@@ -434,7 +571,7 @@ export default function Dashboard() {
           <LiveVisitorsCard />
         </div>
         <div className="lg:col-span-2">
-          <ConversionFunnelCard dateFilter={dateFilter} />
+          <ConversionFunnelCard dateFilter={dateFilter} customDateRange={customDateRange} />
         </div>
       </div>
 
@@ -506,165 +643,157 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Cart Recovery Stats - only show if there's activity */}
-      {((recoveryStats?.recoveredCount || 0) + (recoveryStats?.expiredCount || 0)) > 0 && (
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card className="border-green-500/20 bg-green-500/5">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Recovered Carts</CardTitle>
-              <RotateCcw className="h-4 w-4 text-green-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-600">{recoveryStats?.recoveredCount || 0}</div>
-              <p className="text-xs text-muted-foreground">
-                ₱{(recoveryStats?.recoveredRevenue || 0).toLocaleString('en-PH')} recovered
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-red-500/20 bg-red-500/5">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Failed Recovery</CardTitle>
-              <XCircle className="h-4 w-4 text-red-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-red-600">{recoveryStats?.expiredCount || 0}</div>
-              <p className="text-xs text-muted-foreground">Reminders exhausted</p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-blue-500/20 bg-blue-500/5">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Recovery Rate</CardTitle>
-              <TrendingUp className="h-4 w-4 text-blue-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-blue-600">{(recoveryStats?.recoveryRate || 0).toFixed(1)}%</div>
-              <p className="text-xs text-muted-foreground">Of attempted recoveries</p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Cancelled/Refund Stats - only show if there are any */}
-      {((periodStats?.cancelledCount || 0) + (periodStats?.rejectedCount || 0)) > 0 && (
-        <div className="grid gap-4 md:grid-cols-4">
-          <Card className="border-orange-500/20 bg-orange-500/5">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Cancelled</CardTitle>
-              <XCircle className="h-4 w-4 text-orange-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-orange-600">{periodStats?.cancelledCount || 0}</div>
-              <p className="text-xs text-muted-foreground">Orders cancelled</p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-red-500/20 bg-red-500/5">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Rejected</CardTitle>
-              <XCircle className="h-4 w-4 text-red-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-red-600">{periodStats?.rejectedCount || 0}</div>
-              <p className="text-xs text-muted-foreground">Orders rejected</p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-blue-500/20 bg-blue-500/5">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Refunds Issued</CardTitle>
-              <DollarSign className="h-4 w-4 text-blue-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-blue-600">{periodStats?.refundedCount || 0}</div>
-              <p className="text-xs text-muted-foreground">Orders refunded</p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-purple-500/20 bg-purple-500/5">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Total Refunds</CardTitle>
-              <DollarSign className="h-4 w-4 text-purple-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-purple-600">₱{(periodStats?.totalRefunds || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</div>
-              <p className="text-xs text-muted-foreground">Amount refunded</p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Delivery Metrics - Only show if there are delivery orders */}
-      {(periodStats?.deliveryCount || 0) > 0 && (
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Distance Covered</CardTitle>
-              <MapPin className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{(periodStats?.totalDeliveryDistance || 0).toFixed(1)} km</div>
-              <p className="text-xs text-muted-foreground">
-                {periodStats?.deliveryCount} deliveries
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Avg Delivery Distance</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{(periodStats?.avgDeliveryDistance || 0).toFixed(1)} km</div>
-              <p className="text-xs text-muted-foreground">Per delivery order</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Delivery Fees Collected</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">₱{(periodStats?.totalDeliveryFees || 0).toFixed(2)}</div>
-              <p className="text-xs text-muted-foreground">From {periodStats?.deliveryCount} orders</p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Order Type Breakdown */}
-      {(periodStats?.salesOrderCount || 0) > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Order Breakdown ({dateRange.label})</CardTitle>
+      {/* Cart Recovery Stats - always visible */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card className={cn("border-green-500/20 bg-green-500/5", (recoveryStats?.recoveredCount || 0) === 0 && "opacity-60")}>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Recovered Carts</CardTitle>
+            <RotateCcw className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
-            <div className="flex items-center gap-4 flex-wrap">
-              <div className="flex items-center gap-2">
-                <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/20">
-                  Delivery
-                </Badge>
-                <span className="font-semibold">{periodStats?.deliveryCount || 0}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/20">
-                  Pickup
-                </Badge>
-                <span className="font-semibold">{periodStats?.pickupCount || 0}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant="outline" className="bg-orange-500/10 text-orange-600 border-orange-500/20">
-                  Dine-in
-                </Badge>
-                <span className="font-semibold">{periodStats?.dineInCount || 0}</span>
-              </div>
-            </div>
+            <div className="text-2xl font-bold text-green-600">{recoveryStats?.recoveredCount || 0}</div>
+            <p className="text-xs text-muted-foreground">
+              ₱{(recoveryStats?.recoveredRevenue || 0).toLocaleString('en-PH')} recovered
+            </p>
           </CardContent>
         </Card>
-      )}
+
+        <Card className={cn("border-red-500/20 bg-red-500/5", (recoveryStats?.expiredCount || 0) === 0 && "opacity-60")}>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Failed Recovery</CardTitle>
+            <XCircle className="h-4 w-4 text-red-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-red-600">{recoveryStats?.expiredCount || 0}</div>
+            <p className="text-xs text-muted-foreground">Reminders exhausted</p>
+          </CardContent>
+        </Card>
+
+        <Card className={cn("border-blue-500/20 bg-blue-500/5", ((recoveryStats?.recoveredCount || 0) + (recoveryStats?.expiredCount || 0)) === 0 && "opacity-60")}>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Recovery Rate</CardTitle>
+            <TrendingUp className="h-4 w-4 text-blue-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-600">{(recoveryStats?.recoveryRate || 0).toFixed(1)}%</div>
+            <p className="text-xs text-muted-foreground">Of attempted recoveries</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Cancelled/Refund Stats - always visible */}
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card className={cn("border-orange-500/20 bg-orange-500/5", (periodStats?.cancelledCount || 0) === 0 && "opacity-60")}>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Cancelled</CardTitle>
+            <XCircle className="h-4 w-4 text-orange-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-orange-600">{periodStats?.cancelledCount || 0}</div>
+            <p className="text-xs text-muted-foreground">Orders cancelled</p>
+          </CardContent>
+        </Card>
+
+        <Card className={cn("border-red-500/20 bg-red-500/5", (periodStats?.rejectedCount || 0) === 0 && "opacity-60")}>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Rejected</CardTitle>
+            <XCircle className="h-4 w-4 text-red-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-red-600">{periodStats?.rejectedCount || 0}</div>
+            <p className="text-xs text-muted-foreground">Orders rejected</p>
+          </CardContent>
+        </Card>
+
+        <Card className={cn("border-blue-500/20 bg-blue-500/5", (periodStats?.refundedCount || 0) === 0 && "opacity-60")}>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Refunds Issued</CardTitle>
+            <DollarSign className="h-4 w-4 text-blue-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-600">{periodStats?.refundedCount || 0}</div>
+            <p className="text-xs text-muted-foreground">Orders refunded</p>
+          </CardContent>
+        </Card>
+
+        <Card className={cn("border-purple-500/20 bg-purple-500/5", (periodStats?.totalRefunds || 0) === 0 && "opacity-60")}>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Total Refunds</CardTitle>
+            <DollarSign className="h-4 w-4 text-purple-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-purple-600">₱{(periodStats?.totalRefunds || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</div>
+            <p className="text-xs text-muted-foreground">Amount refunded</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Delivery Metrics - always visible */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card className={cn((periodStats?.deliveryCount || 0) === 0 && "opacity-60")}>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Distance Covered</CardTitle>
+            <MapPin className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{(periodStats?.totalDeliveryDistance || 0).toFixed(1)} km</div>
+            <p className="text-xs text-muted-foreground">
+              {periodStats?.deliveryCount || 0} deliveries
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className={cn((periodStats?.deliveryCount || 0) === 0 && "opacity-60")}>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Avg Delivery Distance</CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{(periodStats?.avgDeliveryDistance || 0).toFixed(1)} km</div>
+            <p className="text-xs text-muted-foreground">Per delivery order</p>
+          </CardContent>
+        </Card>
+
+        <Card className={cn((periodStats?.deliveryCount || 0) === 0 && "opacity-60")}>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Delivery Fees Collected</CardTitle>
+            <DollarSign className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">₱{(periodStats?.totalDeliveryFees || 0).toFixed(2)}</div>
+            <p className="text-xs text-muted-foreground">From {periodStats?.deliveryCount || 0} orders</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Order Type Breakdown - always visible */}
+      <Card className={cn((periodStats?.salesOrderCount || 0) === 0 && "opacity-60")}>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium">Order Breakdown ({dateRange.label})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/20">
+                Delivery
+              </Badge>
+              <span className="font-semibold">{periodStats?.deliveryCount || 0}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/20">
+                Pickup
+              </Badge>
+              <span className="font-semibold">{periodStats?.pickupCount || 0}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="bg-orange-500/10 text-orange-600 border-orange-500/20">
+                Dine-in
+              </Badge>
+              <span className="font-semibold">{periodStats?.dineInCount || 0}</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Driver & Customer Stats - Row 2 of 4 cards */}
       <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
@@ -767,16 +896,23 @@ export default function Dashboard() {
           </Card>
         )}
 
-        {(atRiskCartsStats?.abandonedCount || 0) > 0 && (
+        {(atRiskCartsStats?.totalAtRisk || 0) > 0 && (
           <Card className="border-orange-500/30 bg-orange-500/5">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-semibold text-orange-700 dark:text-orange-400">
-                    {atRiskCartsStats?.abandonedCount} abandoned cart{(atRiskCartsStats?.abandonedCount || 0) > 1 ? 's' : ''}
-                  </p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-semibold text-orange-700 dark:text-orange-400">
+                      {atRiskCartsStats?.totalAtRisk} cart{(atRiskCartsStats?.totalAtRisk || 0) !== 1 ? 's' : ''} worth ₱{(atRiskCartsStats?.atRiskValue || 0).toLocaleString('en-PH')}
+                    </p>
+                    {(atRiskCartsStats?.recoveringCount || 0) > 0 && (
+                      <Badge className="bg-blue-500 text-white animate-pulse border-0">
+                        {atRiskCartsStats?.recoveringCount} Recovering
+                      </Badge>
+                    )}
+                  </div>
                   <p className="text-sm text-muted-foreground">
-                    ₱{(atRiskCartsStats?.atRiskValue || 0).toLocaleString('en-PH')} at risk
+                    {atRiskCartsStats?.abandonedCount || 0} recoverable, {atRiskCartsStats?.recoveringCount || 0} in progress
                   </p>
                 </div>
                 <Link to="/admin/abandoned-checkouts">
@@ -799,7 +935,7 @@ export default function Dashboard() {
               <CardTitle>Sales Trend</CardTitle>
               <p className="text-sm text-muted-foreground">Last 7 days performance</p>
             </div>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
+            <CalendarIcon className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <DashboardChart orders={chartOrders} days={7} />
@@ -818,14 +954,67 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Top Sellers */}
-      {topProducts.length > 0 && (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-lg">Top Sellers ({dateRange.label})</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+      {/* Communication & Performance Stats */}
+      <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
+        <Card className={cn((commStats?.emailsSent || 0) === 0 && "opacity-60")}>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Emails Sent</CardTitle>
+            <Mail className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
+            <div className="text-2xl font-bold">{commStats?.emailsSent || 0}</div>
+            <p className="text-xs text-muted-foreground">{dateRange.label}</p>
+          </CardContent>
+        </Card>
+
+        <Card className={cn((commStats?.smsSent || 0) === 0 && "opacity-60")}>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">SMS Sent</CardTitle>
+            <MessageSquare className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{commStats?.smsSent || 0}</div>
+            <p className="text-xs text-muted-foreground">{dateRange.label}</p>
+          </CardContent>
+        </Card>
+
+        <Card className={cn((handlingStats?.orderCount || 0) === 0 && "opacity-60")}>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Avg Handling Time</CardTitle>
+            <Timer className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {(handlingStats?.avgHandlingMinutes || 0) > 0 
+                ? `${Math.floor((handlingStats?.avgHandlingMinutes || 0) / 60)}h ${(handlingStats?.avgHandlingMinutes || 0) % 60}m`
+                : 'N/A'}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Order to completion ({handlingStats?.orderCount || 0} orders)
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className={cn((repeatCustomerStats?.repeatCount || 0) === 0 && "opacity-60")}>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Repeat Customers</CardTitle>
+            <UserCheck className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{repeatCustomerStats?.repeatCount || 0}</div>
+            <p className="text-xs text-muted-foreground">Ordered 2+ times</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Top Sellers - always visible */}
+      <Card className={cn(topProducts.length === 0 && "opacity-60")}>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-lg">Top Sellers ({dateRange.label})</CardTitle>
+          <TrendingUp className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          {topProducts.length > 0 ? (
             <div className="space-y-3">
               {topProducts.map((product, index) => (
                 <div key={product.name} className="flex items-center justify-between">
@@ -842,9 +1031,11 @@ export default function Dashboard() {
                 </div>
               ))}
             </div>
-          </CardContent>
-        </Card>
-      )}
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-4">No sales data for this period</p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Getting Started - Only show if no orders */}
       {(periodStats?.allOrdersCount || 0) === 0 && (

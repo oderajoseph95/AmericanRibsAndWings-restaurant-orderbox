@@ -8,7 +8,8 @@ import { Eye, ShoppingCart, CreditCard, CheckCircle, TrendingDown, Sparkles, Ale
 import { cn } from "@/lib/utils";
 
 interface ConversionFunnelCardProps {
-  dateFilter: "today" | "yesterday" | "week" | "month";
+  dateFilter: "today" | "yesterday" | "week" | "month" | "custom";
+  customDateRange?: { from: Date; to: Date } | null;
 }
 
 type FunnelStep = {
@@ -21,7 +22,7 @@ type FunnelStep = {
   isNegative?: boolean;
 };
 
-export function ConversionFunnelCard({ dateFilter }: ConversionFunnelCardProps) {
+export function ConversionFunnelCard({ dateFilter, customDateRange }: ConversionFunnelCardProps) {
   const queryClient = useQueryClient();
   
   const dateRange = useMemo(() => {
@@ -36,10 +37,18 @@ export function ConversionFunnelCard({ dateFilter }: ConversionFunnelCardProps) 
         return { start: startOfWeek(now), end: endOfDay(now) };
       case "month":
         return { start: startOfMonth(now), end: endOfDay(now) };
+      case "custom":
+        if (customDateRange) {
+          return { 
+            start: startOfDay(customDateRange.from), 
+            end: endOfDay(customDateRange.to) 
+          };
+        }
+        return { start: startOfDay(now), end: endOfDay(now) };
       default:
         return { start: startOfDay(now), end: endOfDay(now) };
     }
-  }, [dateFilter]);
+  }, [dateFilter, customDateRange]);
 
   // Real-time subscription for funnel updates
   useEffect(() => {
