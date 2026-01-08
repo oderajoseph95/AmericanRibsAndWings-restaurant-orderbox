@@ -35,7 +35,8 @@ import {
 import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
 import { RefundDialog } from '@/components/admin/RefundDialog';
-import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package, MoreHorizontal, Link, Share2, Copy, User, AlertTriangle, ChevronDown, Trash2, Camera, Upload, RefreshCw, Mail } from 'lucide-react';
+import { ReviewRequestModal } from '@/components/admin/ReviewRequestModal';
+import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package, MoreHorizontal, Link, Share2, Copy, User, AlertTriangle, ChevronDown, Trash2, Camera, Upload, RefreshCw, Mail, Star } from 'lucide-react';
 import { sendPushNotification } from '@/hooks/usePushNotifications';
 import { createAdminNotification } from '@/hooks/useAdminNotifications';
 import { createDriverNotification } from '@/hooks/useDriverNotifications';
@@ -121,6 +122,7 @@ export default function Orders() {
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [reviewRequestOrder, setReviewRequestOrder] = useState<Order | null>(null);
   const ITEMS_PER_PAGE = 20;
   const queryClient = useQueryClient();
 
@@ -1684,6 +1686,30 @@ export default function Orders() {
                   )}
                 </div>
 
+                {/* Review Request - Only for completed orders */}
+                {selectedOrder.status === 'completed' && (
+                  <div className="space-y-2 pt-4 border-t">
+                    <h4 className="font-medium flex items-center gap-2">
+                      <Star className="h-4 w-4 text-yellow-500" />
+                      Customer Review
+                    </h4>
+                    <Button
+                      variant={selectedOrder.last_review_requested_at ? "outline" : "default"}
+                      size="sm"
+                      className={`w-full ${!selectedOrder.last_review_requested_at ? 'bg-yellow-500 hover:bg-yellow-600 text-white' : ''}`}
+                      onClick={() => setReviewRequestOrder(selectedOrder)}
+                    >
+                      <Star className="h-4 w-4 mr-2" />
+                      {selectedOrder.last_review_requested_at ? 'Resend Review Request' : 'Request Review'}
+                    </Button>
+                    {selectedOrder.last_review_requested_at && (
+                      <p className="text-xs text-muted-foreground">
+                        Last requested: {format(new Date(selectedOrder.last_review_requested_at), 'MMM d, h:mm a')}
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 {/* Admin Override - All Status Options */}
                 <div className="space-y-2 pt-4 border-t">
                   <h4 className="font-medium text-sm text-muted-foreground">Admin Override</h4>
@@ -1719,6 +1745,31 @@ export default function Orders() {
           )}
         </SheetContent>
       </Sheet>
+
+      {/* Review Request Modal */}
+      {reviewRequestOrder && (
+        <ReviewRequestModal
+          open={!!reviewRequestOrder}
+          onOpenChange={(open) => !open && setReviewRequestOrder(null)}
+          order={{
+            id: reviewRequestOrder.id,
+            order_number: reviewRequestOrder.order_number,
+            total_amount: reviewRequestOrder.total_amount,
+            last_review_requested_at: reviewRequestOrder.last_review_requested_at,
+            customers: reviewRequestOrder.customers,
+          }}
+          orderItems={orderItems.map(item => ({
+            product_name: item.product_name,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            line_total: item.line_total,
+          }))}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ['orders'] });
+            setReviewRequestOrder(null);
+          }}
+        />
+      )}
     </div>
   );
 }

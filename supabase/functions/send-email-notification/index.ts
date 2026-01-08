@@ -517,6 +517,7 @@ function getDefaultSubject(type: string, orderNumber?: string): string {
     payout_requested: `💰 Payout Request Submitted`,
     payout_approved: `✅ Payout Approved!`,
     payout_rejected: `Payout Request Update`,
+    review_request: `⭐ We'd love your feedback! - Order #${orderNumber}`,
   };
   return subjects[type] || `Order #${orderNumber} Update`;
 }
@@ -840,6 +841,37 @@ function getDefaultTemplate(payload: EmailPayload): string {
             ${reason ? `<p style="margin-top: 15px;"><strong>Reason:</strong> ${reason}</p>` : ''}
           </div>
           <p>Please contact us if you have questions about this decision.</p>
+        </div>
+      `;
+      break;
+
+    case 'review_request':
+      content = `
+        <div class="content">
+          <h2 style="text-align: center;">How was your order? ⭐</h2>
+          <p style="text-align: center;">Hi ${customerName},</p>
+          <p style="text-align: center;">Thank you for ordering from ${BUSINESS_NAME}! We hope you enjoyed your meal.</p>
+          
+          <div class="order-box">
+            <div class="order-number">Order #${orderNumber}</div>
+            <span class="status-badge status-approved">Completed</span>
+          </div>
+
+          <h3 style="margin-top: 25px; border-bottom: 2px solid #fed7aa; padding-bottom: 10px;">📦 What You Ordered</h3>
+          ${generateOrderItemsHtml(payload.orderItems)}
+          ${generateOrderSummaryHtml(payload)}
+          
+          <div style="text-align: center; margin: 30px 0; padding: 25px; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border-radius: 12px;">
+            <p style="font-size: 18px; font-weight: bold; color: #92400e; margin: 0 0 10px;">We'd love to hear from you!</p>
+            <p style="color: #78350f; margin: 0 0 20px;">Your feedback helps us improve and helps other customers discover us.</p>
+            <a href="https://g.page/r/CX7_36IAlM8XEBM/review" class="cta-button" style="background: #ea580c; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
+              ⭐ Review Us on Google
+            </a>
+          </div>
+          
+          <p style="text-align: center; color: #6b7280; font-size: 14px;">
+            It only takes a minute and means the world to us! 🙏
+          </p>
         </div>
       `;
       break;

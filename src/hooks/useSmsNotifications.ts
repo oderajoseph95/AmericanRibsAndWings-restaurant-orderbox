@@ -11,6 +11,7 @@ export type SmsType =
   | "order_preparing"
   | "order_ready_for_pickup"
   | "order_completed"
+  | "review_request"
   | "test";
 
 export interface SmsNotificationPayload {

@@ -1015,6 +1015,7 @@ export type Database = {
           id: string
           internal_notes: string | null
           is_refunded: boolean | null
+          last_review_requested_at: string | null
           order_number: string | null
           order_type: Database["public"]["Enums"]["order_type"] | null
           payment_method: string | null
@@ -1041,6 +1042,7 @@ export type Database = {
           id?: string
           internal_notes?: string | null
           is_refunded?: boolean | null
+          last_review_requested_at?: string | null
           order_number?: string | null
           order_type?: Database["public"]["Enums"]["order_type"] | null
           payment_method?: string | null
@@ -1067,6 +1069,7 @@ export type Database = {
           id?: string
           internal_notes?: string | null
           is_refunded?: boolean | null
+          last_review_requested_at?: string | null
           order_number?: string | null
           order_type?: Database["public"]["Enums"]["order_type"] | null
           payment_method?: string | null

@@ -208,6 +208,9 @@ function getDefaultMessage(type: string, payload: SmsPayload): string {
     order_ready_for_pickup: `American Ribs & Wings: Your order #${orderNumber} is ready for pickup! Please proceed to our store in Floridablanca.`,
     order_completed: `American Ribs & Wings: Thank you for your order #${orderNumber}! We hope you enjoyed your meal. See you again soon! 🍗`,
     
+    // Review request - MUST be under 140 characters
+    review_request: `Loved your order? Review us! g.page/r/CX7_36IAlM8XEBM/review - American Ribs & Wings`,
+    
     // Test type
     test: `American Ribs & Wings: This is a test SMS. If you received this, SMS notifications are working correctly!`,
   };

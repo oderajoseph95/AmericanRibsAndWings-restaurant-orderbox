@@ -31,8 +31,11 @@ import {
   Timer,
   PackageCheck,
   CookingPot,
-  Camera
+  Camera,
+  Star,
+  ExternalLink
 } from "lucide-react";
+import googleReviewQR from "@/assets/google-review-qr.png";
 import type { Tables } from "@/integrations/supabase/types";
 import { format } from "date-fns";
 import { SEOHead } from "@/components/SEOHead";
@@ -1064,6 +1067,60 @@ export default function ThankYou() {
                     'Create Account'
                   )}
                 </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Google Review Section - Show for completed/delivered orders */}
+        {(currentStatus === 'completed' || currentStatus === 'delivered') && (
+          <Card className="border-yellow-500/30 bg-gradient-to-br from-yellow-50 to-amber-50 dark:from-yellow-950/20 dark:to-amber-950/20">
+            <CardContent className="pt-6">
+              <div className="text-center space-y-4">
+                <div className="flex items-center justify-center gap-2">
+                  <Star className="h-6 w-6 text-yellow-500 fill-yellow-500" />
+                  <h3 className="text-lg font-bold">Loved Your Order?</h3>
+                  <Star className="h-6 w-6 text-yellow-500 fill-yellow-500" />
+                </div>
+                
+                <p className="text-sm text-muted-foreground">
+                  Your feedback helps us serve you better and helps other customers discover us!
+                </p>
+                
+                {/* QR Code */}
+                <div className="flex flex-col items-center gap-3 py-4">
+                  <div className="bg-white p-3 rounded-xl shadow-md border">
+                    <img 
+                      src={googleReviewQR} 
+                      alt="Scan to review on Google" 
+                      className="w-32 h-32"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">Scan to Review on Google</p>
+                </div>
+                
+                <p className="text-xs text-muted-foreground">or</p>
+                
+                {/* Review Button */}
+                <Button 
+                  asChild 
+                  className="bg-yellow-500 hover:bg-yellow-600 text-white w-full"
+                  size="lg"
+                >
+                  <a 
+                    href="https://g.page/r/CX7_36IAlM8XEBM/review" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                  >
+                    <Star className="h-4 w-4 mr-2 fill-current" />
+                    Review Us on Google
+                    <ExternalLink className="h-4 w-4 ml-2" />
+                  </a>
+                </Button>
+                
+                <p className="text-xs text-muted-foreground">
+                  It only takes a minute and means the world to us! 🙏
+                </p>
               </div>
             </CardContent>
           </Card>
