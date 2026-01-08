@@ -7,6 +7,9 @@ const FROM_EMAIL = "American Ribs & Wings <team@updates.arwfloridablanca.shop>";
 const BUSINESS_NAME = "American Ribs & Wings";
 const BUSINESS_ADDRESS = "Floridablanca, Pampanga";
 
+// CRITICAL: General notification email - ALWAYS receives admin notifications
+const GENERAL_NOTIFICATION_EMAIL = "arwfloridablancapampanga@gmail.com";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -14,8 +17,7 @@ const corsHeaders = {
 
 interface EmailPayload {
   type: string;
-  recipientEmail: string;
-  ccEmails?: string[]; // Additional CC emails (optional override)
+  recipientEmail?: string; // Optional - if not provided, only admin emails are sent
   orderId?: string;
   orderNumber?: string;
   customerName?: string;
@@ -30,41 +32,44 @@ interface EmailPayload {
   reason?: string;
 }
 
-// Fetch ALL owner emails from the database
-async function getOwnerEmails(supabase: any): Promise<string[]> {
+// Fetch ALL admin emails (owners + super_owners) from the database
+async function getAdminEmails(supabase: any): Promise<string[]> {
   try {
-    // Get all users with 'owner' role
-    const { data: ownerRoles, error: rolesError } = await supabase
+    // Get all users with 'owner' role OR is_super_owner = true
+    const { data: adminRoles, error: rolesError } = await supabase
       .from('user_roles')
-      .select('user_id')
-      .eq('role', 'owner');
+      .select('user_id, role, is_super_owner')
+      .or('role.eq.owner,is_super_owner.eq.true');
     
-    if (rolesError || !ownerRoles || ownerRoles.length === 0) {
-      console.log("No owner roles found or error:", rolesError);
+    if (rolesError || !adminRoles || adminRoles.length === 0) {
+      console.log("No admin roles found or error:", rolesError);
       return [];
     }
 
-    console.log(`Found ${ownerRoles.length} owner roles`);
+    console.log(`Found ${adminRoles.length} admin roles (owner + super_owner)`);
 
-    // Fetch email for each owner using admin API
-    const ownerEmails: string[] = [];
-    for (const owner of ownerRoles) {
-      const { data: userData, error: userError } = await supabase.auth.admin.getUserById(owner.user_id);
+    // Get unique user IDs
+    const uniqueUserIds = [...new Set(adminRoles.map((r: any) => r.user_id))];
+
+    // Fetch email for each admin user using admin API
+    const adminEmails: string[] = [];
+    for (const userId of uniqueUserIds) {
+      const { data: userData, error: userError } = await supabase.auth.admin.getUserById(userId);
       if (!userError && userData?.user?.email) {
-        ownerEmails.push(userData.user.email);
-        console.log(`Owner email found: ${userData.user.email}`);
+        adminEmails.push(userData.user.email);
+        console.log(`Admin email found: ${userData.user.email}`);
       }
     }
 
-    return ownerEmails;
+    return adminEmails;
   } catch (error) {
-    console.error("Error fetching owner emails:", error);
+    console.error("Error fetching admin emails:", error);
     return [];
   }
 }
 
 // Log email sent to admin_logs table
-async function logEmailSent(supabase: any, payload: EmailPayload, recipients: string[], ccEmails: string[]): Promise<void> {
+async function logEmailSent(supabase: any, payload: EmailPayload, recipients: string[], emailType: string): Promise<void> {
   try {
     const { error } = await supabase.from('admin_logs').insert({
       user_id: '00000000-0000-0000-0000-000000000000', // System user
@@ -73,11 +78,11 @@ async function logEmailSent(supabase: any, payload: EmailPayload, recipients: st
       entity_type: 'email',
       entity_id: payload.orderId || null,
       entity_name: `${payload.type} - ${payload.orderNumber || 'N/A'}`,
-      details: `Email sent to ${recipients.join(', ')}${ccEmails.length > 0 ? ` (CC: ${ccEmails.join(', ')})` : ''}`,
+      details: `${emailType} email sent to ${recipients.join(', ')}`,
       new_values: {
         type: payload.type,
-        recipient: recipients[0],
-        cc: ccEmails,
+        email_type: emailType,
+        recipients: recipients,
         order_number: payload.orderNumber,
         customer_name: payload.customerName,
       },
@@ -86,7 +91,7 @@ async function logEmailSent(supabase: any, payload: EmailPayload, recipients: st
     if (error) {
       console.error("Error logging email:", error);
     } else {
-      console.log("Email logged to admin_logs");
+      console.log(`Email logged: ${emailType} to ${recipients.join(', ')}`);
     }
   } catch (error) {
     console.error("Error logging email:", error);
@@ -94,7 +99,7 @@ async function logEmailSent(supabase: any, payload: EmailPayload, recipients: st
 }
 
 // Create admin notifications for email sent
-async function createEmailNotification(supabase: any, payload: EmailPayload, recipients: string[]): Promise<void> {
+async function createEmailNotification(supabase: any, payload: EmailPayload, recipientType: string): Promise<void> {
   try {
     // Get all admin user IDs (owner, manager, cashier)
     const { data: adminRoles, error: rolesError } = await supabase
@@ -111,13 +116,13 @@ async function createEmailNotification(supabase: any, payload: EmailPayload, rec
     const notifications = adminRoles.map((role: any) => ({
       user_id: role.user_id,
       title: `📧 Email Sent`,
-      message: `${getEmailTypeLabel(payload.type)} email sent to ${recipients[0]}${payload.orderNumber ? ` for order #${payload.orderNumber}` : ''}`,
+      message: `${getEmailTypeLabel(payload.type)} email sent (${recipientType})${payload.orderNumber ? ` for order #${payload.orderNumber}` : ''}`,
       type: 'email_sent',
       order_id: payload.orderId || null,
       action_url: payload.orderId ? `/admin/orders?order=${payload.orderId}` : '/admin/email-templates',
       metadata: {
         email_type: payload.type,
-        recipient: recipients[0],
+        recipient_type: recipientType,
         order_number: payload.orderNumber,
       },
     }));
@@ -433,13 +438,7 @@ function getDefaultTemplate(payload: EmailPayload): string {
             <div class="order-number">Order #${orderNumber}</div>
             <span class="status-badge status-info">Picked Up</span>
           </div>
-          <p>The driver has picked up your order and will begin the delivery shortly.</p>
-          ${driverName ? `
-          <div class="driver-box">
-            <p><strong>Driver:</strong> ${driverName}</p>
-            ${driverPhone ? `<p><strong>Contact:</strong> ${driverPhone}</p>` : ''}
-          </div>
-          ` : ''}
+          ${driverName ? `<p>Your driver <strong>${driverName}</strong> has picked up your order and will be heading your way soon!</p>` : '<p>Your order has been picked up!</p>'}
         </div>
       `;
       break;
@@ -447,20 +446,20 @@ function getDefaultTemplate(payload: EmailPayload): string {
     case 'order_in_transit':
       content = `
         <div class="content">
-          <h2>On the Way! 🚗</h2>
+          <h2>Your order is on the way! 🚗</h2>
           <p>Hi ${customerName},</p>
           <div class="order-box">
             <div class="order-number">Order #${orderNumber}</div>
             <span class="status-badge status-info">In Transit</span>
-            ${deliveryAddress ? `<p><strong>Delivering to:</strong> ${deliveryAddress}</p>` : ''}
           </div>
           ${driverName ? `
           <div class="driver-box">
-            <p><strong>Driver:</strong> ${driverName}</p>
+            <h3 style="margin-top: 0;">Your Driver</h3>
+            <p><strong>Name:</strong> ${driverName}</p>
             ${driverPhone ? `<p><strong>Contact:</strong> ${driverPhone}</p>` : ''}
           </div>
           ` : ''}
-          <p>Your order is on its way! Please be ready to receive it.</p>
+          <p>Your delicious food is being delivered right now. Get ready!</p>
         </div>
       `;
       break;
@@ -474,8 +473,8 @@ function getDefaultTemplate(payload: EmailPayload): string {
             <div class="order-number">Order #${orderNumber}</div>
             <span class="status-badge status-approved">Delivered</span>
           </div>
-          <p>Your order has been delivered. We hope you enjoy it!</p>
-          <p>Thank you for choosing ${BUSINESS_NAME}. We'd love to serve you again!</p>
+          <p>Your order has been delivered. Enjoy your meal!</p>
+          <p>Thank you for choosing ${BUSINESS_NAME}. We hope to serve you again soon!</p>
         </div>
       `;
       break;
@@ -483,14 +482,15 @@ function getDefaultTemplate(payload: EmailPayload): string {
     case 'order_completed':
       content = `
         <div class="content">
-          <h2>Order Completed! ✨</h2>
+          <h2>Thank You! ✨</h2>
           <p>Hi ${customerName},</p>
           <div class="order-box">
             <div class="order-number">Order #${orderNumber}</div>
             <span class="status-badge status-approved">Completed</span>
             <div class="total-row">Total: ₱${totalAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</div>
           </div>
-          <p>Thank you for your order! We hope to see you again soon.</p>
+          <p>Your order is complete! Thank you for choosing ${BUSINESS_NAME}.</p>
+          <p>We hope you enjoyed your meal and look forward to serving you again!</p>
         </div>
       `;
       break;
@@ -502,10 +502,10 @@ function getDefaultTemplate(payload: EmailPayload): string {
           <p>Hi ${customerName},</p>
           <div class="order-box">
             <div class="order-number">Order #${orderNumber}</div>
-            <span class="status-badge status-warning">Returned</span>
+            <span class="status-badge status-rejected">Returned</span>
             ${reason ? `<p style="margin-top: 15px;"><strong>Reason:</strong> ${reason}</p>` : ''}
           </div>
-          <p>Unfortunately, your order was returned to the restaurant. Please contact us for more information.</p>
+          <p>Your order was returned to the restaurant. Please contact us for more information or to arrange a refund.</p>
         </div>
       `;
       break;
@@ -513,13 +513,14 @@ function getDefaultTemplate(payload: EmailPayload): string {
     case 'payout_requested':
       content = `
         <div class="content">
-          <h2>New Payout Request 💰</h2>
-          <p>A driver has requested a payout.</p>
+          <h2>Payout Requested 💰</h2>
+          <p>Hi ${driverName},</p>
           <div class="order-box">
-            <p><strong>Driver:</strong> ${driverName}</p>
+            <div class="order-number">Payout Request</div>
+            <span class="status-badge status-warning">Pending</span>
             <div class="total-row">Amount: ₱${payoutAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</div>
           </div>
-          <p>Please review and process this payout request in the admin dashboard.</p>
+          <p>Your payout request has been submitted and is pending review. We'll notify you once it's processed.</p>
         </div>
       `;
       break;
@@ -529,11 +530,12 @@ function getDefaultTemplate(payload: EmailPayload): string {
         <div class="content">
           <h2>Payout Approved! ✅</h2>
           <p>Hi ${driverName},</p>
-          <p>Your payout request has been approved and processed.</p>
           <div class="order-box">
+            <div class="order-number">Payout Approved</div>
+            <span class="status-badge status-approved">Approved</span>
             <div class="total-row">Amount: ₱${payoutAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</div>
           </div>
-          <p>The funds should be transferred to your account shortly.</p>
+          <p>Your payout has been approved and will be processed soon. Thank you for your hard work!</p>
         </div>
       `;
       break;
@@ -541,14 +543,14 @@ function getDefaultTemplate(payload: EmailPayload): string {
     case 'payout_rejected':
       content = `
         <div class="content">
-          <h2>Payout Request Update</h2>
+          <h2>Payout Update</h2>
           <p>Hi ${driverName},</p>
-          <p>Unfortunately, your payout request was not approved.</p>
           <div class="order-box">
-            <div class="total-row">Amount: ₱${payoutAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</div>
-            ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ''}
+            <div class="order-number">Payout Request</div>
+            <span class="status-badge status-rejected">Rejected</span>
+            ${reason ? `<p style="margin-top: 15px;"><strong>Reason:</strong> ${reason}</p>` : ''}
           </div>
-          <p>Please contact support if you have any questions.</p>
+          <p>Please contact us if you have any questions about this decision.</p>
         </div>
       `;
       break;
@@ -560,7 +562,7 @@ function getDefaultTemplate(payload: EmailPayload): string {
           <div class="order-box">
             <div class="order-number">Order #${orderNumber}</div>
           </div>
-          <p>There has been an update to your order. Please check the order tracking page for details.</p>
+          <p>There's been an update to your order. Please check your order status for more details.</p>
         </div>
       `;
   }
@@ -619,122 +621,12 @@ function wrapWithEmailLayout(content: string): string {
   `;
 }
 
-const handler = async (req: Request): Promise<Response> => {
-  // Handle CORS preflight
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
-
-  try {
-    const payload: EmailPayload = await req.json();
-    console.log("Email notification request:", payload);
-
-    const { type, recipientEmail, orderNumber } = payload;
-
-    if (!recipientEmail) {
-      throw new Error("Recipient email is required");
-    }
-
-    // Initialize Supabase client
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    // Fetch ALL owner emails from database for SEPARATE admin notifications
-    const ownerEmails = await getOwnerEmails(supabase);
-    console.log(`Fetched ${ownerEmails.length} owner emails from database:`, ownerEmails);
-    
-    let subject: string;
-    let html: string;
-
-    // Try to fetch template from database
-    try {
-      const { data: template, error } = await supabase
-        .from('email_templates')
-        .select('subject, content, is_active')
-        .eq('type', type)
-        .single();
-
-      if (!error && template && template.is_active) {
-        console.log(`Using database template for ${type}`);
-        subject = replaceVariables(template.subject, payload);
-        html = wrapWithEmailLayout(replaceVariables(template.content, payload));
-      } else {
-        console.log(`Using default template for ${type} (no active db template found)`);
-        subject = getDefaultSubject(type, orderNumber);
-        html = getDefaultTemplate(payload);
-      }
-    } catch (dbError) {
-      console.error("Error fetching template from database:", dbError);
-      // Fallback to default templates
-      subject = getDefaultSubject(type, orderNumber);
-      html = getDefaultTemplate(payload);
-    }
-
-    console.log(`Sending ${type} email to ${recipientEmail} (NO CC - separate admin emails)`);
-
-    // Send email to customer ONLY (no CC)
-    const customerEmailOptions = {
-      from: FROM_EMAIL,
-      to: [recipientEmail],
-      subject,
-      html,
-    };
-
-    const emailResponse = await resend.emails.send(customerEmailOptions);
-    console.log("Customer email sent successfully:", emailResponse);
-
-    // Log customer email to admin_logs
-    await logEmailSent(supabase, payload, [recipientEmail], []);
-    
-    // Create in-app notifications for admins
-    await createEmailNotification(supabase, payload, [recipientEmail]);
-
-    // Send SEPARATE brief notification emails to owners (not CC, but BCC-style separate emails)
-    if (ownerEmails.length > 0) {
-      const adminSubject = getAdminNotificationSubject(type, orderNumber, payload);
-      const adminHtml = getAdminNotificationTemplate(type, payload);
-
-      for (const ownerEmail of ownerEmails) {
-        // Skip if owner is the same as the customer (edge case)
-        if (ownerEmail.toLowerCase() === recipientEmail.toLowerCase()) continue;
-
-        try {
-          await resend.emails.send({
-            from: FROM_EMAIL,
-            to: [ownerEmail],
-            subject: adminSubject,
-            html: adminHtml,
-          });
-          console.log(`Admin notification sent to ${ownerEmail}`);
-        } catch (adminEmailError) {
-          console.error(`Failed to send admin notification to ${ownerEmail}:`, adminEmailError);
-        }
-      }
-    }
-
-    return new Response(JSON.stringify({ success: true, data: emailResponse }), {
-      status: 200,
-      headers: { "Content-Type": "application/json", ...corsHeaders },
-    });
-  } catch (error: any) {
-    console.error("Error sending email:", error);
-    return new Response(
-      JSON.stringify({ success: false, error: error.message }),
-      {
-        status: 500,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      }
-    );
-  }
-};
-
 // Generate admin notification subject (shorter, action-focused)
 function getAdminNotificationSubject(type: string, orderNumber?: string, payload?: EmailPayload): string {
   const subjects: Record<string, string> = {
-    new_order: `🔔 New Order #${orderNumber} - ₱${payload?.totalAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`,
+    new_order: `🔔 [NEW ORDER] #${orderNumber} - ₱${payload?.totalAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`,
     order_pending: `📋 Order #${orderNumber} - Pending Review`,
-    order_for_verification: `🔍 Order #${orderNumber} - Needs Verification`,
+    order_for_verification: `🔍 [VERIFY] Order #${orderNumber} - Needs Verification`,
     order_approved: `✅ Order #${orderNumber} Approved`,
     order_rejected: `❌ Order #${orderNumber} Rejected`,
     order_cancelled: `🚫 Order #${orderNumber} Cancelled`,
@@ -744,8 +636,9 @@ function getAdminNotificationSubject(type: string, orderNumber?: string, payload
     order_picked_up: `📦 Order #${orderNumber} Picked Up`,
     order_in_transit: `🚗 Order #${orderNumber} In Transit`,
     order_delivered: `🎉 Order #${orderNumber} Delivered`,
-    order_completed: `✨ Order #${orderNumber} Completed`,
-    payout_requested: `💰 Payout Request - ₱${payload?.payoutAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`,
+    order_completed: `✨ [COMPLETED] Order #${orderNumber}`,
+    order_returned: `↩️ [RETURNED] Order #${orderNumber}`,
+    payout_requested: `💰 [PAYOUT REQUEST] ₱${payload?.payoutAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`,
     payout_approved: `✅ Payout Approved`,
     payout_rejected: `Payout Rejected`,
   };
@@ -754,7 +647,7 @@ function getAdminNotificationSubject(type: string, orderNumber?: string, payload
 
 // Generate admin notification template (brief, action-focused)
 function getAdminNotificationTemplate(type: string, payload: EmailPayload): string {
-  const { orderNumber, customerName, totalAmount, deliveryAddress, orderType, driverName, payoutAmount, reason } = payload;
+  const { orderNumber, customerName, totalAmount, deliveryAddress, orderType, driverName, payoutAmount, reason, customerPhone } = payload;
   
   const baseStyles = `
     <style>
@@ -778,10 +671,11 @@ function getAdminNotificationTemplate(type: string, payload: EmailPayload): stri
     case 'new_order':
       content = `
         <div class="content">
-          <p style="margin: 0 0 12px;">New order received!</p>
+          <p style="margin: 0 0 12px;">🚨 <strong>New order received!</strong></p>
           <div class="order-info">
             <span class="order-number">Order #${orderNumber}</span><br>
             <strong>${customerName}</strong><br>
+            ${customerPhone ? `📞 ${customerPhone}<br>` : ''}
             ${orderType === 'delivery' ? `🚗 ${deliveryAddress || 'Delivery'}` : '🏪 Pickup'}<br>
             <span class="amount">₱${totalAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
           </div>
@@ -797,6 +691,7 @@ function getAdminNotificationTemplate(type: string, payload: EmailPayload): stri
     case 'order_ready_for_pickup':
     case 'order_delivered':
     case 'order_completed':
+    case 'order_returned':
       const statusMap: Record<string, string> = {
         order_approved: '✅ Approved',
         order_rejected: '❌ Rejected',
@@ -805,6 +700,7 @@ function getAdminNotificationTemplate(type: string, payload: EmailPayload): stri
         order_ready_for_pickup: '🍗 Ready',
         order_delivered: '🎉 Delivered',
         order_completed: '✨ Completed',
+        order_returned: '↩️ Returned',
       };
       content = `
         <div class="content">
@@ -822,7 +718,7 @@ function getAdminNotificationTemplate(type: string, payload: EmailPayload): stri
     case 'payout_requested':
       content = `
         <div class="content">
-          <p style="margin: 0 0 12px;">New payout request</p>
+          <p style="margin: 0 0 12px;">💰 New payout request</p>
           <div class="order-info">
             <strong>${driverName}</strong><br>
             <span class="amount">₱${payoutAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
@@ -863,5 +759,137 @@ function getAdminNotificationTemplate(type: string, payload: EmailPayload): stri
     </html>
   `;
 }
+
+// MAIN HANDLER
+const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const payload: EmailPayload = await req.json();
+    console.log("Email notification request:", payload);
+
+    const { type, recipientEmail, orderNumber } = payload;
+
+    // Initialize Supabase client
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // ===== STEP 1: ALWAYS SEND ADMIN EMAILS (regardless of customer email) =====
+    const adminEmails = await getAdminEmails(supabase);
+    console.log(`Fetched ${adminEmails.length} admin emails from database:`, adminEmails);
+    
+    // Build unique admin recipients list (GENERAL_NOTIFICATION_EMAIL + all admin emails)
+    const allAdminRecipients = new Set<string>([GENERAL_NOTIFICATION_EMAIL]);
+    adminEmails.forEach(email => allAdminRecipients.add(email.toLowerCase()));
+    
+    console.log(`Admin recipients (${allAdminRecipients.size}):`, [...allAdminRecipients]);
+
+    const adminSubject = getAdminNotificationSubject(type, orderNumber, payload);
+    const adminHtml = getAdminNotificationTemplate(type, payload);
+
+    // Send SEPARATE email to each admin (NO CC, NO BCC)
+    let adminEmailsSent = 0;
+    for (const adminEmail of allAdminRecipients) {
+      try {
+        await resend.emails.send({
+          from: FROM_EMAIL,
+          to: [adminEmail],
+          subject: adminSubject,
+          html: adminHtml,
+        });
+        console.log(`Admin notification sent to ${adminEmail}`);
+        adminEmailsSent++;
+      } catch (adminEmailError) {
+        console.error(`Failed to send admin notification to ${adminEmail}:`, adminEmailError);
+      }
+    }
+
+    // Log admin emails
+    await logEmailSent(supabase, payload, [...allAdminRecipients], 'admin');
+    
+    // Create in-app notifications for admins
+    await createEmailNotification(supabase, payload, 'admin');
+
+    // ===== STEP 2: SEND CUSTOMER EMAIL (only if recipientEmail provided) =====
+    let customerEmailSent = false;
+    if (recipientEmail) {
+      // Don't send customer email if recipient is one of the admins
+      const isAdminEmail = allAdminRecipients.has(recipientEmail.toLowerCase());
+      
+      if (!isAdminEmail) {
+        let subject: string;
+        let html: string;
+
+        // Try to fetch template from database
+        try {
+          const { data: template, error } = await supabase
+            .from('email_templates')
+            .select('subject, content, is_active')
+            .eq('type', type)
+            .single();
+
+          if (!error && template && template.is_active) {
+            console.log(`Using database template for ${type}`);
+            subject = replaceVariables(template.subject, payload);
+            html = wrapWithEmailLayout(replaceVariables(template.content, payload));
+          } else {
+            console.log(`Using default template for ${type} (no active db template found)`);
+            subject = getDefaultSubject(type, orderNumber);
+            html = getDefaultTemplate(payload);
+          }
+        } catch (dbError) {
+          console.error("Error fetching template from database:", dbError);
+          subject = getDefaultSubject(type, orderNumber);
+          html = getDefaultTemplate(payload);
+        }
+
+        console.log(`Sending customer ${type} email to ${recipientEmail}`);
+
+        try {
+          const customerEmailResponse = await resend.emails.send({
+            from: FROM_EMAIL,
+            to: [recipientEmail],
+            subject,
+            html,
+          });
+          console.log("Customer email sent successfully:", customerEmailResponse);
+          customerEmailSent = true;
+
+          // Log customer email separately
+          await logEmailSent(supabase, payload, [recipientEmail], 'customer');
+        } catch (customerError) {
+          console.error("Failed to send customer email:", customerError);
+        }
+      } else {
+        console.log(`Skipping customer email - ${recipientEmail} is an admin email`);
+      }
+    } else {
+      console.log("No recipientEmail provided - only admin emails were sent");
+    }
+
+    return new Response(JSON.stringify({ 
+      success: true, 
+      adminEmailsSent,
+      customerEmailSent,
+      message: `Admin emails: ${adminEmailsSent} sent. Customer email: ${customerEmailSent ? 'sent' : 'not sent'}`
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", ...corsHeaders },
+    });
+  } catch (error: any) {
+    console.error("Error sending email:", error);
+    return new Response(
+      JSON.stringify({ success: false, error: error.message }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      }
+    );
+  }
+};
 
 serve(handler);

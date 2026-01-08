@@ -22,8 +22,7 @@ export type EmailType =
 
 export interface EmailNotificationPayload {
   type: EmailType;
-  recipientEmail: string;
-  ccEmails?: string[]; // CC owner emails
+  recipientEmail?: string; // Optional - if not provided, only admin emails are sent
   orderId?: string;
   orderNumber?: string;
   customerName?: string;
