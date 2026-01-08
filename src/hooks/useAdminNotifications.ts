@@ -1,8 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import type { Json } from "@/integrations/supabase/types";
+
+export type NotificationCategory = "all" | "order" | "driver" | "email" | "system";
 
 export interface NotificationMetadata {
   order_number?: string;
@@ -20,6 +22,9 @@ export interface NotificationMetadata {
   payment_method?: string;
   action_url?: string;
   action_label?: string;
+  event?: string;
+  email_type?: string;
+  recipient_type?: string;
 }
 
 export interface AdminNotification {
@@ -35,35 +40,91 @@ export interface AdminNotification {
   action_url: string | null;
 }
 
-export function useAdminNotifications() {
+const PAGE_SIZE = 20;
+
+export function useAdminNotifications(activeTab: NotificationCategory = "all") {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [page, setPage] = useState(0);
+  const [allNotifications, setAllNotifications] = useState<AdminNotification[]>([]);
+  const [hasMore, setHasMore] = useState(true);
 
-  // Fetch notifications
-  const { data: notifications = [], isLoading } = useQuery({
-    queryKey: ["admin-notifications", user?.id],
+  // Reset when tab changes
+  useEffect(() => {
+    setPage(0);
+    setAllNotifications([]);
+    setHasMore(true);
+  }, [activeTab]);
+
+  // Fetch notifications with pagination
+  const { data: pageData, isLoading, isFetching } = useQuery({
+    queryKey: ["admin-notifications", user?.id, activeTab, page],
     queryFn: async () => {
-      if (!user?.id) return [];
+      if (!user?.id) return { notifications: [], total: 0 };
       
-      const { data, error } = await supabase
+      const from = page * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+      
+      let query = supabase
         .from("admin_notifications")
-        .select("*")
+        .select("*", { count: "exact" })
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
-        .limit(50);
+        .range(from, to);
+
+      // Filter by type if not "all"
+      if (activeTab !== "all") {
+        query = query.eq("type", activeTab);
+      }
+
+      const { data, error, count } = await query;
+      if (error) throw error;
+      
+      return { 
+        notifications: data as AdminNotification[], 
+        total: count || 0 
+      };
+    },
+    enabled: !!user?.id,
+  });
+
+  // Accumulate notifications when page changes
+  useEffect(() => {
+    if (pageData?.notifications) {
+      if (page === 0) {
+        setAllNotifications(pageData.notifications);
+      } else {
+        setAllNotifications(prev => [...prev, ...pageData.notifications]);
+      }
+      setHasMore(pageData.notifications.length === PAGE_SIZE);
+    }
+  }, [pageData, page]);
+
+  // Fetch unread count (always for all types)
+  const { data: unreadData } = useQuery({
+    queryKey: ["admin-notifications-unread", user?.id],
+    queryFn: async () => {
+      if (!user?.id) return 0;
+      
+      const { count, error } = await supabase
+        .from("admin_notifications")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .eq("is_read", false);
 
       if (error) throw error;
-      return data as AdminNotification[];
+      return count || 0;
     },
     enabled: !!user?.id,
   });
 
   // Update unread count
   useEffect(() => {
-    const count = notifications.filter((n) => !n.is_read).length;
-    setUnreadCount(count);
-  }, [notifications]);
+    if (unreadData !== undefined) {
+      setUnreadCount(unreadData);
+    }
+  }, [unreadData]);
 
   // Setup realtime subscription
   useEffect(() => {
@@ -80,7 +141,11 @@ export function useAdminNotifications() {
           filter: `user_id=eq.${user.id}`,
         },
         () => {
+          // Reset to first page and refetch
+          setPage(0);
+          setAllNotifications([]);
           queryClient.invalidateQueries({ queryKey: ["admin-notifications"] });
+          queryClient.invalidateQueries({ queryKey: ["admin-notifications-unread"] });
         }
       )
       .subscribe();
@@ -89,6 +154,13 @@ export function useAdminNotifications() {
       supabase.removeChannel(channel);
     };
   }, [user?.id, queryClient]);
+
+  // Load more function
+  const loadMore = useCallback(() => {
+    if (!isFetching && hasMore) {
+      setPage(prev => prev + 1);
+    }
+  }, [isFetching, hasMore]);
 
   // Mark single notification as read
   const markAsReadMutation = useMutation({
@@ -103,6 +175,7 @@ export function useAdminNotifications() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-notifications-unread"] });
     },
   });
 
@@ -121,6 +194,7 @@ export function useAdminNotifications() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-notifications-unread"] });
     },
   });
 
@@ -137,6 +211,7 @@ export function useAdminNotifications() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-notifications-unread"] });
     },
   });
 
@@ -153,14 +228,20 @@ export function useAdminNotifications() {
       if (error) throw error;
     },
     onSuccess: () => {
+      setAllNotifications([]);
+      setPage(0);
       queryClient.invalidateQueries({ queryKey: ["admin-notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-notifications-unread"] });
     },
   });
 
   return {
-    notifications,
+    notifications: allNotifications,
     unreadCount,
-    isLoading,
+    isLoading: isLoading && page === 0,
+    isLoadingMore: isFetching && page > 0,
+    hasMore,
+    loadMore,
     markAsRead: markAsReadMutation.mutate,
     markAllAsRead: markAllAsReadMutation.mutate,
     isMarkingAllAsRead: markAllAsReadMutation.isPending,
