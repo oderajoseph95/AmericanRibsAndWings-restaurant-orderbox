@@ -511,22 +511,26 @@ export default function Users() {
                         {ur.created_at && format(new Date(ur.created_at), 'MMM d, yyyy')}
                       </TableCell>
                       <TableCell>
-                        {callerIsSuperOwner && ur.user_id !== user?.id && !userData?.is_super_owner && (
+                        {callerIsSuperOwner && (
                           <div className="flex gap-1">
+                            {/* Edit button - allow editing any user including self */}
                             <Button variant="ghost" size="icon" onClick={() => openEditDialog(ur.id, ur.user_id, ur.role)}>
                               <Pencil className="h-4 w-4" />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => {
-                                if (confirm('Remove this user from admin access?')) {
-                                  deleteRoleMutation.mutate({ id: ur.id, userId: ur.user_id, role: ur.role });
-                                }
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            {/* Delete button - prevent deleting self or other super owners */}
+                            {ur.user_id !== user?.id && !userData?.is_super_owner && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  if (confirm('Remove this user from admin access?')) {
+                                    deleteRoleMutation.mutate({ id: ur.id, userId: ur.user_id, role: ur.role });
+                                  }
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         )}
                       </TableCell>
