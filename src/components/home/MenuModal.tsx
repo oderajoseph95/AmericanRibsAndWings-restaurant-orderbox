@@ -7,7 +7,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Download, Loader2 } from "lucide-react";
+import { Download, Loader2, X } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface MenuModalProps {
@@ -52,18 +52,37 @@ export function MenuModal({ open, onOpenChange }: MenuModalProps) {
     }
   };
 
+  const handleOrderNow = () => {
+    onOpenChange(false);
+    window.location.href = "/order";
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] p-0">
+      <DialogContent className="max-w-lg max-h-[90vh] p-0 [&>button]:hidden">
         <DialogHeader className="p-4 border-b sticky top-0 bg-background z-10">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <DialogTitle>Our Menu</DialogTitle>
-            {pdfSetting && (
-              <Button variant="outline" size="sm" onClick={handleDownloadPdf}>
-                <Download className="h-4 w-4 mr-2" />
-                Download PDF
+            <div className="flex items-center gap-2">
+              <Button size="sm" onClick={handleOrderNow}>
+                Order Now
               </Button>
-            )}
+              {pdfSetting && (
+                <Button variant="outline" size="sm" onClick={handleDownloadPdf}>
+                  <Download className="h-4 w-4 mr-2" />
+                  PDF
+                </Button>
+              )}
+              <Button 
+                variant="ghost" 
+                size="icon"
+                className="h-10 w-10 rounded-full hover:bg-muted"
+                onClick={() => onOpenChange(false)}
+              >
+                <X className="h-6 w-6" />
+                <span className="sr-only">Close</span>
+              </Button>
+            </div>
           </div>
         </DialogHeader>
         
@@ -83,6 +102,16 @@ export function MenuModal({ open, onOpenChange }: MenuModalProps) {
                   loading="lazy"
                 />
               ))}
+              {/* Order Now button at bottom of images */}
+              <div className="p-4 border-t bg-background">
+                <Button 
+                  className="w-full"
+                  size="lg"
+                  onClick={handleOrderNow}
+                >
+                  Order Now
+                </Button>
+              </div>
             </div>
           ) : (
             <div className="text-center py-12 px-4">
@@ -91,10 +120,7 @@ export function MenuModal({ open, onOpenChange }: MenuModalProps) {
               </p>
               <Button 
                 className="mt-4" 
-                onClick={() => {
-                  onOpenChange(false);
-                  window.location.href = "/order";
-                }}
+                onClick={handleOrderNow}
               >
                 Order Now
               </Button>
