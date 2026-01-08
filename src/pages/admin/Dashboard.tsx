@@ -158,9 +158,36 @@ export default function Dashboard() {
     },
   });
 
-  // Abandoned carts stats
-  const { data: abandonedCartsStats } = useQuery({
-    queryKey: ['dashboard', 'abandoned-carts', dateFilter],
+  // At-risk carts stats (NOT filtered by date - shows all active at-risk carts)
+  const { data: atRiskCartsStats } = useQuery({
+    queryKey: ['dashboard', 'at-risk-carts'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('abandoned_checkouts')
+        .select('id, cart_total, status')
+        .in('status', ['abandoned', 'recovering']); // Active at-risk carts regardless of date
+
+      if (error) throw error;
+      
+      const abandoned = data?.filter(c => c.status === 'abandoned') || [];
+      const recovering = data?.filter(c => c.status === 'recovering') || [];
+      
+      const atRiskValue = data?.reduce((sum, c) => sum + (c.cart_total || 0), 0) || 0;
+      const recoveringValue = recovering.reduce((sum, c) => sum + (c.cart_total || 0), 0);
+      
+      return {
+        abandonedCount: abandoned.length,
+        recoveringCount: recovering.length,
+        atRiskValue,
+        recoveringValue,
+        totalAtRisk: (abandoned.length || 0) + (recovering.length || 0),
+      };
+    },
+  });
+
+  // Recovery stats for the period (filtered by date for historical tracking)
+  const { data: recoveryStats } = useQuery({
+    queryKey: ['dashboard', 'recovery-stats', dateFilter],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('abandoned_checkouts')
@@ -170,28 +197,16 @@ export default function Dashboard() {
 
       if (error) throw error;
       
-      const abandoned = data?.filter(c => c.status === 'abandoned') || [];
-      const recovering = data?.filter(c => c.status === 'recovering') || [];
       const recovered = data?.filter(c => c.status === 'recovered') || [];
       const expired = data?.filter(c => c.status === 'expired') || [];
       
-      // At-risk value = abandoned + recovering (carts not yet completed)
-      const atRiskCarts = [...abandoned, ...recovering];
-      const atRiskValue = atRiskCarts.reduce((sum, c) => sum + (c.cart_total || 0), 0);
-      const abandonedValue = abandoned.reduce((sum, c) => sum + (c.cart_total || 0), 0);
-      const recoveringValue = recovering.reduce((sum, c) => sum + (c.cart_total || 0), 0);
       const recoveredRevenue = recovered.reduce((sum, c) => sum + (c.cart_total || 0), 0);
-      const totalAttempted = recovering.length + recovered.length + expired.length;
+      const totalAttempted = recovered.length + expired.length;
       const recoveryRate = totalAttempted > 0 ? (recovered.length / totalAttempted * 100) : 0;
       
       return {
-        abandonedCount: abandoned.length,
-        recoveringCount: recovering.length,
         recoveredCount: recovered.length,
         expiredCount: expired.length,
-        atRiskValue, // Combined abandoned + recovering value
-        abandonedValue,
-        recoveringValue,
         recoveredRevenue,
         recoveryRate,
       };
@@ -476,29 +491,23 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* At-Risk Value Card - Shows combined abandoned + recovering */}
+        {/* Cart At Risk Card - Shows combined value of abandoned + recovering */}
         <Card className="border-orange-500/20 bg-orange-500/5">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">At Risk Value</CardTitle>
+            <CardTitle className="text-sm font-medium">Cart At Risk</CardTitle>
             <ShoppingBag className="h-4 w-4 text-orange-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-600">₱{(abandonedCartsStats?.atRiskValue || 0).toLocaleString('en-PH')}</div>
+            <div className="text-2xl font-bold text-orange-600">₱{(atRiskCartsStats?.atRiskValue || 0).toLocaleString('en-PH')}</div>
             <p className="text-xs text-muted-foreground">
-              {(abandonedCartsStats?.abandonedCount || 0) + (abandonedCartsStats?.recoveringCount || 0)} carts at risk
+              {atRiskCartsStats?.totalAtRisk || 0} cart{(atRiskCartsStats?.totalAtRisk || 0) !== 1 ? 's' : ''} at risk
             </p>
-            {(abandonedCartsStats?.recoveringCount || 0) > 0 && (
-              <Link to="/admin/abandoned-checkouts" className="text-xs text-orange-600 hover:underline mt-1 inline-flex items-center gap-1">
-                <RotateCcw className="h-3 w-3 animate-spin" style={{ animationDuration: '3s' }} />
-                {abandonedCartsStats?.recoveringCount} in recovery
-              </Link>
-            )}
           </CardContent>
         </Card>
       </div>
 
       {/* Cart Recovery Stats - only show if there's activity */}
-      {((abandonedCartsStats?.recoveredCount || 0) + (abandonedCartsStats?.expiredCount || 0)) > 0 && (
+      {((recoveryStats?.recoveredCount || 0) + (recoveryStats?.expiredCount || 0)) > 0 && (
         <div className="grid gap-4 md:grid-cols-3">
           <Card className="border-green-500/20 bg-green-500/5">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -506,9 +515,9 @@ export default function Dashboard() {
               <RotateCcw className="h-4 w-4 text-green-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">{abandonedCartsStats?.recoveredCount || 0}</div>
+              <div className="text-2xl font-bold text-green-600">{recoveryStats?.recoveredCount || 0}</div>
               <p className="text-xs text-muted-foreground">
-                ₱{(abandonedCartsStats?.recoveredRevenue || 0).toLocaleString('en-PH')} recovered
+                ₱{(recoveryStats?.recoveredRevenue || 0).toLocaleString('en-PH')} recovered
               </p>
             </CardContent>
           </Card>
@@ -519,7 +528,7 @@ export default function Dashboard() {
               <XCircle className="h-4 w-4 text-red-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">{abandonedCartsStats?.expiredCount || 0}</div>
+              <div className="text-2xl font-bold text-red-600">{recoveryStats?.expiredCount || 0}</div>
               <p className="text-xs text-muted-foreground">Reminders exhausted</p>
             </CardContent>
           </Card>
@@ -530,7 +539,7 @@ export default function Dashboard() {
               <TrendingUp className="h-4 w-4 text-blue-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-600">{(abandonedCartsStats?.recoveryRate || 0).toFixed(1)}%</div>
+              <div className="text-2xl font-bold text-blue-600">{(recoveryStats?.recoveryRate || 0).toFixed(1)}%</div>
               <p className="text-xs text-muted-foreground">Of attempted recoveries</p>
             </CardContent>
           </Card>
@@ -657,8 +666,8 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {/* Driver & Customer Stats */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {/* Driver & Customer Stats - Row 2 of 4 cards */}
+      <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Drivers Online</CardTitle>
@@ -698,20 +707,22 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {driverStats?.topDriverName && (
-          <Card className="border-amber-500/30 bg-amber-500/5">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Top Driver Today</CardTitle>
-              <Award className="h-4 w-4 text-amber-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-lg font-bold truncate">{driverStats.topDriverName}</div>
-              <p className="text-xs text-muted-foreground">
-                ₱{driverStats.topDriverEarnings.toFixed(2)} earned
-              </p>
-            </CardContent>
-          </Card>
-        )}
+        {/* Carts in Recovery - 8th card */}
+        <Card className="border-blue-500/20 bg-blue-500/5">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Carts in Recovery</CardTitle>
+            <RotateCcw className={cn("h-4 w-4 text-blue-500", (atRiskCartsStats?.recoveringCount || 0) > 0 && "animate-spin")} style={{ animationDuration: '3s' }} />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-600">{atRiskCartsStats?.recoveringCount || 0}</div>
+            <p className="text-xs text-muted-foreground">
+              ₱{(atRiskCartsStats?.recoveringValue || 0).toLocaleString('en-PH')} value
+            </p>
+            <Link to="/admin/abandoned-checkouts" className="text-xs text-blue-600 hover:underline mt-1 inline-flex items-center gap-1">
+              View all <ChevronRight className="h-3 w-3" />
+            </Link>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Quick Actions */}
@@ -756,16 +767,16 @@ export default function Dashboard() {
           </Card>
         )}
 
-        {(abandonedCartsStats?.abandonedCount || 0) > 0 && (
+        {(atRiskCartsStats?.abandonedCount || 0) > 0 && (
           <Card className="border-orange-500/30 bg-orange-500/5">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-semibold text-orange-700 dark:text-orange-400">
-                    {abandonedCartsStats?.abandonedCount} abandoned cart{(abandonedCartsStats?.abandonedCount || 0) > 1 ? 's' : ''}
+                    {atRiskCartsStats?.abandonedCount} abandoned cart{(atRiskCartsStats?.abandonedCount || 0) > 1 ? 's' : ''}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    ₱{(abandonedCartsStats?.atRiskValue || 0).toLocaleString('en-PH')} at risk
+                    ₱{(atRiskCartsStats?.atRiskValue || 0).toLocaleString('en-PH')} at risk
                   </p>
                 </div>
                 <Link to="/admin/abandoned-checkouts">

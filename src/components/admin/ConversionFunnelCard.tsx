@@ -104,24 +104,25 @@ export function ConversionFunnelCard({ dateFilter }: ConversionFunnelCardProps) 
     },
   });
 
-  // Fetch abandoned checkouts
+  // Fetch abandoned checkouts - ALL unrecovered carts count as "abandoned" in the funnel
   const { data: abandonedData } = useQuery({
     queryKey: ["abandoned-checkouts-funnel", dateFilter],
     queryFn: async () => {
+      // Count ALL unrecovered carts (abandoned + recovering + expired = not yet recovered)
       const { count, error } = await supabase
         .from("abandoned_checkouts")
         .select("*", { count: "exact", head: true })
-        .eq("status", "abandoned")
+        .in("status", ["abandoned", "recovering", "expired"])
         .gte("created_at", dateRange.start.toISOString())
         .lte("created_at", dateRange.end.toISOString());
 
       if (error) throw error;
 
-      // Also get total value
+      // Get total value of all unrecovered carts
       const { data: valueData } = await supabase
         .from("abandoned_checkouts")
         .select("cart_total")
-        .eq("status", "abandoned")
+        .in("status", ["abandoned", "recovering", "expired"])
         .gte("created_at", dateRange.start.toISOString())
         .lte("created_at", dateRange.end.toISOString());
 
