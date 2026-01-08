@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Minus, Plus, Trash2, ShoppingBag } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import type { CartItem } from "@/pages/Order";
 
 interface CartProps {
@@ -10,11 +10,20 @@ interface CartProps {
   onUpdateQuantity: (itemId: string, delta: number) => void;
   onRemove: (itemId: string) => void;
   onCheckout: () => void;
+  onClose?: () => void;
   total: number;
 }
 
-export function Cart({ items, onUpdateQuantity, onRemove, onCheckout, total }: CartProps) {
+export function Cart({ items, onUpdateQuantity, onRemove, onCheckout, onClose, total }: CartProps) {
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const handleBrowseMenu = () => {
+    onClose?.();
+    if (location.pathname !== "/order") {
+      navigate("/order");
+    }
+  };
 
   if (items.length === 0) {
     return (
@@ -24,7 +33,7 @@ export function Cart({ items, onUpdateQuantity, onRemove, onCheckout, total }: C
         <p className="text-sm text-muted-foreground/70 mb-4">
           Add some delicious items to get started!
         </p>
-        <Button onClick={() => navigate("/order")}>
+        <Button onClick={handleBrowseMenu}>
           Browse Menu
         </Button>
       </div>
