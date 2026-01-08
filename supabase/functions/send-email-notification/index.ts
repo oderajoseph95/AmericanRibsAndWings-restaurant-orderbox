@@ -640,12 +640,9 @@ const handler = async (req: Request): Promise<Response> => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Fetch ALL owner emails from database
+    // Fetch ALL owner emails from database for SEPARATE admin notifications
     const ownerEmails = await getOwnerEmails(supabase);
     console.log(`Fetched ${ownerEmails.length} owner emails from database:`, ownerEmails);
-
-    // Combine with any additional CC emails passed in payload
-    const allCcEmails = [...new Set([...ownerEmails, ...(payload.ccEmails || [])])];
     
     let subject: string;
     let html: string;
@@ -674,29 +671,47 @@ const handler = async (req: Request): Promise<Response> => {
       html = getDefaultTemplate(payload);
     }
 
-    console.log(`Sending ${type} email to ${recipientEmail}${allCcEmails.length > 0 ? ` (CC: ${allCcEmails.join(', ')})` : ''}`);
+    console.log(`Sending ${type} email to ${recipientEmail} (NO CC - separate admin emails)`);
 
-    // Build email options with automatic CC to all owners
-    const emailOptions: any = {
+    // Send email to customer ONLY (no CC)
+    const customerEmailOptions = {
       from: FROM_EMAIL,
       to: [recipientEmail],
       subject,
       html,
     };
 
-    // Add CC - filter out the main recipient to avoid duplicates
-    const ccList = allCcEmails.filter(email => email !== recipientEmail);
-    if (ccList.length > 0) {
-      emailOptions.cc = ccList;
-    }
+    const emailResponse = await resend.emails.send(customerEmailOptions);
+    console.log("Customer email sent successfully:", emailResponse);
 
-    const emailResponse = await resend.emails.send(emailOptions);
-
-    console.log("Email sent successfully:", emailResponse);
-
-    // Log email to admin_logs and create notifications
-    await logEmailSent(supabase, payload, [recipientEmail], ccList);
+    // Log customer email to admin_logs
+    await logEmailSent(supabase, payload, [recipientEmail], []);
+    
+    // Create in-app notifications for admins
     await createEmailNotification(supabase, payload, [recipientEmail]);
+
+    // Send SEPARATE brief notification emails to owners (not CC, but BCC-style separate emails)
+    if (ownerEmails.length > 0) {
+      const adminSubject = getAdminNotificationSubject(type, orderNumber, payload);
+      const adminHtml = getAdminNotificationTemplate(type, payload);
+
+      for (const ownerEmail of ownerEmails) {
+        // Skip if owner is the same as the customer (edge case)
+        if (ownerEmail.toLowerCase() === recipientEmail.toLowerCase()) continue;
+
+        try {
+          await resend.emails.send({
+            from: FROM_EMAIL,
+            to: [ownerEmail],
+            subject: adminSubject,
+            html: adminHtml,
+          });
+          console.log(`Admin notification sent to ${ownerEmail}`);
+        } catch (adminEmailError) {
+          console.error(`Failed to send admin notification to ${ownerEmail}:`, adminEmailError);
+        }
+      }
+    }
 
     return new Response(JSON.stringify({ success: true, data: emailResponse }), {
       status: 200,
@@ -713,5 +728,140 @@ const handler = async (req: Request): Promise<Response> => {
     );
   }
 };
+
+// Generate admin notification subject (shorter, action-focused)
+function getAdminNotificationSubject(type: string, orderNumber?: string, payload?: EmailPayload): string {
+  const subjects: Record<string, string> = {
+    new_order: `🔔 New Order #${orderNumber} - ₱${payload?.totalAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`,
+    order_pending: `📋 Order #${orderNumber} - Pending Review`,
+    order_for_verification: `🔍 Order #${orderNumber} - Needs Verification`,
+    order_approved: `✅ Order #${orderNumber} Approved`,
+    order_rejected: `❌ Order #${orderNumber} Rejected`,
+    order_cancelled: `🚫 Order #${orderNumber} Cancelled`,
+    order_preparing: `👨‍🍳 Order #${orderNumber} Preparing`,
+    order_ready_for_pickup: `🍗 Order #${orderNumber} Ready`,
+    order_waiting_for_rider: `🚗 Order #${orderNumber} Needs Driver`,
+    order_picked_up: `📦 Order #${orderNumber} Picked Up`,
+    order_in_transit: `🚗 Order #${orderNumber} In Transit`,
+    order_delivered: `🎉 Order #${orderNumber} Delivered`,
+    order_completed: `✨ Order #${orderNumber} Completed`,
+    payout_requested: `💰 Payout Request - ₱${payload?.payoutAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`,
+    payout_approved: `✅ Payout Approved`,
+    payout_rejected: `Payout Rejected`,
+  };
+  return subjects[type] || `Order #${orderNumber} Update`;
+}
+
+// Generate admin notification template (brief, action-focused)
+function getAdminNotificationTemplate(type: string, payload: EmailPayload): string {
+  const { orderNumber, customerName, totalAmount, deliveryAddress, orderType, driverName, payoutAmount, reason } = payload;
+  
+  const baseStyles = `
+    <style>
+      body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5; }
+      .container { max-width: 500px; margin: 0 auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+      .header { background: #1f2937; color: white; padding: 15px 20px; }
+      .header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+      .content { padding: 20px; font-size: 14px; }
+      .order-info { background: #f3f4f6; border-radius: 6px; padding: 12px; margin: 12px 0; }
+      .order-number { font-weight: bold; color: #ea580c; }
+      .amount { font-size: 18px; font-weight: bold; color: #059669; }
+      .cta { display: inline-block; background: #ea580c; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 13px; margin-top: 12px; }
+      .footer { background: #f9fafb; padding: 12px; text-align: center; color: #9ca3af; font-size: 11px; }
+    </style>
+  `;
+
+  let content = '';
+  const orderLink = `https://arwfloridablanca.shop/admin/orders`;
+
+  switch (type) {
+    case 'new_order':
+      content = `
+        <div class="content">
+          <p style="margin: 0 0 12px;">New order received!</p>
+          <div class="order-info">
+            <span class="order-number">Order #${orderNumber}</span><br>
+            <strong>${customerName}</strong><br>
+            ${orderType === 'delivery' ? `🚗 ${deliveryAddress || 'Delivery'}` : '🏪 Pickup'}<br>
+            <span class="amount">₱${totalAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+          </div>
+          <a href="${orderLink}" class="cta">View Order →</a>
+        </div>
+      `;
+      break;
+
+    case 'order_approved':
+    case 'order_rejected':
+    case 'order_cancelled':
+    case 'order_preparing':
+    case 'order_ready_for_pickup':
+    case 'order_delivered':
+    case 'order_completed':
+      const statusMap: Record<string, string> = {
+        order_approved: '✅ Approved',
+        order_rejected: '❌ Rejected',
+        order_cancelled: '🚫 Cancelled',
+        order_preparing: '👨‍🍳 Preparing',
+        order_ready_for_pickup: '🍗 Ready',
+        order_delivered: '🎉 Delivered',
+        order_completed: '✨ Completed',
+      };
+      content = `
+        <div class="content">
+          <p style="margin: 0 0 12px;">Order #${orderNumber} status updated</p>
+          <div class="order-info">
+            <strong>${statusMap[type]}</strong><br>
+            Customer: ${customerName}<br>
+            ${reason ? `Reason: ${reason}` : ''}
+          </div>
+          <a href="${orderLink}" class="cta">View Details →</a>
+        </div>
+      `;
+      break;
+
+    case 'payout_requested':
+      content = `
+        <div class="content">
+          <p style="margin: 0 0 12px;">New payout request</p>
+          <div class="order-info">
+            <strong>${driverName}</strong><br>
+            <span class="amount">₱${payoutAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+          </div>
+          <a href="https://arwfloridablanca.shop/admin/payouts" class="cta">Review Payout →</a>
+        </div>
+      `;
+      break;
+
+    default:
+      content = `
+        <div class="content">
+          <p>Order #${orderNumber} update</p>
+          <a href="${orderLink}" class="cta">View in Admin →</a>
+        </div>
+      `;
+  }
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      ${baseStyles}
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>🔔 Admin Notification</h1>
+        </div>
+        ${content}
+        <div class="footer">
+          ${BUSINESS_NAME} Admin
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+}
 
 serve(handler);
