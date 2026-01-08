@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -16,7 +16,7 @@ import { Separator } from "@/components/ui/separator";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Upload, X, Check, Package, Truck, CalendarIcon, MapPin, User, CreditCard, ClipboardList, AlertTriangle } from "lucide-react";
+import { Loader2, Upload, X, Check, Package, Truck, CalendarIcon, MapPin, User, CreditCard, ClipboardList, AlertTriangle, ShoppingBag } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { sendPushNotification } from "@/hooks/usePushNotifications";
@@ -24,6 +24,7 @@ import { createAdminNotification } from "@/hooks/useAdminNotifications";
 import { trackAnalyticsEvent } from "@/hooks/useAnalytics";
 import { sendEmailNotification } from "@/hooks/useEmailNotifications";
 import { sendSmsNotification } from "@/hooks/useSmsNotifications";
+import { usePersistedCheckout } from "@/hooks/usePersistedCheckout";
 // ADMIN_EMAIL no longer needed - edge function handles admin recipients
 import { cn } from "@/lib/utils";
 import { DeliveryMapPicker } from "./DeliveryMapPicker";
@@ -159,6 +160,17 @@ export function CheckoutSheet({
   const [activeSection, setActiveSection] = useState<SectionId>("delivery-address");
   const [completedSections, setCompletedSections] = useState<Set<SectionId>>(new Set(["order-type"]));
   const [datePopoverOpen, setDatePopoverOpen] = useState(false);
+  const [hasRestoredData, setHasRestoredData] = useState(false);
+
+  // Checkout persistence hook
+  const { 
+    savedData, 
+    showResumePrompt, 
+    saveCheckoutData, 
+    clearCheckoutData,
+    dismissResumePrompt,
+    acceptResume 
+  } = usePersistedCheckout();
 
   // Fetch payment settings
   const { data: paymentSettings = [] } = useQuery({
@@ -301,6 +313,48 @@ export function CheckoutSheet({
       });
     }
   }, [paymentMethod, paymentProof, orderType, grandTotal, isCashAllowed]);
+
+  // Restore checkout data when user accepts resume
+  useEffect(() => {
+    if (savedData && open && !hasRestoredData && !showResumePrompt) {
+      // User accepted to resume - restore data
+      setHasRestoredData(true);
+      if (savedData.name) form.setValue("name", savedData.name);
+      if (savedData.phone) form.setValue("phone", savedData.phone);
+      if (savedData.email) form.setValue("email", savedData.email);
+      if (savedData.streetAddress) form.setValue("streetAddress", savedData.streetAddress);
+      if (savedData.city) form.setValue("city", savedData.city);
+      if (savedData.orderType) form.setValue("orderType", savedData.orderType);
+      if (savedData.barangay) setBarangay(savedData.barangay);
+      if (savedData.landmark) form.setValue("landmark", savedData.landmark);
+      if (savedData.customerLat) form.setValue("customerLat", savedData.customerLat);
+      if (savedData.customerLng) form.setValue("customerLng", savedData.customerLng);
+      if (savedData.activeSection) setActiveSection(savedData.activeSection as SectionId);
+      
+      toast.success("Welcome back! Your checkout progress has been restored.");
+    }
+  }, [savedData, open, hasRestoredData, showResumePrompt, form]);
+
+  // Save checkout data on form changes (debounced via hook)
+  const customerEmail = form.watch("email");
+  useEffect(() => {
+    // Only save if we have some meaningful data
+    if (customerName || customerPhone || customerEmail) {
+      saveCheckoutData({
+        orderType,
+        name: customerName,
+        phone: customerPhone,
+        email: customerEmail,
+        streetAddress,
+        city,
+        barangay,
+        landmark: form.watch("landmark"),
+        customerLat: form.watch("customerLat"),
+        customerLng: form.watch("customerLng"),
+        activeSection,
+      });
+    }
+  }, [customerName, customerPhone, customerEmail, orderType, streetAddress, city, barangay, activeSection, saveCheckoutData, form]);
 
   const handleLocationSelect = (data: {
     lat: number;
@@ -630,12 +684,16 @@ export function CheckoutSheet({
         }).catch(e => console.error("SMS notification failed:", e)),
       ]);
 
+      // Clear persisted checkout data on successful order
+      clearCheckoutData();
+      
       form.reset();
       clearPaymentProof();
       setDeliveryFee(null);
       setDeliveryDistance(null);
       setActiveSection("delivery-address");
       setCompletedSections(new Set(["order-type"]));
+      setHasRestoredData(false);
     } catch (error: any) {
       console.error("Checkout error:", error);
       toast.error(error.message || "Failed to place order. Please try again.");
@@ -645,15 +703,47 @@ export function CheckoutSheet({
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-lg p-0">
-        <SheetHeader className="p-4 border-b">
-          <SheetTitle>Checkout</SheetTitle>
-        </SheetHeader>
+    <>
+      {/* Continue Checkout Dialog */}
+      {showResumePrompt && savedData && open && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 animate-in fade-in">
+          <div className="bg-background rounded-lg p-6 max-w-sm mx-4 shadow-xl animate-in fade-in zoom-in border">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10">
+                <ShoppingBag className="h-5 w-5 text-primary" />
+              </div>
+              <h3 className="text-lg font-bold">Continue Checkout?</h3>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              Welcome back! We saved your checkout progress. Would you like to continue where you left off?
+            </p>
+            {savedData.name && (
+              <p className="text-xs text-muted-foreground mb-4 bg-muted p-2 rounded">
+                <strong>Saved info:</strong> {savedData.name}
+                {savedData.phone && ` • ${savedData.phone.slice(0, 4)}***`}
+              </p>
+            )}
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={dismissResumePrompt} className="flex-1">
+                Start Fresh
+              </Button>
+              <Button onClick={acceptResume} className="flex-1">
+                Continue
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
-        <ScrollArea className="h-[calc(100vh-80px)]">
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit, handleInvalidSubmit)} className="p-4 space-y-3">
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent side="right" className="w-full sm:max-w-lg p-0">
+          <SheetHeader className="p-4 border-b">
+            <SheetTitle>Checkout</SheetTitle>
+          </SheetHeader>
+
+          <ScrollArea className="h-[calc(100vh-80px)]">
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit, handleInvalidSubmit)} className="p-4 space-y-3">
               {/* Compact Order Summary */}
               <CompactOrderSummary 
                 cart={cart} 
@@ -1010,7 +1100,7 @@ export function CheckoutSheet({
                                         Complete Payment First
                                       </p>
                                       <p className="text-xs text-amber-700 mt-1">
-                                        Please pay using the QR code below, then upload a screenshot of your payment confirmation to proceed.
+                                        Please pay using the QR code or account details below, then upload a screenshot of your payment confirmation to proceed.
                                       </p>
                                     </div>
                                   </div>
@@ -1064,7 +1154,7 @@ export function CheckoutSheet({
                                         Complete Payment First
                                       </p>
                                       <p className="text-xs text-amber-700 mt-1">
-                                        Please pay using the bank details below, then upload a screenshot of your payment confirmation to proceed.
+                                        Please pay using the QR code or bank account details below, then upload a screenshot of your payment confirmation to proceed.
                                       </p>
                                     </div>
                                   </div>
@@ -1259,7 +1349,8 @@ export function CheckoutSheet({
             </form>
           </Form>
         </ScrollArea>
-      </SheetContent>
-    </Sheet>
+        </SheetContent>
+      </Sheet>
+    </>
   );
 }

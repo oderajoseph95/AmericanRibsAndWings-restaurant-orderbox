@@ -662,6 +662,23 @@ export function DeliveryMapPicker({
             )}
           </div>
 
+          {/* Barangay Selection Alert - Show when city is set but barangay is not */}
+          {selectedCity && !barangay && !isOutsideDeliveryArea && (
+            <div className="bg-amber-50 border-2 border-amber-400 rounded-lg p-3 animate-pulse shadow-[0_0_15px_rgba(245,158,11,0.3)]">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5 animate-bounce" />
+                <div>
+                  <p className="text-sm font-bold text-amber-800">
+                    Please Select Your Barangay
+                  </p>
+                  <p className="text-xs text-amber-700 mt-1">
+                    Choose your barangay from the dropdown below to calculate your delivery fee.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Barangay Dropdown */}
           {selectedCity && !isOutsideDeliveryArea && (
             <div className="space-y-2">

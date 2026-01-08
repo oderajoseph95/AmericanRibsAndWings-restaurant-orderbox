@@ -39,6 +39,7 @@ import Logs from "./pages/admin/Logs";
 import Users from "./pages/admin/Users";
 import EmailTemplates from "./pages/admin/EmailTemplates";
 import Sms from "./pages/admin/Sms";
+import AbandonedCheckouts from "./pages/admin/AbandonedCheckouts";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -92,6 +93,7 @@ const App = () => (
                   <Route path="website" element={<Website />} />
                   <Route path="email-templates" element={<EmailTemplates />} />
                   <Route path="sms" element={<Sms />} />
+                  <Route path="abandoned-checkouts" element={<AbandonedCheckouts />} />
                   <Route path="users" element={<Users />} />
                   <Route path="logs" element={<Logs />} />
                   <Route path="settings" element={<Settings />} />
