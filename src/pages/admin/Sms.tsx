@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -30,10 +30,13 @@ import {
   Users,
   Clock,
   TrendingUp,
-  BarChart3,
-  RefreshCcw
+  RefreshCcw,
+  Settings2,
+  Pause,
+  Play
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { DateRangeSelector } from '@/components/admin/DateRangeSelector';
 
 type SmsTemplate = {
   id: string;
@@ -60,6 +63,11 @@ type SmsLog = {
   metadata: any;
 };
 
+interface DateRange {
+  from: Date;
+  to: Date;
+}
+
 const smsVariables = [
   { variable: '{{order_number}}', description: 'Order number (e.g., ORD-20260108-1234)' },
   { variable: '{{customer_name}}', description: 'Customer\'s name' },
@@ -79,6 +87,16 @@ export default function Sms() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('templates');
   const [isSyncing, setIsSyncing] = useState(false);
+  
+  // Date range state
+  const [dateRangeDays, setDateRangeDays] = useState<number | 'custom'>(7);
+  const [customDateRange, setCustomDateRange] = useState<DateRange | undefined>();
+  const [autoSync, setAutoSync] = useState(false);
+  
+  // Settings state
+  const [adminBackupEnabled, setAdminBackupEnabled] = useState(false);
+  const [adminBackupNumbers, setAdminBackupNumbers] = useState('');
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
   
   // Test SMS state
   const [testPhone, setTestPhone] = useState('');
@@ -106,17 +124,56 @@ export default function Sms() {
         .from('sms_logs')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(200);
+        .limit(500);
       if (error) throw error;
       return data as SmsLog[];
     },
+    refetchInterval: autoSync ? 30000 : false, // Auto-refresh every 30 seconds if enabled
   });
 
-  // SMS Analytics
-  const analytics = useMemo(() => {
+  // Fetch settings
+  const { data: settings } = useQuery({
+    queryKey: ['sms-settings'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('settings')
+        .select('key, value')
+        .in('key', ['sms_admin_backup_enabled', 'sms_admin_backup_numbers']);
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  // Initialize settings from fetched data
+  useEffect(() => {
+    if (settings) {
+      const enabledSetting = settings.find(s => s.key === 'sms_admin_backup_enabled');
+      const numbersSetting = settings.find(s => s.key === 'sms_admin_backup_numbers');
+      
+      setAdminBackupEnabled(enabledSetting?.value === true || enabledSetting?.value === 'true');
+      if (numbersSetting?.value && Array.isArray(numbersSetting.value)) {
+        setAdminBackupNumbers((numbersSetting.value as string[]).join(', '));
+      }
+    }
+  }, [settings]);
+
+  // Calculate date range boundaries
+  const dateRange = useMemo(() => {
     const now = new Date();
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const recentLogs = smsLogs.filter(log => log.created_at && new Date(log.created_at) >= sevenDaysAgo);
+    if (dateRangeDays === 'custom' && customDateRange) {
+      return { from: customDateRange.from, to: customDateRange.to };
+    }
+    const from = new Date(now.getTime() - (dateRangeDays as number) * 24 * 60 * 60 * 1000);
+    return { from, to: now };
+  }, [dateRangeDays, customDateRange]);
+
+  // SMS Analytics based on selected date range
+  const analytics = useMemo(() => {
+    const recentLogs = smsLogs.filter(log => {
+      if (!log.created_at) return false;
+      const logDate = new Date(log.created_at);
+      return logDate >= dateRange.from && logDate <= dateRange.to;
+    });
     
     const total = recentLogs.length;
     
@@ -140,7 +197,12 @@ export default function Sms() {
       deliveryRate: total > 0 ? Math.round((delivered / total) * 100) : 0,
       failureRate: total > 0 ? Math.round((failed / total) * 100) : 0,
     };
-  }, [smsLogs]);
+  }, [smsLogs, dateRange]);
+
+  const handleDateRangeChange = (days: number | 'custom', range?: DateRange) => {
+    setDateRangeDays(days);
+    if (range) setCustomDateRange(range);
+  };
 
   // Update SMS template mutation
   const updateMutation = useMutation({
@@ -289,9 +351,42 @@ export default function Sms() {
     }
   };
 
+  // Save settings
+  const handleSaveSettings = async () => {
+    setIsSavingSettings(true);
+    try {
+      const numbersArray = adminBackupNumbers
+        .split(',')
+        .map(n => n.trim())
+        .filter(n => n.length > 0);
+
+      await supabase
+        .from('settings')
+        .upsert([
+          { key: 'sms_admin_backup_enabled', value: adminBackupEnabled },
+          { key: 'sms_admin_backup_numbers', value: numbersArray },
+        ], { onConflict: 'key' });
+
+      toast.success('Settings saved');
+      queryClient.invalidateQueries({ queryKey: ['sms-settings'] });
+    } catch (error: any) {
+      toast.error('Failed to save settings: ' + error.message);
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
   // Calculate character count and SMS segments
   const charCount = editContent.length;
   const smsSegments = Math.ceil(charCount / SMS_CHAR_LIMIT) || 1;
+
+  // Get display label for date range
+  const getDateRangeLabel = () => {
+    if (dateRangeDays === 'custom' && customDateRange) {
+      return `${format(customDateRange.from, 'MMM d')} - ${format(customDateRange.to, 'MMM d')}`;
+    }
+    return `Last ${dateRangeDays} days`;
+  };
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -306,6 +401,33 @@ export default function Sms() {
         </Button>
       </div>
 
+      {/* Date Range Selector and Auto-Sync */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <DateRangeSelector
+          value={dateRangeDays}
+          onChange={handleDateRangeChange}
+          customRange={customDateRange}
+        />
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Button
+              variant={autoSync ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setAutoSync(!autoSync)}
+              className="gap-2"
+            >
+              {autoSync ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+              {autoSync ? 'Auto-sync ON' : 'Auto-sync OFF'}
+            </Button>
+            {autoSync && (
+              <Badge variant="outline" className="bg-green-500/10 text-green-700">
+                Every 30s
+              </Badge>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* SMS Analytics Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
@@ -314,7 +436,7 @@ export default function Sms() {
               <div>
                 <p className="text-sm text-muted-foreground">Total Sent</p>
                 <p className="text-2xl font-bold">{analytics.total}</p>
-                <p className="text-xs text-muted-foreground">Last 7 days</p>
+                <p className="text-xs text-muted-foreground">{getDateRangeLabel()}</p>
               </div>
               <div className="h-10 w-10 rounded-full bg-blue-500/10 flex items-center justify-center">
                 <Send className="h-5 w-5 text-blue-600" />
@@ -380,8 +502,12 @@ export default function Sms() {
             <span className="text-muted-foreground">The customer's phone number (always required at checkout)</span>
           </div>
           <div className="flex items-start gap-2">
-            <Badge variant="outline" className="bg-amber-500/10 text-amber-700 border-amber-500/30">Admin Backup</Badge>
-            <span className="text-muted-foreground">+63 921 408 0286, +63 956 966 9710 (receives all SMS copies)</span>
+            <Badge variant="outline" className={adminBackupEnabled ? "bg-green-500/10 text-green-700 border-green-500/30" : "bg-muted text-muted-foreground"}>Admin Backup</Badge>
+            <span className="text-muted-foreground">
+              {adminBackupEnabled 
+                ? `${adminBackupNumbers || 'Not configured'} (receives all SMS copies)` 
+                : 'Disabled - go to Settings tab to enable'}
+            </span>
           </div>
         </CardContent>
       </Card>
@@ -403,6 +529,10 @@ export default function Sms() {
           <TabsTrigger value="test" className="gap-2">
             <Send className="h-4 w-4" />
             Test SMS
+          </TabsTrigger>
+          <TabsTrigger value="settings" className="gap-2">
+            <Settings2 className="h-4 w-4" />
+            Settings
           </TabsTrigger>
         </TabsList>
 
@@ -729,6 +859,67 @@ export default function Sms() {
                   <span className="text-muted-foreground">When order is marked as delivered</span>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Settings Tab */}
+        <TabsContent value="settings" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Settings2 className="h-5 w-5" />
+                SMS Settings
+              </CardTitle>
+              <CardDescription>
+                Configure admin backup SMS and other settings
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between p-4 border rounded-lg">
+                <div className="space-y-0.5">
+                  <Label className="text-base">Admin Backup SMS</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Send copies of all customer SMS to admin phone numbers
+                  </p>
+                </div>
+                <Switch
+                  checked={adminBackupEnabled}
+                  onCheckedChange={setAdminBackupEnabled}
+                />
+              </div>
+
+              {adminBackupEnabled && (
+                <div className="space-y-2">
+                  <Label>Admin Phone Numbers</Label>
+                  <Textarea
+                    placeholder="+639214080286, +639569669710"
+                    value={adminBackupNumbers}
+                    onChange={(e) => setAdminBackupNumbers(e.target.value)}
+                    rows={2}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Enter phone numbers separated by commas. Each number will receive a copy of every SMS sent.
+                  </p>
+                </div>
+              )}
+
+              {!adminBackupEnabled && (
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Admin backup is disabled. Only customers will receive SMS notifications. Enable this to receive copies for monitoring.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              <Button onClick={handleSaveSettings} disabled={isSavingSettings}>
+                {isSavingSettings ? (
+                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</>
+                ) : (
+                  'Save Settings'
+                )}
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
