@@ -1001,6 +1001,20 @@ export function CheckoutSheet({
                             {/* GCash Details - Inline when selected */}
                             {paymentMethod === "gcash" && (
                               <div className="px-3 pb-3 pt-1 border-t border-primary/20 space-y-3">
+                                {/* Payment instruction banner */}
+                                <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-3 animate-pulse">
+                                  <div className="flex items-start gap-2">
+                                    <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                                    <div>
+                                      <p className="text-sm font-bold text-amber-800">
+                                        Complete Payment First
+                                      </p>
+                                      <p className="text-xs text-amber-700 mt-1">
+                                        Please pay using the QR code below, then upload a screenshot of your payment confirmation to proceed.
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
                                 <div className="bg-white p-4 rounded-lg text-center">
                                   <p className="text-sm font-medium text-foreground mb-2">Scan to pay via GCash</p>
                                   {getPaymentSetting('gcash_qr_url') ? (
@@ -1041,6 +1055,20 @@ export function CheckoutSheet({
                             {/* Bank Details - Inline when selected */}
                             {paymentMethod === "bank" && (
                               <div className="px-3 pb-3 pt-1 border-t border-primary/20 space-y-3">
+                                {/* Payment instruction banner */}
+                                <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-3 animate-pulse">
+                                  <div className="flex items-start gap-2">
+                                    <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                                    <div>
+                                      <p className="text-sm font-bold text-amber-800">
+                                        Complete Payment First
+                                      </p>
+                                      <p className="text-xs text-amber-700 mt-1">
+                                        Please pay using the bank details below, then upload a screenshot of your payment confirmation to proceed.
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
                                 <div className="bg-white p-4 rounded-lg text-center">
                                   <p className="text-sm font-medium text-foreground mb-2">Bank Transfer Details</p>
                                   {getPaymentSetting('bank_qr_url') ? (
@@ -1087,7 +1115,7 @@ export function CheckoutSheet({
                         <img 
                           src={paymentProofPreview} 
                           alt="Payment proof" 
-                          className="w-full h-40 object-cover rounded-lg border" 
+                          className="w-full h-40 object-cover rounded-lg border-2 border-green-500" 
                         />
                         <Button 
                           type="button" 
@@ -1098,16 +1126,16 @@ export function CheckoutSheet({
                         >
                           <X className="h-3 w-3" />
                         </Button>
-                        <div className="absolute bottom-2 left-2 bg-green-500 text-white text-xs px-2 py-1 rounded flex items-center gap-1">
-                          <Check className="h-3 w-3" />
-                          Uploaded
+                        <div className="absolute bottom-2 left-2 bg-green-500 text-white text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-lg">
+                          <Check className="h-4 w-4" />
+                          Payment Proof Uploaded
                         </div>
                       </div>
                     ) : (
-                      <label className="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-destructive/50 rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
-                        <Upload className="h-6 w-6 text-muted-foreground mb-1" />
-                        <span className="text-xs text-muted-foreground">Click to upload screenshot</span>
-                        <span className="text-xs text-destructive mt-1">Required to place order</span>
+                      <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-amber-400 bg-amber-50/50 rounded-lg cursor-pointer hover:bg-amber-50 transition-all animate-pulse">
+                        <Upload className="h-8 w-8 text-amber-600 mb-2" />
+                        <span className="text-sm font-medium text-amber-800">Upload Payment Screenshot</span>
+                        <span className="text-xs text-amber-600 mt-1">Required to place your order</span>
                         <input 
                           type="file" 
                           accept="image/jpeg,image/png,image/jpg" 
@@ -1218,6 +1246,14 @@ export function CheckoutSheet({
                       </>
                     )}
                   </Button>
+                  
+                  {/* Reassurance text */}
+                  <p className="text-xs text-center text-muted-foreground mt-2">
+                    {paymentMethod === "cash" 
+                      ? "Pay upon pickup. You will receive order confirmation via SMS/email."
+                      : "You will receive confirmation after payment is verified."
+                    }
+                  </p>
                 </div>
               </AccordionSection>
             </form>

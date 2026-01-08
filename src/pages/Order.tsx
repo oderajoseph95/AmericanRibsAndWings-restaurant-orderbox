@@ -21,6 +21,8 @@ import { SEOHead } from "@/components/SEOHead";
 import { useSalesPopContext } from "@/contexts/SalesPopContext";
 import { useVisitorPresence } from "@/hooks/useVisitorPresence";
 import { trackAnalyticsEvent } from "@/hooks/useAnalytics";
+import { usePersistedCart } from "@/hooks/usePersistedCart";
+import { toast } from "sonner";
 import type { Tables } from "@/integrations/supabase/types";
 
 export type CartItem = {
@@ -46,7 +48,7 @@ const Order = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const { setIsCheckoutOpen: setSalesPopCheckoutOpen } = useSalesPopContext();
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const { cart, setCart, showWelcomeBack, dismissWelcomeBack } = usePersistedCart();
   const [selectedProduct, setSelectedProduct] = useState<Tables<"products"> | null>(null);
   const [isFlavorModalOpen, setIsFlavorModalOpen] = useState(false);
   const [isBundleWizardOpen, setIsBundleWizardOpen] = useState(false);
@@ -63,6 +65,21 @@ const Order = () => {
   useEffect(() => {
     setSalesPopCheckoutOpen(isCheckoutOpen);
   }, [isCheckoutOpen, setSalesPopCheckoutOpen]);
+
+  // Show welcome back toast for returning users with saved cart
+  useEffect(() => {
+    if (showWelcomeBack) {
+      toast("Welcome back! 👋", {
+        description: "We saved your cart so you can continue where you left off.",
+        duration: 5000,
+        action: {
+          label: "View Cart",
+          onClick: () => setIsCartOpen(true),
+        },
+      });
+      dismissWelcomeBack();
+    }
+  }, [showWelcomeBack, dismissWelcomeBack]);
 
   const activeCategory = searchParams.get("category") || "all";
   const addToCartId = searchParams.get("addToCart");
@@ -338,10 +355,10 @@ const Order = () => {
             </div>
           </div>
 
-          {/* Mobile cart button */}
+          {/* Cart button - visible on ALL devices */}
           <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
             <SheetTrigger asChild>
-              <Button variant="outline" size="icon" className="lg:hidden relative">
+              <Button variant="outline" size="icon" className="relative">
                 <ShoppingCart className="h-5 w-5" />
                 {cartItemCount > 0 && (
                   <Badge className="absolute -top-2 -right-2 h-5 w-5 p-0 flex items-center justify-center bg-primary text-xs">
