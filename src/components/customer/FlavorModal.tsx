@@ -149,11 +149,17 @@ export function FlavorModal({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="text-xl">{product.name}</DialogTitle>
-          <p className="text-sm text-muted-foreground">
-            {isSingleSelect 
-              ? "Select your sauce" 
-              : `Select your flavors (${selectedCount}/${totalUnits} pcs)`}
-          </p>
+          {isSingleSelect ? (
+            <div className="flex items-center justify-center gap-2 py-2">
+              <span className="text-xl font-bold text-primary animate-pulse drop-shadow-[0_0_8px_hsl(var(--primary)/0.6)]">
+                🔥 Select Your Sauce
+              </span>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Select your flavors ({selectedCount}/{totalUnits} pcs)
+            </p>
+          )}
         </DialogHeader>
 
         {/* Progress indicator */}
