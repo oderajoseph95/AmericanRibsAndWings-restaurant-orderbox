@@ -65,11 +65,17 @@ export function usePersistedCart() {
     setShowWelcomeBack(false);
   }, []);
 
+  const clearCart = useCallback(() => {
+    setCart([]);
+    localStorage.removeItem(CART_STORAGE_KEY);
+  }, []);
+
   return {
     cart,
     setCart,
     isLoaded,
     showWelcomeBack,
     dismissWelcomeBack,
+    clearCart,
   };
 }

@@ -16,7 +16,7 @@ import { Separator } from "@/components/ui/separator";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Upload, X, Check, Package, Truck, CalendarIcon, MapPin, User, CreditCard, ClipboardList, AlertTriangle, ShoppingBag, RotateCcw } from "lucide-react";
+import { Loader2, Upload, X, Check, Package, Truck, CalendarIcon, MapPin, User, CreditCard, ClipboardList, AlertTriangle, ShoppingBag, RotateCcw, ArrowRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { sendPushNotification } from "@/hooks/usePushNotifications";
@@ -410,9 +410,10 @@ export function CheckoutSheet({
       if (savedData.customerLat) form.setValue("customerLat", savedData.customerLat);
       if (savedData.customerLng) form.setValue("customerLng", savedData.customerLng);
       if (savedData.activeSection) setActiveSection(savedData.activeSection as SectionId);
+      if (savedData.geocodedAddress) setGeocodedAddress(savedData.geocodedAddress);
       
       toast.success("Your checkout progress has been restored", {
-        description: "Use 'Clear Form' to start fresh.",
+        description: "Use 'Clear' button to start fresh.",
         duration: 4000,
         position: window.innerWidth < 768 ? "top-center" : "bottom-right",
       });
@@ -436,9 +437,10 @@ export function CheckoutSheet({
         customerLat: form.watch("customerLat"),
         customerLng: form.watch("customerLng"),
         activeSection,
+        geocodedAddress,
       });
     }
-  }, [customerName, customerPhone, customerEmail, orderType, streetAddress, city, barangay, activeSection, saveCheckoutData, form]);
+  }, [customerName, customerPhone, customerEmail, orderType, streetAddress, city, barangay, activeSection, geocodedAddress, saveCheckoutData, form]);
 
   const handleLocationSelect = (data: {
     lat: number;
@@ -477,7 +479,12 @@ export function CheckoutSheet({
       }
       setPaymentProof(file);
       const reader = new FileReader();
-      reader.onload = () => setPaymentProofPreview(reader.result as string);
+      reader.onload = () => {
+        setPaymentProofPreview(reader.result as string);
+        // Auto-advance to review section after uploading payment proof
+        setCompletedSections(prev => new Set([...prev, "payment"]));
+        setTimeout(() => setActiveSection("review"), 600);
+      };
       reader.readAsDataURL(file);
     }
   };
@@ -545,6 +552,49 @@ export function CheckoutSheet({
       default:
         return [];
     }
+  };
+
+  // Get section title for error messages
+  const getSectionTitle = (sectionId: SectionId): string => {
+    const titles: Record<SectionId, string> = {
+      "order-type": "Order Type",
+      "pickup-schedule": "Pickup Schedule",
+      "delivery-address": "Delivery Address",
+      "customer-info": "Customer Information",
+      "payment": "Payment Method",
+      "review": "Review & Place Order",
+    };
+    return titles[sectionId];
+  };
+
+  // Validate section before allowing navigation (step enforcement)
+  const handleSectionClick = (targetSection: SectionId) => {
+    const requiredSections: Record<SectionId, SectionId[]> = {
+      "order-type": [],
+      "delivery-address": ["order-type"],
+      "pickup-schedule": ["order-type"],
+      "customer-info": orderType === "delivery" ? ["order-type", "delivery-address"] : ["order-type", "pickup-schedule"],
+      "payment": orderType === "delivery" 
+        ? ["order-type", "delivery-address", "customer-info"] 
+        : ["order-type", "pickup-schedule", "customer-info"],
+      "review": orderType === "delivery"
+        ? ["order-type", "delivery-address", "customer-info", "payment"]
+        : ["order-type", "pickup-schedule", "customer-info", "payment"],
+    };
+
+    const required = requiredSections[targetSection];
+    for (const req of required) {
+      if (!completedSections.has(req)) {
+        toast.error(`Please complete "${getSectionTitle(req)}" first`, {
+          action: {
+            label: "Go there",
+            onClick: () => setActiveSection(req),
+          },
+        });
+        return;
+      }
+    }
+    setActiveSection(targetSection);
   };
 
   // Handle form validation errors on submit
@@ -703,7 +753,15 @@ export function CheckoutSheet({
       // Clear session ID
       sessionStorage.removeItem('checkout_session_id');
       
-      // Show success and redirect immediately (don't wait for notifications)
+      // CRITICAL: Clear cart and checkout data BEFORE redirect
+      clearCheckoutData();
+      localStorage.removeItem('arw_cart_data');
+      onOrderConfirmed(order.order_number, order.id, data.orderType, 
+        data.orderType === "pickup" && data.pickupDate ? format(data.pickupDate, "yyyy-MM-dd") : undefined,
+        data.orderType === "pickup" ? data.pickupTime : undefined
+      );
+      
+      // Show success and redirect
       toast.success("Order placed successfully!");
       window.location.href = `/thank-you/${order.id}?source=checkout`;
 
@@ -817,7 +875,23 @@ export function CheckoutSheet({
 
   return (
     <Sheet open={open} onOpenChange={handleSheetOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-lg p-0">
+      <SheetContent side="right" className="w-full sm:max-w-lg p-0 overflow-hidden">
+        {/* Processing Overlay */}
+        {isSubmitting && (
+          <div className="absolute inset-0 bg-background/95 backdrop-blur-sm z-50 flex flex-col items-center justify-center">
+            <div className="relative">
+              <div className="w-20 h-20 rounded-full border-4 border-primary/30 border-t-primary animate-spin" />
+              <ShoppingBag className="absolute inset-0 m-auto h-8 w-8 text-primary" />
+            </div>
+            <p className="mt-6 text-lg font-semibold text-foreground animate-pulse">
+              Processing Your Order...
+            </p>
+            <p className="text-sm text-muted-foreground mt-2">
+              Please wait while we confirm your order
+            </p>
+          </div>
+        )}
+        
         <SheetHeader className="p-4 border-b">
           <div className="flex items-center justify-between pr-10">
             <SheetTitle>Checkout</SheetTitle>
@@ -838,7 +912,7 @@ export function CheckoutSheet({
 
           <ScrollArea className="h-[calc(100vh-80px)]">
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit, handleInvalidSubmit)} className="p-4 space-y-3">
+              <form onSubmit={form.handleSubmit(onSubmit, handleInvalidSubmit)} className="p-4 pb-24 space-y-3">
               {/* Compact Order Summary */}
               <CompactOrderSummary 
                 cart={cart} 
@@ -906,7 +980,7 @@ export function CheckoutSheet({
                   isCompleted={completedSections.has("pickup-schedule")}
                   isDisabled={!completedSections.has("order-type")}
                   hasError={getSectionErrors("pickup-schedule").length > 0}
-                  onToggle={() => completedSections.has("order-type") && setActiveSection("pickup-schedule")}
+                  onToggle={() => handleSectionClick("pickup-schedule")}
                 >
                   <p className="text-sm text-muted-foreground mb-3">
                     Schedule pickup up to 3 days in advance.
@@ -1000,7 +1074,7 @@ export function CheckoutSheet({
                   isCompleted={completedSections.has("delivery-address")}
                   isDisabled={!completedSections.has("order-type")}
                   hasError={getSectionErrors("delivery-address").length > 0}
-                  onToggle={() => completedSections.has("order-type") && setActiveSection("delivery-address")}
+                  onToggle={() => handleSectionClick("delivery-address")}
                 >
                   <DeliveryMapPicker 
                     onLocationSelect={handleLocationSelect} 
@@ -1034,10 +1108,7 @@ export function CheckoutSheet({
                 isCompleted={completedSections.has("customer-info")}
                 isDisabled={orderType === "pickup" ? !completedSections.has("pickup-schedule") : !completedSections.has("delivery-address")}
                 hasError={getSectionErrors("customer-info").length > 0}
-                onToggle={() => {
-                  const canAccess = orderType === "pickup" ? completedSections.has("pickup-schedule") : completedSections.has("delivery-address");
-                  if (canAccess) setActiveSection("customer-info");
-                }}
+                onToggle={() => handleSectionClick("customer-info")}
               >
                 <FormField 
                   control={form.control} 
@@ -1134,7 +1205,7 @@ export function CheckoutSheet({
                 isActive={activeSection === "payment"}
                 isCompleted={completedSections.has("payment")}
                 isDisabled={!completedSections.has("customer-info")}
-                onToggle={() => completedSections.has("customer-info") && setActiveSection("payment")}
+                onToggle={() => handleSectionClick("payment")}
               >
                 <FormField 
                   control={form.control} 
@@ -1332,16 +1403,20 @@ export function CheckoutSheet({
                   </div>
                 )}
 
-                {/* Continue Button */}
+                {/* Continue Button - Prominent when payment proof uploaded */}
                 {(paymentMethod === "cash" || paymentProof) && (
                   <Button 
                     type="button" 
-                    variant="outline" 
+                    variant="default"
                     size="sm" 
-                    className="w-full mt-3"
+                    className={cn(
+                      "w-full mt-3 transition-all",
+                      paymentProof && "animate-pulse shadow-lg ring-2 ring-primary/50"
+                    )}
                     onClick={() => setActiveSection("review")}
                   >
                     Continue to Review
+                    <ArrowRight className="h-4 w-4 ml-2" />
                   </Button>
                 )}
               </AccordionSection>
@@ -1355,7 +1430,7 @@ export function CheckoutSheet({
                 isActive={activeSection === "review"}
                 isCompleted={false}
                 isDisabled={!completedSections.has("payment")}
-                onToggle={() => completedSections.has("payment") && setActiveSection("review")}
+                onToggle={() => handleSectionClick("review")}
               >
                 <div className="space-y-3">
                   {/* Detailed Order Items */}
