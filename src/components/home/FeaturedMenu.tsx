@@ -5,9 +5,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowRight, Flame, ShoppingCart, Share2 } from "lucide-react";
+import { ArrowRight, Flame, ShoppingCart, Eye } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { shareProduct } from "@/lib/productUtils";
 
 interface FeaturedMenuContent {
   title?: string;
@@ -34,13 +33,9 @@ export function FeaturedMenu() {
     navigate(`/order?addToCart=${productId}`);
   };
 
-  const handleShareProduct = (e: React.MouseEvent, product: Product) => {
+  const handleViewProduct = (e: React.MouseEvent, product: Product) => {
     e.stopPropagation();
-    shareProduct({
-      name: product.name,
-      slug: product.slug || null,
-      id: product.id,
-    });
+    handleCardClick(product);
   };
 
   const handleCardClick = (product: Product) => {
@@ -186,9 +181,10 @@ export function FeaturedMenu() {
                       <Button 
                         size="sm" 
                         variant="outline"
-                        onClick={(e) => handleShareProduct(e, product)}
+                        onClick={(e) => handleViewProduct(e, product)}
                       >
-                        <Share2 className="h-3 w-3" />
+                        <Eye className="h-3 w-3 mr-1" />
+                        View
                       </Button>
                       <Button 
                         size="sm" 
