@@ -104,11 +104,12 @@ Deno.serve(async (req) => {
       }
 
       // Create a map of user_id -> user data
-      const userDataMap: Record<string, { email: string; username: string | null; is_super_owner: boolean }> = {};
+      // Only super owner can see emails
+      const userDataMap: Record<string, { email: string | null; username: string | null; is_super_owner: boolean }> = {};
       for (const u of users) {
         if (userIds.includes(u.id)) {
           userDataMap[u.id] = {
-            email: u.email || "No email",
+            email: isSuperOwner ? (u.email || "No email") : null,
             username: usernameMap[u.id]?.username || null,
             is_super_owner: usernameMap[u.id]?.is_super_owner || false,
           };
