@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
-import { Plus, Trash2, Shield, Loader2, Search, Pencil, Users as UsersIcon } from 'lucide-react';
+import { Plus, Trash2, Shield, Loader2, Search, Pencil, Users as UsersIcon, Mail } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Enums } from '@/integrations/supabase/types';
 
@@ -22,8 +22,16 @@ export default function Users() {
   const [search, setSearch] = useState('');
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [editingRole, setEditingRole] = useState<{ id: string; userId: string; currentRole: Enums<'app_role'> } | null>(null);
+  const [editingUser, setEditingUser] = useState<{ 
+    id: string; 
+    userId: string; 
+    currentRole: Enums<'app_role'>; 
+    currentEmail: string;
+  } | null>(null);
   const [newRole, setNewRole] = useState<Enums<'app_role'>>('cashier');
+  const [newEmail, setNewEmail] = useState('');
+  const [emailMap, setEmailMap] = useState<Record<string, string>>({});
+  const [emailsLoading, setEmailsLoading] = useState(false);
 
   const roleColors: Record<Enums<'app_role'>, string> = {
     owner: 'bg-purple-500/20 text-purple-700 border-purple-500/30',
@@ -45,6 +53,40 @@ export default function Users() {
     },
     enabled: role === 'owner',
   });
+
+  // Fetch emails when userRoles changes
+  useEffect(() => {
+    const fetchEmails = async () => {
+      if (userRoles.length === 0 || role !== 'owner') return;
+      
+      setEmailsLoading(true);
+      try {
+        const userIds = userRoles.map(ur => ur.user_id);
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (!session) return;
+
+        const response = await supabase.functions.invoke('admin-user-management', {
+          body: { action: 'get-emails', userIds }
+        });
+
+        if (response.error) {
+          console.error('Error fetching emails:', response.error);
+          return;
+        }
+
+        if (response.data?.emails) {
+          setEmailMap(response.data.emails);
+        }
+      } catch (error) {
+        console.error('Failed to fetch emails:', error);
+      } finally {
+        setEmailsLoading(false);
+      }
+    };
+
+    fetchEmails();
+  }, [userRoles, role]);
 
   // Add user role mutation
   const addRoleMutation = useMutation({
@@ -129,11 +171,38 @@ export default function Users() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['user-roles'] });
       toast.success(`Role updated to ${data.newRole}`);
-      setEditDialogOpen(false);
-      setEditingRole(null);
     },
     onError: (error: any) => {
       toast.error(error.message || 'Failed to update role');
+    },
+  });
+
+  // Update user email mutation
+  const updateEmailMutation = useMutation({
+    mutationFn: async ({ userId, newEmail }: { userId: string; newEmail: string }) => {
+      const response = await supabase.functions.invoke('admin-user-management', {
+        body: { action: 'update-email', userId, newEmail }
+      });
+
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to update email');
+      }
+
+      if (response.data?.error) {
+        throw new Error(response.data.error);
+      }
+
+      return response.data;
+    },
+    onSuccess: (data) => {
+      // Update local email map
+      if (editingUser) {
+        setEmailMap(prev => ({ ...prev, [editingUser.userId]: data.newEmail }));
+      }
+      toast.success(`Email updated to ${data.newEmail}`);
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to update email');
     },
   });
 
@@ -170,25 +239,62 @@ export default function Users() {
     });
   };
 
-  const handleEditSubmit = () => {
-    if (!editingRole) return;
-    updateRoleMutation.mutate({
-      id: editingRole.id,
-      userId: editingRole.userId,
-      newRole,
-      oldRole: editingRole.currentRole,
-    });
+  const handleEditSubmit = async () => {
+    if (!editingUser) return;
+    
+    const promises: Promise<any>[] = [];
+    
+    // Update email if changed
+    if (newEmail !== editingUser.currentEmail) {
+      promises.push(updateEmailMutation.mutateAsync({ 
+        userId: editingUser.userId, 
+        newEmail 
+      }));
+    }
+    
+    // Update role if changed
+    if (newRole !== editingUser.currentRole) {
+      promises.push(updateRoleMutation.mutateAsync({
+        id: editingUser.id,
+        userId: editingUser.userId,
+        newRole,
+        oldRole: editingUser.currentRole,
+      }));
+    }
+
+    if (promises.length === 0) {
+      setEditDialogOpen(false);
+      return;
+    }
+
+    try {
+      await Promise.all(promises);
+      setEditDialogOpen(false);
+      setEditingUser(null);
+    } catch {
+      // Errors are handled by individual mutations
+    }
   };
 
   const openEditDialog = (id: string, userId: string, currentRole: Enums<'app_role'>) => {
-    setEditingRole({ id, userId, currentRole });
+    const currentEmail = emailMap[userId] || '';
+    setEditingUser({ id, userId, currentRole, currentEmail });
     setNewRole(currentRole);
+    setNewEmail(currentEmail);
     setEditDialogOpen(true);
   };
 
-  const filteredRoles = userRoles.filter(
-    (ur) => ur.user_id.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredRoles = userRoles.filter((ur) => {
+    const email = emailMap[ur.user_id] || '';
+    const searchLower = search.toLowerCase();
+    return (
+      ur.user_id.toLowerCase().includes(searchLower) ||
+      email.toLowerCase().includes(searchLower)
+    );
+  });
+
+  const isSaving = updateEmailMutation.isPending || updateRoleMutation.isPending;
+  const hasChanges = editingUser && (newEmail !== editingUser.currentEmail || newRole !== editingUser.currentRole);
 
   if (role !== 'owner') {
     return (
@@ -283,7 +389,7 @@ export default function Users() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search by user ID..."
+                placeholder="Search by email..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-10"
@@ -292,7 +398,7 @@ export default function Users() {
           </div>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {isLoading || emailsLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
@@ -308,7 +414,7 @@ export default function Users() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>User ID</TableHead>
+                  <TableHead>Email</TableHead>
                   <TableHead>Role</TableHead>
                   <TableHead>Added</TableHead>
                   <TableHead className="w-[120px]">Actions</TableHead>
@@ -317,13 +423,20 @@ export default function Users() {
               <TableBody>
                 {filteredRoles.map((ur) => (
                   <TableRow key={ur.id}>
-                    <TableCell className="font-mono text-xs">
-                      {ur.user_id}
-                      {ur.user_id === user?.id && (
-                        <Badge variant="outline" className="ml-2 text-xs">
-                          You
-                        </Badge>
-                      )}
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Mail className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium">
+                          {emailMap[ur.user_id] || (
+                            <span className="text-muted-foreground italic">Loading...</span>
+                          )}
+                        </span>
+                        {ur.user_id === user?.id && (
+                          <Badge variant="outline" className="text-xs">
+                            You
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className={roleColors[ur.role]}>
@@ -371,22 +484,31 @@ export default function Users() {
         </CardContent>
       </Card>
 
-      {/* Edit Role Dialog */}
+      {/* Edit User Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit User Role</DialogTitle>
+            <DialogTitle>Edit User</DialogTitle>
             <DialogDescription>
-              Change the role for this user.
+              Update email address and role for this user.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>User ID</Label>
-              <p className="font-mono text-xs bg-muted p-2 rounded">{editingRole?.userId}</p>
+              <Label htmlFor="edit-email">Email Address</Label>
+              <Input
+                id="edit-email"
+                type="email"
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+                placeholder="user@example.com"
+              />
+              <p className="text-xs text-muted-foreground">
+                User can login with the new email using their same password
+              </p>
             </div>
             <div className="space-y-2">
-              <Label>New Role</Label>
+              <Label>Role</Label>
               <Select value={newRole} onValueChange={(v) => setNewRole(v as Enums<'app_role'>)}>
                 <SelectTrigger>
                   <SelectValue />
@@ -407,9 +529,9 @@ export default function Users() {
               </Button>
               <Button 
                 onClick={handleEditSubmit} 
-                disabled={updateRoleMutation.isPending || newRole === editingRole?.currentRole}
+                disabled={isSaving || !hasChanges}
               >
-                {updateRoleMutation.isPending ? 'Saving...' : 'Save Changes'}
+                {isSaving ? 'Saving...' : 'Save Changes'}
               </Button>
             </div>
           </div>

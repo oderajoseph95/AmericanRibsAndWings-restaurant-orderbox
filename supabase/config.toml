@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.resend-webhook]
 verify_jwt = false
+
+[functions.admin-user-management]
+verify_jwt = false
