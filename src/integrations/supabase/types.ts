@@ -1356,43 +1356,58 @@ export type Database = {
       }
       sms_logs: {
         Row: {
+          cost: number | null
           created_at: string | null
           id: string
           message: string
           message_id: string | null
+          message_length: number | null
           metadata: Json | null
           network: string | null
           order_id: string | null
           provider: string | null
           recipient_phone: string
+          semaphore_status: string | null
           sms_type: string | null
+          source: string | null
           status: string | null
+          updated_at: string | null
         }
         Insert: {
+          cost?: number | null
           created_at?: string | null
           id?: string
           message: string
           message_id?: string | null
+          message_length?: number | null
           metadata?: Json | null
           network?: string | null
           order_id?: string | null
           provider?: string | null
           recipient_phone: string
+          semaphore_status?: string | null
           sms_type?: string | null
+          source?: string | null
           status?: string | null
+          updated_at?: string | null
         }
         Update: {
+          cost?: number | null
           created_at?: string | null
           id?: string
           message?: string
           message_id?: string | null
+          message_length?: number | null
           metadata?: Json | null
           network?: string | null
           order_id?: string | null
           provider?: string | null
           recipient_phone?: string
+          semaphore_status?: string | null
           sms_type?: string | null
+          source?: string | null
           status?: string | null
+          updated_at?: string | null
         }
         Relationships: [
           {
