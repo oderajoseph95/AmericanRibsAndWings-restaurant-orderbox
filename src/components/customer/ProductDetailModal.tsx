@@ -178,25 +178,20 @@ export function ProductDetailModal({
           )}
 
           {/* Price and actions */}
-          <div className="flex flex-col gap-3 pt-4 border-t">
-            <div className="flex items-center justify-between">
-              <span className="text-2xl font-bold text-primary">
-                ₱{product.price.toFixed(2)}
-              </span>
+          <div className="flex items-center justify-between pt-4 border-t">
+            <span className="text-2xl font-bold text-primary">
+              ₱{product.price.toFixed(2)}
+            </span>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={handleShare}>
+                <Link2 className="h-4 w-4 mr-1" />
+                Share
+              </Button>
               <Button onClick={handleAddToCart} className="gap-1">
                 <Plus className="h-4 w-4" />
                 Add to Order
               </Button>
             </div>
-            
-            {/* Share as text link */}
-            <button 
-              onClick={handleShare}
-              className="text-sm text-muted-foreground hover:text-primary transition-colors flex items-center gap-1 justify-center"
-            >
-              <Link2 className="h-3.5 w-3.5" />
-              Share product
-            </button>
           </div>
         </div>
       </DialogContent>
