@@ -8,6 +8,7 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { Cart } from "@/components/customer/Cart";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePersistedCart } from "@/hooks/usePersistedCart";
+import { useStoreStatus } from "@/hooks/useStoreStatus";
 import type { CartItem } from "@/pages/Order";
 
 export function Navbar() {
@@ -18,6 +19,7 @@ export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const { cart, setCart } = usePersistedCart();
+  const { isOpen: isStoreOpen, opensAt, isLoading: storeStatusLoading } = useStoreStatus();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -100,15 +102,25 @@ export function Navbar() {
           />
         </Link>
 
-        {/* Mobile "Now Taking Orders" Badge - between logo and cart/hamburger */}
+        {/* Mobile Dynamic Store Status Badge - between logo and cart/hamburger */}
         <div className="flex md:hidden items-center flex-1 justify-center">
-          <div className="inline-flex items-center gap-1 bg-primary/10 text-primary px-2 py-1 rounded-full text-[10px] font-medium">
-            <span className="relative flex h-1.5 w-1.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-accent"></span>
-            </span>
-            Now Taking Orders
-          </div>
+          {!storeStatusLoading && (
+            <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium ${
+              isStoreOpen 
+                ? "bg-green-500/10 text-green-700 dark:text-green-400" 
+                : "bg-muted text-muted-foreground"
+            }`}>
+              <span className="relative flex h-1.5 w-1.5">
+                {isStoreOpen && (
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-500 opacity-75"></span>
+                )}
+                <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${
+                  isStoreOpen ? "bg-green-500" : "bg-muted-foreground"
+                }`}></span>
+              </span>
+              {isStoreOpen ? "Now Taking Orders" : opensAt ? `Opens ${opensAt}` : "Closed"}
+            </div>
+          )}
         </div>
 
         {/* Desktop Nav */}

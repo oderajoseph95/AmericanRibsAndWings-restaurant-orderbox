@@ -49,6 +49,10 @@ const Order = () => {
   const navigate = useNavigate();
   const { setIsCheckoutOpen: setSalesPopCheckoutOpen } = useSalesPopContext();
   const { cart, setCart, showWelcomeBack, dismissWelcomeBack } = usePersistedCart();
+  
+  // Recovery mode state
+  const [isRecoveryMode, setIsRecoveryMode] = useState(false);
+  const recoverId = searchParams.get("recover");
   const [selectedProduct, setSelectedProduct] = useState<Tables<"products"> | null>(null);
   const [isFlavorModalOpen, setIsFlavorModalOpen] = useState(false);
   const [isBundleWizardOpen, setIsBundleWizardOpen] = useState(false);
@@ -66,9 +70,75 @@ const Order = () => {
     setSalesPopCheckoutOpen(isCheckoutOpen);
   }, [isCheckoutOpen, setSalesPopCheckoutOpen]);
 
+  // Handle recovery URL - restore abandoned cart
+  useEffect(() => {
+    if (recoverId && !isRecoveryMode) {
+      const recoverCart = async () => {
+        try {
+          const { data: checkout, error } = await supabase
+            .from("abandoned_checkouts")
+            .select("*")
+            .eq("id", recoverId)
+            .single();
+
+          if (error || !checkout) {
+            console.error("Failed to recover cart:", error);
+            toast.error("Could not recover your cart");
+            return;
+          }
+
+          // Restore cart items
+          if (checkout.cart_items && Array.isArray(checkout.cart_items) && checkout.cart_items.length > 0) {
+            // Map abandoned cart items to proper cart format
+            const recoveredItems = checkout.cart_items.map((item: any) => ({
+              id: crypto.randomUUID(),
+              product: item.product || item,
+              quantity: item.quantity || 1,
+              flavors: item.flavors || [],
+              lineTotal: item.lineTotal || item.product?.price * (item.quantity || 1) || 0,
+            }));
+
+            setCart(recoveredItems);
+            setIsRecoveryMode(true);
+
+            toast.success("Welcome back! 🎉", {
+              description: "We've restored your cart. Ready to complete your order?",
+              duration: 5000,
+              action: {
+                label: "Checkout",
+                onClick: () => setIsCheckoutOpen(true),
+              },
+            });
+
+            // Mark checkout as recovered (update status)
+            await supabase
+              .from("abandoned_checkouts")
+              .update({ 
+                status: "recovered",
+                recovery_completed_at: new Date().toISOString()
+              })
+              .eq("id", recoverId);
+          }
+
+          // Clear recover param from URL
+          const newParams = new URLSearchParams(searchParams);
+          newParams.delete("recover");
+          newParams.delete("utm_source");
+          newParams.delete("utm_medium");
+          newParams.delete("utm_campaign");
+          setSearchParams(newParams, { replace: true });
+        } catch (err) {
+          console.error("Recovery error:", err);
+        }
+      };
+
+      recoverCart();
+    }
+  }, [recoverId, isRecoveryMode, searchParams, setSearchParams, setCart]);
+
   // Show welcome back toast for returning users with saved cart
   useEffect(() => {
-    if (showWelcomeBack) {
+    if (showWelcomeBack && !isRecoveryMode) {
       toast("Welcome back! 👋", {
         description: "We saved your cart so you can continue where you left off.",
         duration: 5000,
@@ -79,7 +149,7 @@ const Order = () => {
       });
       dismissWelcomeBack();
     }
-  }, [showWelcomeBack, dismissWelcomeBack]);
+  }, [showWelcomeBack, dismissWelcomeBack, isRecoveryMode]);
 
   const activeCategory = searchParams.get("category") || "all";
   const addToCartId = searchParams.get("addToCart");

@@ -5,26 +5,46 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Operating hours for reminders (12 PM to 7 PM)
-const OPERATING_START_HOUR = 12;
-const OPERATING_END_HOUR = 19;
 const REMINDER_INTERVAL_HOURS = 3;
 const MAX_REMINDERS = 3;
+const PRODUCTION_DOMAIN = 'https://arwfloridablanca.shop';
 
-function getNextReminderTime(fromTime: Date, reminderIndex: number): Date {
+interface StoreHours {
+  open: string;
+  close: string;
+  timezone?: string;
+}
+
+function parseTime(timeStr: string): { hour: number; minute: number } {
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  return { hour: hours, minute: minutes || 0 };
+}
+
+function getPhilippinesTime(): Date {
+  // Get current time in Philippines timezone (UTC+8)
+  const now = new Date();
+  const utcTime = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const philippinesOffset = 8 * 60 * 60000; // UTC+8
+  return new Date(utcTime + philippinesOffset);
+}
+
+function getNextReminderTime(fromTime: Date, reminderIndex: number, storeHours: StoreHours): Date {
   const hoursToAdd = reminderIndex * REMINDER_INTERVAL_HOURS;
   const nextTime = new Date(fromTime.getTime() + hoursToAdd * 60 * 60 * 1000);
   
-  // Adjust to operating hours
+  const openTime = parseTime(storeHours.open);
+  const closeTime = parseTime(storeHours.close);
+  
   const hour = nextTime.getHours();
   
-  if (hour < OPERATING_START_HOUR) {
-    // Before operating hours - move to 12 PM same day
-    nextTime.setHours(OPERATING_START_HOUR, 0, 0, 0);
-  } else if (hour >= OPERATING_END_HOUR) {
-    // After operating hours - move to 12 PM next day
+  // If before store opens, move to opening time
+  if (hour < openTime.hour || (hour === openTime.hour && nextTime.getMinutes() < openTime.minute)) {
+    nextTime.setHours(openTime.hour, openTime.minute, 0, 0);
+  } 
+  // If after store closes, move to next day opening
+  else if (hour >= closeTime.hour || (hour === closeTime.hour && nextTime.getMinutes() >= closeTime.minute)) {
     nextTime.setDate(nextTime.getDate() + 1);
-    nextTime.setHours(OPERATING_START_HOUR, 0, 0, 0);
+    nextTime.setHours(openTime.hour, openTime.minute, 0, 0);
   }
   
   return nextTime;
@@ -51,6 +71,19 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Fetch store hours from settings
+    const { data: storeHoursData } = await supabase
+      .from('settings')
+      .select('value')
+      .eq('key', 'store_hours')
+      .maybeSingle();
+
+    const storeHours: StoreHours = storeHoursData?.value as StoreHours || {
+      open: '10:00',
+      close: '22:00',
+      timezone: 'Asia/Manila'
+    };
+
     // Get the abandoned checkout
     const { data: checkout, error: fetchError } = await supabase
       .from('abandoned_checkouts')
@@ -72,7 +105,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    const now = new Date();
+    const now = getPhilippinesTime();
     const reminders = [];
     
     // Determine which channels to use
@@ -80,9 +113,16 @@ Deno.serve(async (req) => {
     if (checkout.customer_phone) channels.push('sms');
     if (checkout.customer_email) channels.push('email');
 
+    if (channels.length === 0) {
+      return new Response(
+        JSON.stringify({ error: 'No contact info available for recovery' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     // Schedule reminders (alternate between channels if both available)
     for (let i = 0; i < MAX_REMINDERS; i++) {
-      const scheduledTime = getNextReminderTime(now, i);
+      const scheduledTime = getNextReminderTime(now, i, storeHours);
       const channel = channels.length > 1 
         ? channels[i % channels.length] 
         : channels[0];
@@ -108,14 +148,14 @@ Deno.serve(async (req) => {
       .from('abandoned_checkouts')
       .update({
         status: 'recovering',
-        recovery_started_at: now.toISOString(),
+        recovery_started_at: new Date().toISOString(),
         next_reminder_scheduled_at: firstReminderTime,
       })
       .eq('id', abandoned_checkout_id);
 
     if (updateError) throw updateError;
 
-    console.log(`Recovery started for checkout ${abandoned_checkout_id}, ${reminders.length} reminders scheduled`);
+    console.log(`Recovery started for checkout ${abandoned_checkout_id}, ${reminders.length} reminders scheduled during store hours (${storeHours.open} - ${storeHours.close})`);
 
     return new Response(
       JSON.stringify({ 
@@ -123,6 +163,7 @@ Deno.serve(async (req) => {
         reminders_scheduled: reminders.length,
         first_reminder_at: firstReminderTime,
         channels_used: channels,
+        store_hours: storeHours,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { Badge } from "@/components/ui/badge";
-import { format } from "date-fns";
+import { Card } from "@/components/ui/card";
 
 interface StoreHours {
   open: string;
@@ -15,7 +15,7 @@ export function DashboardCommandHeader() {
   const { displayName } = useAuth();
   const [currentTime, setCurrentTime] = useState(new Date());
 
-  // Update clock every second
+  // Update time every second
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
@@ -23,9 +23,9 @@ export function DashboardCommandHeader() {
     return () => clearInterval(timer);
   }, []);
 
-  // Fetch store hours setting
-  const { data: storeHoursData } = useQuery({
-    queryKey: ["settings", "store_hours"],
+  // Fetch store hours
+  const { data: storeHours } = useQuery({
+    queryKey: ["store-hours-command"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("settings")
@@ -33,111 +33,116 @@ export function DashboardCommandHeader() {
         .eq("key", "store_hours")
         .maybeSingle();
       if (error) throw error;
-      
-      // Safely cast the JSON value
-      const value = data?.value;
-      if (value && typeof value === 'object' && !Array.isArray(value) && 'open' in value && 'close' in value) {
-        return value as unknown as StoreHours;
-      }
-      return null;
+      if (!data?.value) return null;
+      const value = data.value as unknown as StoreHours;
+      if (typeof value.open !== 'string' || typeof value.close !== 'string') return null;
+      return value;
     },
-    staleTime: 60000, // Cache for 1 minute
   });
 
-  // Default store hours if not set
-  const storeHours: StoreHours = storeHoursData || {
-    open: "10:00",
-    close: "22:00",
-  };
+  const { isStoreOpen, greeting, contextLine } = useMemo(() => {
+    const hour = currentTime.getHours();
+    
+    // Determine greeting based on time
+    let greeting = "Good morning";
+    if (hour >= 12 && hour < 17) greeting = "Good afternoon";
+    else if (hour >= 17) greeting = "Good evening";
 
-  // Calculate if store is open
-  const isStoreOpen = useMemo(() => {
-    const now = currentTime;
-    const [openHour, openMin] = storeHours.open.split(":").map(Number);
-    const [closeHour, closeMin] = storeHours.close.split(":").map(Number);
+    // Check if store is open
+    let isStoreOpen = true;
+    if (storeHours) {
+      const [openH, openM] = storeHours.open.split(":").map(Number);
+      const [closeH, closeM] = storeHours.close.split(":").map(Number);
+      const currentMinutes = hour * 60 + currentTime.getMinutes();
+      const openMinutes = openH * 60 + (openM || 0);
+      const closeMinutes = closeH * 60 + (closeM || 0);
+      isStoreOpen = currentMinutes >= openMinutes && currentMinutes < closeMinutes;
+    }
 
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    const openMinutes = openHour * 60 + openMin;
-    const closeMinutes = closeHour * 60 + closeMin;
+    // Contextual line based on time of day (non-numeric)
+    let contextLine = "Ready to start the day!";
+    if (hour >= 11 && hour < 14) contextLine = "Lunch rush is here!";
+    else if (hour >= 14 && hour < 17) contextLine = "Afternoon flow, keep it steady";
+    else if (hour >= 17 && hour < 20) contextLine = "Dinner time – stay sharp!";
+    else if (hour >= 20) contextLine = "Wrapping up the day";
+    else if (hour < 10) contextLine = "Early start – prep time!";
 
-    return currentMinutes >= openMinutes && currentMinutes < closeMinutes;
+    return { isStoreOpen, greeting, contextLine };
   }, [currentTime, storeHours]);
 
-  // Time-based greeting
-  const greeting = useMemo(() => {
-    const hour = currentTime.getHours();
-    if (hour < 12) return "Good morning";
-    if (hour < 17) return "Good afternoon";
-    return "Good evening";
-  }, [currentTime]);
-
-  // Format store hours for display
-  const formatStoreTime = (time: string) => {
-    const [hour, min] = time.split(":").map(Number);
-    const date = new Date();
-    date.setHours(hour, min, 0);
-    return format(date, "h:mm a");
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+    });
   };
 
-  // Context line (non-numeric, encouraging)
-  const contextLine = useMemo(() => {
-    const hour = currentTime.getHours();
-    if (hour < 11) return "Ready to start the day!";
-    if (hour < 14) return "Lunch rush is here!";
-    if (hour < 17) return "Afternoon is going well.";
-    if (hour < 20) return "Dinner service in full swing!";
-    return "Wrapping up for the day.";
-  }, [currentTime]);
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString("en-US", {
+      weekday: "long",
+      month: "short",
+      day: "numeric",
+    });
+  };
 
-  const firstName = displayName?.split(" ")[0] || "there";
+  const formatStoreHours = (hours: StoreHours) => {
+    const formatTime12 = (time: string) => {
+      const [h, m] = time.split(":").map(Number);
+      const period = h >= 12 ? "PM" : "AM";
+      const displayHour = h % 12 || 12;
+      return `${displayHour}:${(m || 0).toString().padStart(2, "0")} ${period}`;
+    };
+    return `${formatTime12(hours.open)} – ${formatTime12(hours.close)}`;
+  };
+
+  const firstName = displayName?.split(" ")[0] || "Admin";
 
   return (
-    <div className="hidden md:flex flex-col items-end gap-1 text-right">
+    <Card className="hidden md:flex flex-col items-end justify-center p-6 bg-gradient-to-br from-card via-card to-primary/5 border-primary/10 min-w-[280px] max-w-[320px]">
       {/* Greeting */}
-      <div>
-        <span className="text-sm text-muted-foreground">{greeting}, </span>
-        <span className="text-sm font-medium text-foreground">{firstName}</span>
+      <div className="text-right mb-4">
+        <p className="text-sm text-muted-foreground">{greeting},</p>
+        <p className="text-2xl font-bold text-foreground">{firstName}</p>
       </div>
 
-      {/* Live Clock */}
-      <div className="flex items-baseline gap-1">
-        <span className="text-2xl font-bold tabular-nums text-foreground">
-          {format(currentTime, "h:mm:ss")}
-        </span>
-        <span className="text-sm font-medium text-muted-foreground">
-          {format(currentTime, "a")}
-        </span>
+      {/* Live Clock - Much Bigger */}
+      <div className="text-right mb-4">
+        <p className="text-4xl font-bold tabular-nums text-foreground tracking-tight">
+          {formatTime(currentTime)}
+        </p>
+        <p className="text-sm text-muted-foreground mt-0.5">
+          {formatDate(currentTime)}
+        </p>
       </div>
-      <span className="text-xs text-muted-foreground">
-        {format(currentTime, "EEEE, MMM d")}
-      </span>
 
-      {/* Store Status */}
-      <div className="flex items-center gap-2 mt-1">
-        <Badge
-          variant="outline"
-          className={
-            isStoreOpen
-              ? "bg-green-500/10 text-green-600 border-green-500/30"
-              : "bg-red-500/10 text-red-600 border-red-500/30"
-          }
+      {/* Store Status - More Prominent */}
+      <div className="text-right mb-3">
+        <Badge 
+          variant={isStoreOpen ? "default" : "secondary"}
+          className={`text-sm px-3 py-1 ${
+            isStoreOpen 
+              ? "bg-green-500/20 text-green-600 border-green-500/30 dark:bg-green-500/10 dark:text-green-400" 
+              : "bg-red-500/20 text-red-600 border-red-500/30 dark:bg-red-500/10 dark:text-red-400"
+          }`}
         >
-          <span
-            className={`w-1.5 h-1.5 rounded-full mr-1.5 ${
-              isStoreOpen ? "bg-green-500" : "bg-red-500"
-            }`}
-          />
+          <span className={`inline-block w-2 h-2 rounded-full mr-2 ${
+            isStoreOpen ? "bg-green-500 animate-pulse" : "bg-red-500"
+          }`} />
           {isStoreOpen ? "Store Open" : "Store Closed"}
         </Badge>
+        {storeHours && (
+          <p className="text-xs text-muted-foreground mt-1.5">
+            Hours: {formatStoreHours(storeHours)}
+          </p>
+        )}
       </div>
-      <span className="text-xs text-muted-foreground">
-        Hours: {formatStoreTime(storeHours.open)} – {formatStoreTime(storeHours.close)}
-      </span>
 
       {/* Context Line */}
-      <span className="text-xs text-muted-foreground/70 italic mt-0.5">
+      <p className="text-xs text-muted-foreground/80 italic text-right">
         {contextLine}
-      </span>
-    </div>
+      </p>
+    </Card>
   );
 }

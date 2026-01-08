@@ -5,14 +5,40 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Operating hours for reminders (12 PM to 7 PM)
-const OPERATING_START_HOUR = 12;
-const OPERATING_END_HOUR = 19;
+const PRODUCTION_DOMAIN = 'https://arwfloridablanca.shop';
 
-function isWithinOperatingHours(): boolean {
+interface StoreHours {
+  open: string;
+  close: string;
+  timezone?: string;
+}
+
+function parseTime(timeStr: string): { hour: number; minute: number } {
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  return { hour: hours, minute: minutes || 0 };
+}
+
+function getPhilippinesTime(): Date {
+  // Get current time in Philippines timezone (UTC+8)
   const now = new Date();
-  const hour = now.getHours();
-  return hour >= OPERATING_START_HOUR && hour < OPERATING_END_HOUR;
+  const utcTime = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const philippinesOffset = 8 * 60 * 60000; // UTC+8
+  return new Date(utcTime + philippinesOffset);
+}
+
+function isWithinOperatingHours(storeHours: StoreHours): boolean {
+  const philippinesNow = getPhilippinesTime();
+  const hour = philippinesNow.getHours();
+  const minute = philippinesNow.getMinutes();
+  const currentMinutes = hour * 60 + minute;
+
+  const openTime = parseTime(storeHours.open);
+  const closeTime = parseTime(storeHours.close);
+  
+  const openMinutes = openTime.hour * 60 + openTime.minute;
+  const closeMinutes = closeTime.hour * 60 + closeTime.minute;
+
+  return currentMinutes >= openMinutes && currentMinutes < closeMinutes;
 }
 
 Deno.serve(async (req) => {
@@ -26,11 +52,29 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Check if within operating hours
-    if (!isWithinOperatingHours()) {
-      console.log('Outside operating hours (12 PM - 7 PM), skipping reminders');
+    // Fetch store hours from settings
+    const { data: storeHoursData } = await supabase
+      .from('settings')
+      .select('value')
+      .eq('key', 'store_hours')
+      .maybeSingle();
+
+    const storeHours: StoreHours = storeHoursData?.value as StoreHours || {
+      open: '10:00',
+      close: '22:00',
+      timezone: 'Asia/Manila'
+    };
+
+    // Check if within operating hours (Philippines time)
+    if (!isWithinOperatingHours(storeHours)) {
+      const philippinesNow = getPhilippinesTime();
+      console.log(`Outside operating hours (${storeHours.open} - ${storeHours.close} PH time). Current PH time: ${philippinesNow.toLocaleTimeString()}`);
       return new Response(
-        JSON.stringify({ message: 'Outside operating hours', sent: 0 }),
+        JSON.stringify({ 
+          message: `Outside operating hours (${storeHours.open} - ${storeHours.close} PH time)`, 
+          sent: 0,
+          current_ph_time: philippinesNow.toISOString()
+        }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -48,7 +92,9 @@ Deno.serve(async (req) => {
           customer_phone,
           customer_email,
           cart_total,
-          status
+          status,
+          sms_attempts,
+          email_attempts
         )
       `)
       .eq('status', 'pending')
@@ -82,8 +128,8 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // Generate recovery link
-      const recoveryLink = `${supabaseUrl.replace('.supabase.co', '.lovable.app')}/order?recover=${checkout.id}`;
+      // Generate recovery link with UTM parameters
+      const recoveryLink = `${PRODUCTION_DOMAIN}/order?recover=${checkout.id}&utm_source=recovery&utm_medium=${reminder.channel}&utm_campaign=abandoned_cart`;
       
       try {
         if (reminder.channel === 'sms' && checkout.customer_phone) {
@@ -99,7 +145,7 @@ Deno.serve(async (req) => {
             const message = template.content
               .replace(/\{\{customer_name\}\}/g, checkout.customer_name || 'there')
               .replace(/\{\{recovery_link\}\}/g, recoveryLink)
-              .replace(/\{\{cart_total\}\}/g, checkout.cart_total?.toLocaleString() || '0');
+              .replace(/\{\{cart_total\}\}/g, `₱${checkout.cart_total?.toLocaleString() || '0'}`);
 
             // Send SMS via Semaphore
             const semaphoreApiKey = Deno.env.get('SEMAPHORE_API_KEY');
@@ -130,8 +176,18 @@ Deno.serve(async (req) => {
                     last_reminder_sent_at: new Date().toISOString(),
                   })
                   .eq('id', checkout.id);
+
+                // Log SMS
+                await supabase.from('sms_logs').insert({
+                  recipient_phone: checkout.customer_phone,
+                  message: message,
+                  sms_type: 'cart_recovery',
+                  status: 'sent',
+                  source: 'cart_recovery',
+                });
               } else {
-                throw new Error('SMS send failed');
+                const errorText = await smsResponse.text();
+                throw new Error(`SMS send failed: ${errorText}`);
               }
             }
           }
@@ -151,7 +207,11 @@ Deno.serve(async (req) => {
               const htmlContent = template.content
                 .replace(/\{\{customer_name\}\}/g, checkout.customer_name || 'there')
                 .replace(/\{\{recovery_link\}\}/g, recoveryLink)
-                .replace(/\{\{cart_total\}\}/g, checkout.cart_total?.toLocaleString() || '0');
+                .replace(/\{\{cart_total\}\}/g, `₱${checkout.cart_total?.toLocaleString() || '0'}`);
+
+              const subject = template.subject
+                .replace(/\{\{customer_name\}\}/g, checkout.customer_name || 'there')
+                .replace(/\{\{cart_total\}\}/g, `₱${checkout.cart_total?.toLocaleString() || '0'}`);
 
               const emailResponse = await fetch('https://api.resend.com/emails', {
                 method: 'POST',
@@ -160,9 +220,9 @@ Deno.serve(async (req) => {
                   'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                  from: 'American Ribs & Wings <noreply@resend.dev>',
+                  from: 'American Ribs & Wings <noreply@arwfloridablanca.shop>',
                   to: [checkout.customer_email],
-                  subject: template.subject,
+                  subject: subject,
                   html: htmlContent,
                 }),
               });
@@ -182,8 +242,18 @@ Deno.serve(async (req) => {
                     last_reminder_sent_at: new Date().toISOString(),
                   })
                   .eq('id', checkout.id);
+
+                // Log email
+                await supabase.from('email_logs').insert({
+                  recipient_email: checkout.customer_email,
+                  email_type: 'cart_recovery',
+                  email_subject: subject,
+                  status: 'sent',
+                  trigger_event: 'cart_recovery',
+                });
               } else {
-                throw new Error('Email send failed');
+                const errorText = await emailResponse.text();
+                throw new Error(`Email send failed: ${errorText}`);
               }
             }
           }

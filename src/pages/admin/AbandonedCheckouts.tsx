@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, ShoppingCart, RefreshCw, Mail, MessageSquare, Clock, CheckCircle, XCircle, AlertCircle, Eye } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import { Loader2, ShoppingCart, RefreshCw, Mail, MessageSquare, Clock, CheckCircle, XCircle, AlertCircle, Eye, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { format, formatDistanceToNow } from "date-fns";
 
@@ -46,6 +47,31 @@ export default function AbandonedCheckouts() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedCheckout, setSelectedCheckout] = useState<AbandonedCheckout | null>(null);
   const queryClient = useQueryClient();
+
+  // Real-time subscription
+  useEffect(() => {
+    const channel = supabase
+      .channel('abandoned-checkouts-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'abandoned_checkouts' },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['abandoned-checkouts'] });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'abandoned_checkout_reminders' },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['checkout-reminders'] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
 
   // Fetch abandoned checkouts
   const { data: checkouts = [], isLoading } = useQuery({
@@ -334,18 +360,50 @@ export default function AbandonedCheckouts() {
                                     <h4 className="font-medium mb-2">Scheduled Reminders</h4>
                                     <div className="space-y-2">
                                       {reminders.map((reminder) => (
-                                        <div key={reminder.id} className="flex items-center justify-between text-sm bg-muted p-2 rounded">
-                                          <div className="flex items-center gap-2">
-                                            {reminder.channel === 'sms' ? (
-                                              <MessageSquare className="h-4 w-4" />
-                                            ) : (
-                                              <Mail className="h-4 w-4" />
-                                            )}
-                                            <span>{format(new Date(reminder.scheduled_for), 'MMM d, h:mm a')}</span>
+                                        <div key={reminder.id} className="text-sm bg-muted p-3 rounded space-y-2">
+                                          <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                              {reminder.channel === 'sms' ? (
+                                                <MessageSquare className="h-4 w-4" />
+                                              ) : (
+                                                <Mail className="h-4 w-4" />
+                                              )}
+                                              <span className="font-medium capitalize">{reminder.channel}</span>
+                                            </div>
+                                            {getReminderStatusBadge(reminder.status)}
                                           </div>
-                                          {getReminderStatusBadge(reminder.status)}
+                                          <div className="text-xs text-muted-foreground">
+                                            <span>Scheduled: {format(new Date(reminder.scheduled_for), 'MMM d, h:mm a')}</span>
+                                            {reminder.sent_at && (
+                                              <span className="ml-2">• Sent: {format(new Date(reminder.sent_at), 'MMM d, h:mm a')}</span>
+                                            )}
+                                          </div>
+                                          {reminder.error_message && (
+                                            <p className="text-xs text-destructive">{reminder.error_message}</p>
+                                          )}
                                         </div>
                                       ))}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Recovery Link Preview */}
+                                {checkout.status === 'recovering' && (
+                                  <div>
+                                    <Separator className="my-3" />
+                                    <h4 className="font-medium mb-2">Recovery Link</h4>
+                                    <div className="bg-muted p-2 rounded text-xs break-all flex items-center gap-2">
+                                      <code className="flex-1">
+                                        https://arwfloridablanca.shop/order?recover={checkout.id}
+                                      </code>
+                                      <a 
+                                        href={`https://arwfloridablanca.shop/order?recover=${checkout.id}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-primary hover:underline"
+                                      >
+                                        <ExternalLink className="h-3 w-3" />
+                                      </a>
                                     </div>
                                   </div>
                                 )}
