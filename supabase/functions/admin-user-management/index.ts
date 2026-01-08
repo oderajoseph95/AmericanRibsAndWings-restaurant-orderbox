@@ -89,30 +89,52 @@ Deno.serve(async (req) => {
         );
       }
 
-      // Fetch usernames and display names from user_roles
+      // Fetch usernames, display names, and roles from user_roles
       const { data: roleData } = await adminClient
         .from("user_roles")
-        .select("user_id, username, display_name, is_super_owner")
+        .select("user_id, username, display_name, is_super_owner, role")
         .in("user_id", userIds);
 
-      const usernameMap: Record<string, { username: string | null; display_name: string | null; is_super_owner: boolean }> = {};
+      const usernameMap: Record<string, { username: string | null; display_name: string | null; is_super_owner: boolean; role: string | null }> = {};
       for (const role of roleData || []) {
         usernameMap[role.user_id] = { 
           username: role.username, 
           display_name: role.display_name,
-          is_super_owner: role.is_super_owner || false 
+          is_super_owner: role.is_super_owner || false,
+          role: role.role
         };
+      }
+
+      // Fetch driver names for users with driver role
+      const driverUserIds = (roleData || []).filter(r => r.role === 'driver').map(r => r.user_id);
+      const driverNameMap: Record<string, string> = {};
+      
+      if (driverUserIds.length > 0) {
+        const { data: driversData } = await adminClient
+          .from("drivers")
+          .select("user_id, name")
+          .in("user_id", driverUserIds);
+
+        for (const driver of driversData || []) {
+          driverNameMap[driver.user_id] = driver.name;
+        }
       }
 
       // Create a map of user_id -> user data
       // Only super owner can see emails
+      // For drivers, use driver.name; for others, use display_name
       const userDataMap: Record<string, { email: string | null; username: string | null; display_name: string | null; is_super_owner: boolean }> = {};
       for (const u of users) {
         if (userIds.includes(u.id)) {
+          const isDriver = usernameMap[u.id]?.role === 'driver';
+          const displayName = isDriver 
+            ? (driverNameMap[u.id] || usernameMap[u.id]?.display_name || null)
+            : (usernameMap[u.id]?.display_name || null);
+
           userDataMap[u.id] = {
             email: isSuperOwner ? (u.email || "No email") : null,
             username: usernameMap[u.id]?.username || null,
-            display_name: usernameMap[u.id]?.display_name || null,
+            display_name: displayName,
             is_super_owner: usernameMap[u.id]?.is_super_owner || false,
           };
         }
