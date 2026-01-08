@@ -20,6 +20,15 @@ export type EmailType =
   | "payout_approved"
   | "payout_rejected";
 
+export interface OrderItem {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+  sku?: string;
+  flavors?: Array<{ name: string; quantity: number; surcharge?: number }>;
+}
+
 export interface EmailNotificationPayload {
   type: EmailType;
   recipientEmail?: string; // Optional - if not provided, only admin emails are sent
@@ -29,12 +38,21 @@ export interface EmailNotificationPayload {
   customerPhone?: string;
   customerEmail?: string;
   totalAmount?: number;
+  subtotal?: number;
+  deliveryFee?: number;
+  deliveryDistance?: number;
   deliveryAddress?: string;
   orderType?: string;
+  paymentMethod?: string;
+  pickupDate?: string;
+  pickupTime?: string;
+  landmark?: string;
+  notes?: string;
   driverName?: string;
   driverPhone?: string;
   payoutAmount?: number;
   reason?: string;
+  orderItems?: OrderItem[];
 }
 
 export async function sendEmailNotification(payload: EmailNotificationPayload): Promise<{ success: boolean; error?: string }> {

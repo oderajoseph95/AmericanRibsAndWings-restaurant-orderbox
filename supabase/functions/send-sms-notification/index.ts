@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const SEMAPHORE_API_KEY = Deno.env.get("SEMAPHORE_API_KEY");
 const SEMAPHORE_API_URL = "https://api.semaphore.co/api/v4/messages";
-const SEMAPHORE_SENDER_NAME = "ARWFLORIDA"; // Sender ID (must be approved by Semaphore)
+// Removed custom sender name - use Semaphore's default to avoid "invalid senderName" errors
 
 // Admin backup numbers - ALWAYS receive copies of all SMS
 const ADMIN_BACKUP_NUMBERS = [
@@ -23,6 +23,10 @@ interface SmsPayload {
   orderNumber?: string;
   customerName?: string;
   driverName?: string;
+  driverPhone?: string;
+  totalAmount?: number;
+  deliveryAddress?: string;
+  reason?: string;
 }
 
 // Format Philippine phone number to standard format
@@ -52,7 +56,7 @@ function formatPhilippineNumber(phone: string): string {
 }
 
 // Send SMS to a single recipient using Semaphore
-async function sendSingleSms(phone: string, message: string): Promise<{ success: boolean; messageId?: string; network?: string; error?: string }> {
+async function sendSingleSms(phone: string, message: string): Promise<{ success: boolean; messageId?: string; network?: string; error?: string; rawResponse?: any }> {
   if (!SEMAPHORE_API_KEY) {
     console.error("SEMAPHORE_API_KEY not configured");
     return { success: false, error: "API key not configured" };
@@ -66,6 +70,7 @@ async function sendSingleSms(phone: string, message: string): Promise<{ success:
   console.log(`Sending SMS to ${formattedPhone}: ${message.substring(0, 50)}...`);
   
   try {
+    // Don't include sendername - use Semaphore's default
     const response = await fetch(SEMAPHORE_API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -73,28 +78,43 @@ async function sendSingleSms(phone: string, message: string): Promise<{ success:
         apikey: SEMAPHORE_API_KEY,
         number: formattedPhone,
         message: message,
-        sendername: SEMAPHORE_SENDER_NAME,
       }),
     });
     
     const result = await response.json();
     console.log("Semaphore response:", JSON.stringify(result));
     
-    // Semaphore returns an array with message details
-    if (Array.isArray(result) && result.length > 0 && result[0].message_id) {
-      return { 
-        success: true, 
-        messageId: result[0].message_id,
-        network: result[0].network 
-      };
+    // Semaphore returns an array with message details on success
+    if (Array.isArray(result) && result.length > 0) {
+      const firstResult = result[0];
+      
+      // Check for error in response
+      if (firstResult.senderName || firstResult.error) {
+        return { 
+          success: false, 
+          error: firstResult.senderName || firstResult.error,
+          rawResponse: result 
+        };
+      }
+      
+      // Success - has message_id
+      if (firstResult.message_id) {
+        return { 
+          success: true, 
+          messageId: String(firstResult.message_id),
+          network: firstResult.network,
+          rawResponse: result 
+        };
+      }
     }
     
-    // Handle error response
+    // Handle explicit error response
     if (result.error) {
-      return { success: false, error: result.error };
+      return { success: false, error: result.error, rawResponse: result };
     }
     
-    return { success: true, messageId: result[0]?.message_id };
+    // If we got here, assume it worked but couldn't parse properly
+    return { success: true, rawResponse: result };
   } catch (error) {
     console.error("Semaphore API error:", error);
     return { success: false, error: String(error) };
@@ -129,30 +149,37 @@ function replaceVariables(content: string, payload: SmsPayload): string {
   result = result.replace(/\{\{order_number\}\}/g, payload.orderNumber || "");
   result = result.replace(/\{\{customer_name\}\}/g, payload.customerName || "");
   result = result.replace(/\{\{driver_name\}\}/g, payload.driverName || "");
+  result = result.replace(/\{\{driver_phone\}\}/g, payload.driverPhone || "");
+  result = result.replace(/\{\{total_amount\}\}/g, payload.totalAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 }) || "");
+  result = result.replace(/\{\{delivery_address\}\}/g, payload.deliveryAddress || "");
+  result = result.replace(/\{\{reason\}\}/g, payload.reason || "");
   
   return result;
 }
 
-// Log SMS to database
+// Log SMS to database with full details
 async function logSms(
   supabase: any, 
   phone: string, 
+  message: string,
   payload: SmsPayload, 
-  result: { success: boolean; messageId?: string; network?: string; error?: string }
+  result: { success: boolean; messageId?: string; network?: string; error?: string; rawResponse?: any }
 ): Promise<void> {
   try {
     await supabase.from("sms_logs").insert({
       recipient_phone: phone,
       sms_type: payload.type,
-      message: `SMS for order #${payload.orderNumber || "N/A"}`,
+      message: message,
       status: result.success ? "sent" : "failed",
       message_id: result.messageId || null,
       order_id: payload.orderId || null,
       network: result.network || null,
+      provider: "semaphore",
       metadata: {
         customer_name: payload.customerName,
         driver_name: payload.driverName,
         error: result.error,
+        raw_response: result.rawResponse,
       },
     });
   } catch (error) {
@@ -160,15 +187,29 @@ async function logSms(
   }
 }
 
-// Get default message if no template found
-function getDefaultMessage(type: string, orderNumber?: string): string {
+// Get default message if no template found - now covers all 10 types
+function getDefaultMessage(type: string, payload: SmsPayload): string {
+  const orderNumber = payload.orderNumber || "";
+  const driverName = payload.driverName || "";
+  const reason = payload.reason || "";
+  
   const defaults: Record<string, string> = {
-    order_received: `American Ribs & Wings Floridablanca: We received your order #${orderNumber}. We are preparing your food now. Thank you!`,
-    payment_verified: `American Ribs & Wings Floridablanca: Payment verified for order #${orderNumber}. Your order is now confirmed.`,
-    driver_assigned: `American Ribs & Wings Floridablanca: Your order #${orderNumber} has been assigned to a rider. ETA will be shared shortly.`,
-    order_out_for_delivery: `American Ribs & Wings Floridablanca: Your order #${orderNumber} is out for delivery. Please prepare to receive your order.`,
-    order_delivered: `American Ribs & Wings Floridablanca: Your order #${orderNumber} has been delivered. Thank you for ordering!`,
-    test: `American Ribs & Wings: This is a test SMS. If you received this, SMS notifications are working!`,
+    // Original 5 types
+    order_received: `American Ribs & Wings: We received your order #${orderNumber}. We are preparing your food now. Thank you!`,
+    payment_verified: `American Ribs & Wings: Payment verified for order #${orderNumber}. Your order is now confirmed and being prepared!`,
+    driver_assigned: `American Ribs & Wings: Your order #${orderNumber} has been assigned to ${driverName}. They will pick up your order shortly.`,
+    order_out_for_delivery: `American Ribs & Wings: Your order #${orderNumber} is out for delivery! Your rider is on the way.`,
+    order_delivered: `American Ribs & Wings: Your order #${orderNumber} has been delivered. Thank you for ordering! 🍗`,
+    
+    // New 5 types
+    order_rejected: `American Ribs & Wings: Your order #${orderNumber} could not be processed.${reason ? ` Reason: ${reason}` : ""} Please contact us for assistance.`,
+    order_cancelled: `American Ribs & Wings: Your order #${orderNumber} has been cancelled.${reason ? ` ${reason}` : ""} If you have questions, please contact us.`,
+    order_preparing: `American Ribs & Wings: Great news! Your order #${orderNumber} is now being prepared. We'll update you when it's ready!`,
+    order_ready_for_pickup: `American Ribs & Wings: Your order #${orderNumber} is ready for pickup! Please proceed to our store in Floridablanca.`,
+    order_completed: `American Ribs & Wings: Thank you for your order #${orderNumber}! We hope you enjoyed your meal. See you again soon! 🍗`,
+    
+    // Test type
+    test: `American Ribs & Wings: This is a test SMS. If you received this, SMS notifications are working correctly!`,
   };
   
   return defaults[type] || `American Ribs & Wings: Update for order #${orderNumber}`;
@@ -206,7 +247,7 @@ serve(async (req: Request): Promise<Response> => {
     if (template?.content) {
       message = replaceVariables(template.content, payload);
     } else {
-      message = getDefaultMessage(payload.type, payload.orderNumber);
+      message = getDefaultMessage(payload.type, payload);
     }
     
     // Build recipient list: customer + admin backups
@@ -222,18 +263,19 @@ serve(async (req: Request): Promise<Response> => {
     console.log(`Sending SMS to ${uniqueRecipients.length} recipients for type: ${payload.type}`);
     
     // Send SEPARATE SMS to each recipient
-    const results: { phone: string; success: boolean; messageId?: string }[] = [];
+    const results: { phone: string; success: boolean; messageId?: string; error?: string }[] = [];
     
     for (const phone of uniqueRecipients) {
       if (!phone) continue;
       
       const result = await sendSingleSms(phone, message);
-      await logSms(supabase, phone, payload, result);
+      await logSms(supabase, phone, message, payload, result);
       
       results.push({
         phone,
         success: result.success,
         messageId: result.messageId,
+        error: result.error,
       });
       
       // Small delay between sends to avoid rate limiting
