@@ -30,8 +30,8 @@ export function CompactOrderSummary({
       >
         <div className="flex items-center gap-2">
           <ShoppingBag className="h-4 w-4 text-primary" />
-          <span className="font-medium text-sm">
-            {itemCount} item{itemCount !== 1 ? "s" : ""}
+          <span className="font-medium text-sm text-primary underline underline-offset-2 decoration-dashed cursor-pointer">
+            Click to view order summary
           </span>
         </div>
         <div className="flex items-center gap-2">
