@@ -14,6 +14,41 @@ export type Database = {
   }
   public: {
     Tables: {
+      abandoned_checkout_events: {
+        Row: {
+          abandoned_checkout_id: string | null
+          channel: string | null
+          created_at: string | null
+          event_type: string
+          id: string
+          metadata: Json | null
+        }
+        Insert: {
+          abandoned_checkout_id?: string | null
+          channel?: string | null
+          created_at?: string | null
+          event_type: string
+          id?: string
+          metadata?: Json | null
+        }
+        Update: {
+          abandoned_checkout_id?: string | null
+          channel?: string | null
+          created_at?: string | null
+          event_type?: string
+          id?: string
+          metadata?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "abandoned_checkout_events_abandoned_checkout_id_fkey"
+            columns: ["abandoned_checkout_id"]
+            isOneToOne: false
+            referencedRelation: "abandoned_checkouts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       abandoned_checkout_reminders: {
         Row: {
           abandoned_checkout_id: string | null

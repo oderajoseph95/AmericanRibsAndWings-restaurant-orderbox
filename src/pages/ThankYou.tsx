@@ -262,7 +262,7 @@ export default function ThankYou() {
   // Get search params for checkout source detection
   const [searchParams] = useSearchParams();
 
-  // Fire Meta Pixel Purchase ONLY once per order AND only from checkout redirect
+  // Fire Meta Pixel & GA4 Purchase ONLY once per order AND only from checkout redirect
   useEffect(() => {
     if (trackingData?.order && trackingData.order.total_amount && typeof window !== 'undefined') {
       const orderIdForPixel = trackingData.order.id;
@@ -276,6 +276,7 @@ export default function ThankYou() {
       const alreadyFired = localStorage.getItem(pixelKey) === 'true';
       
       if (isFromCheckout && !alreadyFired) {
+        // Fire Meta Pixel Purchase
         const fbq = (window as any).fbq;
         if (typeof fbq === 'function') {
           fbq('track', 'Purchase', {
@@ -286,15 +287,31 @@ export default function ThankYou() {
             num_items: trackingData.items?.reduce((sum, item) => sum + item.quantity, 0) || 1,
           });
           console.log('Meta Pixel Purchase fired:', { orderId: orderIdForPixel, value: trackingData.order.total_amount });
-          
-          // Mark as fired in localStorage
-          localStorage.setItem(pixelKey, 'true');
         }
+
+        // Fire Google Analytics 4 purchase event
+        if (typeof gtag === 'function') {
+          gtag('event', 'purchase', {
+            transaction_id: trackingData.order.order_number || orderIdForPixel,
+            value: trackingData.order.total_amount,
+            currency: 'PHP',
+            items: trackingData.items?.map(item => ({
+              item_id: item.id,
+              item_name: item.product_name,
+              price: item.unit_price,
+              quantity: item.quantity,
+            })) || [],
+          });
+          console.log('GA4 purchase event fired:', { orderId: orderIdForPixel, value: trackingData.order.total_amount });
+        }
+        
+        // Mark as fired in localStorage
+        localStorage.setItem(pixelKey, 'true');
         
         // Clean up URL immediately - remove ?source=checkout
         window.history.replaceState({}, document.title, `/thank-you/${orderIdForPixel}`);
       } else {
-        console.log('Meta Pixel Purchase skipped:', { isFromCheckout, alreadyFired, orderId: orderIdForPixel });
+        console.log('Purchase events skipped:', { isFromCheckout, alreadyFired, orderId: orderIdForPixel });
         
         // Also clean URL if source param exists but was blocked
         if (source) {
