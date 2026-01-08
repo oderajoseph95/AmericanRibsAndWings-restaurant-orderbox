@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -14,9 +14,10 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Mail, Loader2, Edit, Eye, Copy, RefreshCw, Info, History, CheckCircle, XCircle, AlertCircle, Clock, Users, ShieldCheck, ChevronLeft, ChevronRight, Search, Send, TestTube, BarChart3 } from 'lucide-react';
-import { format } from 'date-fns';
+import { Mail, Loader2, Edit, Eye, Copy, RefreshCw, Info, History, CheckCircle, XCircle, AlertCircle, Clock, Users, ShieldCheck, ChevronLeft, ChevronRight, Search, Send, TestTube, BarChart3, Timer } from 'lucide-react';
+import { format, subDays } from 'date-fns';
 import { sendTestEmail } from '@/hooks/useEmailNotifications';
+import { DateRangeSelector } from '@/components/admin/DateRangeSelector';
 
 type EmailTemplate = {
   id: string;
@@ -96,11 +97,32 @@ export default function EmailTemplates() {
   const [logsPage, setLogsPage] = useState(1);
   const [logsSearch, setLogsSearch] = useState('');
   
+  // Date range for analytics
+  const [statsDays, setStatsDays] = useState<number | 'custom'>(7);
+  const [customRange, setCustomRange] = useState<{ from: Date; to: Date } | undefined>();
+  
+  // Auto-sync
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
+  
   // Test email dialog
   const [showTestDialog, setShowTestDialog] = useState(false);
   const [testEmailRecipient, setTestEmailRecipient] = useState('');
   const [templateToTest, setTemplateToTest] = useState<EmailTemplate | null>(null);
   const [isSendingTest, setIsSendingTest] = useState(false);
+  
+  // Calculate date range for analytics
+  const analyticsDateRange = useMemo(() => {
+    const now = new Date();
+    if (statsDays === 'custom' && customRange) {
+      return { from: customRange.from, to: customRange.to };
+    }
+    return { from: subDays(now, statsDays as number), to: now };
+  }, [statsDays, customRange]);
+  
+  const handleDateRangeChange = useCallback((days: number | 'custom', range?: { from: Date; to: Date }) => {
+    setStatsDays(days);
+    if (range) setCustomRange(range);
+  }, []);
 
   const { data: templates = [], isLoading } = useQuery({
     queryKey: ['email-templates'],
@@ -184,11 +206,23 @@ export default function EmailTemplates() {
 
   const totalLogsPages = Math.ceil(filteredLogs.length / ITEMS_PER_PAGE);
 
+  // Auto-sync effect
+  useEffect(() => {
+    if (!autoSyncEnabled) return;
+    
+    const interval = setInterval(() => {
+      refetchLogs();
+    }, 30000);
+    
+    return () => clearInterval(interval);
+  }, [autoSyncEnabled, refetchLogs]);
+
   // Analytics - count unique emails by email_id to avoid counting duplicate status updates
   const analytics = useMemo(() => {
-    const now = new Date();
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const recentLogs = emailLogs.filter(log => new Date(log.created_at) >= sevenDaysAgo);
+    const recentLogs = emailLogs.filter(log => {
+      const logDate = new Date(log.created_at);
+      return logDate >= analyticsDateRange.from && logDate <= analyticsDateRange.to;
+    });
     
     // Group by email_id to get unique emails
     const uniqueEmails = new Map<string, EmailLog>();
@@ -223,7 +257,7 @@ export default function EmailTemplates() {
       openRate: delivered > 0 ? Math.round((opened / delivered) * 100) : 0,
       bounceRate: total > 0 ? Math.round((bounced / total) * 100) : 0,
     };
-  }, [emailLogs]);
+  }, [emailLogs, analyticsDateRange]);
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, subject, content, is_active }: { id: string; subject?: string; content?: string; is_active?: boolean }) => {
@@ -561,13 +595,42 @@ export default function EmailTemplates() {
         </TabsContent>
 
         <TabsContent value="logs" className="mt-4 space-y-4">
+          {/* Date Range Selector and Auto-Sync */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <DateRangeSelector 
+              value={statsDays} 
+              onChange={handleDateRangeChange}
+              customRange={customRange}
+            />
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="auto-sync-email"
+                  checked={autoSyncEnabled}
+                  onCheckedChange={setAutoSyncEnabled}
+                />
+                <Label htmlFor="auto-sync-email" className="text-sm flex items-center gap-1 cursor-pointer">
+                  <Timer className="h-4 w-4" />
+                  Auto-sync
+                </Label>
+              </div>
+              {autoSyncEnabled && (
+                <Badge variant="outline" className="text-xs animate-pulse">
+                  Syncing every 30s
+                </Badge>
+              )}
+            </div>
+          </div>
+
           {/* Analytics Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <Card>
               <CardContent className="pt-4">
                 <div className="flex items-center gap-2">
                   <Mail className="h-4 w-4 text-blue-600" />
-                  <span className="text-sm text-muted-foreground">Sent (7d)</span>
+                  <span className="text-sm text-muted-foreground">
+                    Sent {statsDays === 'custom' ? '' : `(${statsDays}d)`}
+                  </span>
                 </div>
                 <p className="text-2xl font-bold mt-1">{analytics.total}</p>
               </CardContent>
