@@ -11,27 +11,18 @@ import { Label } from '@/components/ui/label';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Mail, Loader2, Edit, Eye, Copy, RefreshCw, Info, History, CheckCircle, XCircle, AlertCircle, Clock, MessageSquare, Users, ShieldCheck, ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { Mail, Loader2, Edit, Eye, Copy, RefreshCw, Info, History, CheckCircle, XCircle, AlertCircle, Clock, Users, ShieldCheck, ChevronLeft, ChevronRight, Search, Send, TestTube, BarChart3 } from 'lucide-react';
 import { format } from 'date-fns';
+import { sendTestEmail } from '@/hooks/useEmailNotifications';
 
 type EmailTemplate = {
   id: string;
   type: string;
   name: string;
   subject: string;
-  content: string;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-};
-
-type SmsTemplate = {
-  id: string;
-  type: string;
-  name: string;
   content: string;
   is_active: boolean;
   created_at: string;
@@ -48,18 +39,12 @@ type EmailLog = {
   order_id: string | null;
   event_data: any;
   created_at: string;
-};
-
-type SmsLog = {
-  id: string;
-  recipient_phone: string;
-  sms_type: string | null;
-  message: string;
-  status: string;
-  message_id: string | null;
-  order_id: string | null;
-  network: string | null;
-  created_at: string;
+  customer_name: string | null;
+  order_number: string | null;
+  email_subject: string | null;
+  trigger_event: string | null;
+  recipient_type: string | null;
+  is_test: boolean | null;
 };
 
 const variablesList = [
@@ -100,10 +85,8 @@ const ITEMS_PER_PAGE = 10;
 export default function EmailTemplates() {
   const queryClient = useQueryClient();
   const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
-  const [selectedSmsTemplate, setSelectedSmsTemplate] = useState<SmsTemplate | null>(null);
   const [editSubject, setEditSubject] = useState('');
   const [editContent, setEditContent] = useState('');
-  const [editSmsContent, setEditSmsContent] = useState('');
   const [showPreview, setShowPreview] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('templates');
@@ -111,6 +94,13 @@ export default function EmailTemplates() {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [logsPage, setLogsPage] = useState(1);
+  const [logsSearch, setLogsSearch] = useState('');
+  
+  // Test email dialog
+  const [showTestDialog, setShowTestDialog] = useState(false);
+  const [testEmailRecipient, setTestEmailRecipient] = useState('');
+  const [templateToTest, setTemplateToTest] = useState<EmailTemplate | null>(null);
+  const [isSendingTest, setIsSendingTest] = useState(false);
 
   const { data: templates = [], isLoading } = useQuery({
     queryKey: ['email-templates'],
@@ -150,7 +140,6 @@ export default function EmailTemplates() {
 
   const totalPages = Math.ceil(filteredTemplates.length / ITEMS_PER_PAGE);
 
-  // Reset page when switching tabs or searching
   const handleSubTabChange = (tab: 'customer' | 'admin') => {
     setEmailSubTab(tab);
     setCurrentPage(1);
@@ -161,20 +150,7 @@ export default function EmailTemplates() {
     setCurrentPage(1);
   };
 
-  // Fetch SMS templates
-  const { data: smsTemplates = [], isLoading: isLoadingSms } = useQuery({
-    queryKey: ['sms-templates'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('sms_templates')
-        .select('*')
-        .order('name');
-      if (error) throw error;
-      return data as SmsTemplate[];
-    },
-  });
-
-  // Fetch email logs from webhook events
+  // Fetch email logs
   const { data: emailLogs = [], isLoading: isLoadingLogs, refetch: refetchLogs } = useQuery({
     queryKey: ['email-logs'],
     queryFn: async () => {
@@ -182,33 +158,57 @@ export default function EmailTemplates() {
         .from('email_logs')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(100);
+        .limit(500);
       if (error) throw error;
       return data as EmailLog[];
     },
   });
 
-  // Paginate logs
+  // Filter and paginate logs
+  const filteredLogs = useMemo(() => {
+    if (!logsSearch.trim()) return emailLogs;
+    const query = logsSearch.toLowerCase();
+    return emailLogs.filter(log => 
+      log.recipient_email?.toLowerCase().includes(query) ||
+      log.customer_name?.toLowerCase().includes(query) ||
+      log.order_number?.toLowerCase().includes(query) ||
+      log.trigger_event?.toLowerCase().includes(query) ||
+      log.email_subject?.toLowerCase().includes(query)
+    );
+  }, [emailLogs, logsSearch]);
+
   const paginatedLogs = useMemo(() => {
     const start = (logsPage - 1) * ITEMS_PER_PAGE;
-    return emailLogs.slice(start, start + ITEMS_PER_PAGE);
-  }, [emailLogs, logsPage]);
+    return filteredLogs.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredLogs, logsPage]);
 
-  const totalLogsPages = Math.ceil(emailLogs.length / ITEMS_PER_PAGE);
+  const totalLogsPages = Math.ceil(filteredLogs.length / ITEMS_PER_PAGE);
 
-  // Fetch SMS logs
-  const { data: smsLogs = [], isLoading: isLoadingSmsLogs, refetch: refetchSmsLogs } = useQuery({
-    queryKey: ['sms-logs'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('sms_logs')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(100);
-      if (error) throw error;
-      return data as SmsLog[];
-    },
-  });
+  // Analytics
+  const analytics = useMemo(() => {
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const recentLogs = emailLogs.filter(log => new Date(log.created_at) >= sevenDaysAgo);
+    
+    const total = recentLogs.length;
+    const sent = recentLogs.filter(l => l.status === 'sent').length;
+    const delivered = recentLogs.filter(l => l.status === 'delivered').length;
+    const opened = recentLogs.filter(l => l.status === 'opened').length;
+    const bounced = recentLogs.filter(l => l.status === 'bounced').length;
+    const testEmails = recentLogs.filter(l => l.is_test).length;
+    
+    return {
+      total,
+      sent,
+      delivered,
+      opened,
+      bounced,
+      testEmails,
+      deliveryRate: total > 0 ? Math.round((delivered / total) * 100) : 0,
+      openRate: delivered > 0 ? Math.round((opened / delivered) * 100) : 0,
+      bounceRate: total > 0 ? Math.round((bounced / total) * 100) : 0,
+    };
+  }, [emailLogs]);
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, subject, content, is_active }: { id: string; subject?: string; content?: string; is_active?: boolean }) => {
@@ -231,49 +231,6 @@ export default function EmailTemplates() {
       toast.error(error.message || 'Failed to save template');
     },
   });
-
-  // SMS template update mutation
-  const updateSmsMutation = useMutation({
-    mutationFn: async ({ id, content, is_active }: { id: string; content?: string; is_active?: boolean }) => {
-      const updates: Partial<SmsTemplate> = {};
-      if (content !== undefined) updates.content = content;
-      if (is_active !== undefined) updates.is_active = is_active;
-      
-      const { error } = await supabase
-        .from('sms_templates')
-        .update(updates)
-        .eq('id', id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['sms-templates'] });
-      toast.success('SMS template saved');
-      setSelectedSmsTemplate(null);
-    },
-    onError: (error) => {
-      toast.error(error.message || 'Failed to save SMS template');
-    },
-  });
-
-  const handleEditSmsTemplate = (template: SmsTemplate) => {
-    setSelectedSmsTemplate(template);
-    setEditSmsContent(template.content);
-  };
-
-  const handleSaveSmsTemplate = () => {
-    if (!selectedSmsTemplate) return;
-    updateSmsMutation.mutate({
-      id: selectedSmsTemplate.id,
-      content: editSmsContent,
-    });
-  };
-
-  const handleToggleSmsActive = (template: SmsTemplate) => {
-    updateSmsMutation.mutate({
-      id: template.id,
-      is_active: !template.is_active,
-    });
-  };
 
   const handleEditTemplate = (template: EmailTemplate) => {
     setSelectedTemplate(template);
@@ -305,7 +262,34 @@ export default function EmailTemplates() {
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await queryClient.invalidateQueries({ queryKey: ['email-templates'] });
+    await queryClient.invalidateQueries({ queryKey: ['email-logs'] });
     setTimeout(() => setIsRefreshing(false), 500);
+  };
+
+  const handleOpenTestDialog = (template: EmailTemplate) => {
+    setTemplateToTest(template);
+    setTestEmailRecipient('');
+    setShowTestDialog(true);
+  };
+
+  const handleSendTestEmail = async () => {
+    if (!templateToTest || !testEmailRecipient) return;
+    
+    setIsSendingTest(true);
+    try {
+      const result = await sendTestEmail(templateToTest.type, testEmailRecipient);
+      if (result.success) {
+        toast.success(`Test email sent to ${testEmailRecipient}`);
+        setShowTestDialog(false);
+        refetchLogs();
+      } else {
+        toast.error(result.error || 'Failed to send test email');
+      }
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to send test email');
+    } finally {
+      setIsSendingTest(false);
+    }
   };
 
   // Generate preview by replacing variables with sample data
@@ -328,8 +312,8 @@ export default function EmailTemplates() {
       '{{landmark}}': 'Near the church',
       '{{delivery_address}}': '123 Sample Street, Brgy. San Jose, Floridablanca, Pampanga',
       '{{order_type}}': 'Delivery',
-      '{{order_items}}': '<table style="width:100%;border-collapse:collapse;"><tr style="background:#f5f5f5;"><th style="padding:8px;text-align:left;border-bottom:1px solid #ddd;">Item</th><th style="padding:8px;text-align:center;">Qty</th><th style="padding:8px;text-align:right;">Price</th></tr><tr><td style="padding:8px;">BBQ Ribs Full Rack<br><small style="color:#666;">Original (2), Spicy (2)</small></td><td style="text-align:center;padding:8px;">1</td><td style="text-align:right;padding:8px;">₱850.00</td></tr><tr><td style="padding:8px;">Chicken Wings (12 pcs)<br><small style="color:#666;">Buffalo (6), Garlic (6)</small></td><td style="text-align:center;padding:8px;">2</td><td style="text-align:right;padding:8px;">₱700.00</td></tr></table>',
-      '{{order_summary}}': '<table style="width:100%;"><tr><td>Subtotal:</td><td style="text-align:right;">₱1,550.00</td></tr><tr><td>Delivery Fee (5.2 km):</td><td style="text-align:right;">₱75.00</td></tr><tr style="font-weight:bold;border-top:2px solid #333;"><td>Total:</td><td style="text-align:right;">₱1,625.00</td></tr></table>',
+      '{{order_items}}': '<table style="width:100%;border-collapse:collapse;"><tr style="background:#f5f5f5;"><th style="padding:8px;text-align:left;border-bottom:1px solid #ddd;">Item</th><th style="padding:8px;text-align:center;">Qty</th><th style="padding:8px;text-align:right;">Price</th></tr><tr><td style="padding:8px;">BBQ Ribs Full Rack<br><small style="color:#666;">Original (2), Spicy (2)</small></td><td style="text-align:center;padding:8px;">1</td><td style="text-align:right;padding:8px;">₱850.00</td></tr></table>',
+      '{{order_summary}}': '<table style="width:100%;"><tr><td>Subtotal:</td><td style="text-align:right;">₱1,550.00</td></tr><tr><td>Delivery Fee:</td><td style="text-align:right;">₱75.00</td></tr><tr style="font-weight:bold;"><td>Total:</td><td style="text-align:right;">₱1,625.00</td></tr></table>',
       '{{driver_name}}': 'Pedro Santos',
       '{{driver_phone}}': '09181234567',
       '{{payout_amount}}': '500.00',
@@ -338,12 +322,10 @@ export default function EmailTemplates() {
       '{{business_address}}': 'Floridablanca, Pampanga',
     };
 
-    // Replace variables
     Object.entries(sampleData).forEach(([variable, value]) => {
       preview = preview.replace(new RegExp(variable.replace(/[{}]/g, '\\$&'), 'g'), value);
     });
 
-    // Handle conditionals - show content for demo
     preview = preview.replace(/\{\{#if \w+\}\}/g, '');
     preview = preview.replace(/\{\{\/if\}\}/g, '');
 
@@ -351,7 +333,6 @@ export default function EmailTemplates() {
   };
 
   const getEmailTypeLabel = (type: string) => {
-    // Remove _customer or _admin suffix for display
     const baseType = type.replace(/_customer$/, '').replace(/_admin$/, '');
     const labels: Record<string, { label: string; color: string }> = {
       new_order: { label: 'New Order', color: 'bg-blue-500/20 text-blue-700' },
@@ -405,7 +386,6 @@ export default function EmailTemplates() {
     return colors[status] || 'bg-muted text-muted-foreground';
   };
 
-  // Pagination component
   const Pagination = ({ current, total, onChange }: { current: number; total: number; onChange: (page: number) => void }) => {
     if (total <= 1) return null;
     return (
@@ -414,21 +394,11 @@ export default function EmailTemplates() {
           Page {current} of {total}
         </p>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onChange(current - 1)}
-            disabled={current <= 1}
-          >
+          <Button variant="outline" size="sm" onClick={() => onChange(current - 1)} disabled={current <= 1}>
             <ChevronLeft className="h-4 w-4 mr-1" />
             Previous
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onChange(current + 1)}
-            disabled={current >= total}
-          >
+          <Button variant="outline" size="sm" onClick={() => onChange(current + 1)} disabled={current >= total}>
             Next
             <ChevronRight className="h-4 w-4 ml-1" />
           </Button>
@@ -441,8 +411,8 @@ export default function EmailTemplates() {
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Notifications Management</h1>
-          <p className="text-muted-foreground mt-1">Manage email & SMS templates and view delivery logs</p>
+          <h1 className="text-3xl font-bold text-foreground">Email Templates</h1>
+          <p className="text-muted-foreground mt-1">Manage email templates and view delivery logs</p>
         </div>
         <Button variant="outline" onClick={handleRefresh} disabled={isRefreshing}>
           <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
@@ -454,15 +424,8 @@ export default function EmailTemplates() {
         <TabsList>
           <TabsTrigger value="templates" className="gap-2">
             <Mail className="h-4 w-4" />
-            Email
+            Templates
             <Badge variant="secondary" className="ml-1 text-xs">{templates.length}</Badge>
-          </TabsTrigger>
-          <TabsTrigger value="sms" className="gap-2">
-            <MessageSquare className="h-4 w-4" />
-            SMS
-            {smsTemplates.length > 0 && (
-              <Badge variant="secondary" className="ml-1 text-xs">{smsTemplates.length}</Badge>
-            )}
           </TabsTrigger>
           <TabsTrigger value="logs" className="gap-2">
             <History className="h-4 w-4" />
@@ -471,7 +434,6 @@ export default function EmailTemplates() {
         </TabsList>
 
         <TabsContent value="templates" className="mt-4 space-y-4">
-          {/* Sub-tabs for Customer vs Admin */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex gap-2">
               <Button
@@ -481,7 +443,7 @@ export default function EmailTemplates() {
                 className="gap-2"
               >
                 <Users className="h-4 w-4" />
-                Customer Templates
+                Customer
                 <Badge variant="secondary" className="ml-1">{customerTemplates.length}</Badge>
               </Button>
               <Button
@@ -491,7 +453,7 @@ export default function EmailTemplates() {
                 className="gap-2"
               >
                 <ShieldCheck className="h-4 w-4" />
-                Admin Templates
+                Admin
                 <Badge variant="secondary" className="ml-1">{adminTemplates.length}</Badge>
               </Button>
             </div>
@@ -509,22 +471,13 @@ export default function EmailTemplates() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                {emailSubTab === 'customer' ? (
-                  <>
-                    <Users className="h-5 w-5" />
-                    Customer Email Templates
-                  </>
-                ) : (
-                  <>
-                    <ShieldCheck className="h-5 w-5" />
-                    Admin Email Templates
-                  </>
-                )}
+                {emailSubTab === 'customer' ? <Users className="h-5 w-5" /> : <ShieldCheck className="h-5 w-5" />}
+                {emailSubTab === 'customer' ? 'Customer Email Templates' : 'Admin Email Templates'}
               </CardTitle>
               <CardDescription>
                 {emailSubTab === 'customer' 
-                  ? 'Emails sent to customers when order status changes. These are the order confirmation and update emails your customers receive.'
-                  : 'Notification emails sent to admins and owners. These help you stay informed about new orders and status changes.'
+                  ? 'Emails sent to customers for order confirmations and updates.'
+                  : 'Notification emails sent to admins and owners for order alerts.'
                 }
               </CardDescription>
             </CardHeader>
@@ -545,9 +498,9 @@ export default function EmailTemplates() {
                       <TableRow>
                         <TableHead>Template</TableHead>
                         <TableHead>Type</TableHead>
-                        <TableHead>Subject</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="w-[100px]">Actions</TableHead>
+                        <TableHead className="hidden md:table-cell">Subject</TableHead>
+                        <TableHead>Active</TableHead>
+                        <TableHead className="w-[120px]">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -561,7 +514,7 @@ export default function EmailTemplates() {
                                 {typeInfo.label}
                               </Badge>
                             </TableCell>
-                            <TableCell className="max-w-[300px] truncate text-sm text-muted-foreground">
+                            <TableCell className="hidden md:table-cell max-w-[250px] truncate text-sm text-muted-foreground">
                               {template.subject}
                             </TableCell>
                             <TableCell>
@@ -571,118 +524,92 @@ export default function EmailTemplates() {
                               />
                             </TableCell>
                             <TableCell>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleEditTemplate(template)}
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
+                              <div className="flex gap-1">
+                                <Button variant="ghost" size="sm" onClick={() => handleEditTemplate(template)}>
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="sm" onClick={() => handleOpenTestDialog(template)} title="Send Test Email">
+                                  <TestTube className="h-4 w-4" />
+                                </Button>
+                              </div>
                             </TableCell>
                           </TableRow>
                         );
                       })}
                     </TableBody>
                   </Table>
-                  <Pagination
-                    current={currentPage}
-                    total={totalPages}
-                    onChange={setCurrentPage}
-                  />
+                  <Pagination current={currentPage} total={totalPages} onChange={setCurrentPage} />
                 </>
               )}
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="sms" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <MessageSquare className="h-5 w-5" />
-                SMS Templates
-              </CardTitle>
-              <CardDescription>
-                Customize SMS messages sent to customers. Use variables to insert dynamic data.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {isLoadingSms ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <TabsContent value="logs" className="mt-4 space-y-4">
+          {/* Analytics Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Card>
+              <CardContent className="pt-4">
+                <div className="flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-blue-600" />
+                  <span className="text-sm text-muted-foreground">Sent (7d)</span>
                 </div>
-              ) : smsTemplates.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p>No SMS templates found</p>
+                <p className="text-2xl font-bold mt-1">{analytics.total}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4 text-green-600" />
+                  <span className="text-sm text-muted-foreground">Delivered</span>
                 </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Template</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Content Preview</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="w-[100px]">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {smsTemplates.map((template) => {
-                      const typeInfo = getEmailTypeLabel(template.type);
-                      return (
-                        <TableRow key={template.id}>
-                          <TableCell className="font-medium">{template.name}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className={typeInfo.color}>
-                              {typeInfo.label}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="max-w-[300px] truncate text-sm text-muted-foreground">
-                            {template.content.substring(0, 60)}...
-                          </TableCell>
-                          <TableCell>
-                            <Switch
-                              checked={template.is_active}
-                              onCheckedChange={() => handleToggleSmsActive(template)}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleEditSmsTemplate(template)}
-                            >
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
+                <p className="text-2xl font-bold mt-1">{analytics.deliveryRate}%</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="flex items-center gap-2">
+                  <Eye className="h-4 w-4 text-purple-600" />
+                  <span className="text-sm text-muted-foreground">Open Rate</span>
+                </div>
+                <p className="text-2xl font-bold mt-1">{analytics.openRate}%</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="flex items-center gap-2">
+                  <XCircle className="h-4 w-4 text-red-600" />
+                  <span className="text-sm text-muted-foreground">Bounce Rate</span>
+                </div>
+                <p className="text-2xl font-bold mt-1">{analytics.bounceRate}%</p>
+              </CardContent>
+            </Card>
+          </div>
 
-        <TabsContent value="logs" className="mt-4">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <CardTitle className="flex items-center gap-2">
                     <History className="h-5 w-5" />
                     Email Delivery Logs
                   </CardTitle>
-                  <CardDescription>
-                    Track email delivery status from Resend webhooks
-                  </CardDescription>
+                  <CardDescription>Track all sent emails and their delivery status</CardDescription>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => refetchLogs()}>
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Refresh Logs
-                </Button>
+                <div className="flex gap-2">
+                  <div className="relative w-full sm:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search logs..."
+                      value={logsSearch}
+                      onChange={(e) => { setLogsSearch(e.target.value); setLogsPage(1); }}
+                      className="pl-9"
+                    />
+                  </div>
+                  <Button variant="outline" size="icon" onClick={() => refetchLogs()}>
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -690,11 +617,10 @@ export default function EmailTemplates() {
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 </div>
-              ) : emailLogs.length === 0 ? (
+              ) : filteredLogs.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <History className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p>No email logs yet</p>
-                  <p className="text-xs mt-1">Logs will appear here when emails are sent and webhooks are received</p>
+                  <p>No email logs found</p>
                 </div>
               ) : (
                 <>
@@ -703,52 +629,54 @@ export default function EmailTemplates() {
                       <TableRow>
                         <TableHead>Date</TableHead>
                         <TableHead>Recipient</TableHead>
-                        <TableHead>Type</TableHead>
+                        <TableHead>Trigger</TableHead>
+                        <TableHead className="hidden md:table-cell">Type</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead>Event</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {paginatedLogs.map((log) => {
-                        const typeInfo = log.email_type ? getEmailTypeLabel(log.email_type) : null;
-                        return (
-                          <TableRow key={log.id}>
-                            <TableCell className="text-sm">
-                              {format(new Date(log.created_at), 'MMM d, h:mm a')}
-                            </TableCell>
-                            <TableCell className="font-medium truncate max-w-[200px]">
-                              {log.recipient_email}
-                            </TableCell>
-                            <TableCell>
-                              {typeInfo ? (
-                                <Badge variant="outline" className={typeInfo.color}>
-                                  {typeInfo.label}
-                                </Badge>
-                              ) : (
-                                <span className="text-xs text-muted-foreground">-</span>
+                      {paginatedLogs.map((log) => (
+                        <TableRow key={log.id}>
+                          <TableCell className="text-sm whitespace-nowrap">
+                            {format(new Date(log.created_at), 'MMM d, h:mm a')}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col">
+                              <span className="font-medium truncate max-w-[180px]">{log.recipient_email}</span>
+                              {log.customer_name && (
+                                <span className="text-xs text-muted-foreground">{log.customer_name}</span>
                               )}
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-2">
-                                {getStatusIcon(log.status)}
-                                <Badge variant="outline" className={getStatusBadge(log.status)}>
-                                  {log.status}
-                                </Badge>
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-sm text-muted-foreground">
-                              {log.event_type || '-'}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-1">
+                              <span className="text-sm">{log.trigger_event || log.email_type || '-'}</span>
+                              {log.order_number && (
+                                <span className="text-xs text-muted-foreground">#{log.order_number}</span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="hidden md:table-cell">
+                            <Badge variant="outline" className={log.recipient_type === 'admin' ? 'bg-purple-500/20 text-purple-700' : 'bg-blue-500/20 text-blue-700'}>
+                              {log.recipient_type === 'admin' ? 'Admin' : 'Customer'}
+                            </Badge>
+                            {log.is_test && (
+                              <Badge variant="outline" className="ml-1 bg-yellow-500/20 text-yellow-700">Test</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              {getStatusIcon(log.status)}
+                              <Badge variant="outline" className={getStatusBadge(log.status)}>
+                                {log.status}
+                              </Badge>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
                     </TableBody>
                   </Table>
-                  <Pagination
-                    current={logsPage}
-                    total={totalLogsPages}
-                    onChange={setLogsPage}
-                  />
+                  <Pagination current={logsPage} total={totalLogsPages} onChange={setLogsPage} />
                 </>
               )}
             </CardContent>
@@ -764,67 +692,44 @@ export default function EmailTemplates() {
               <SheetHeader>
                 <SheetTitle>Edit: {selectedTemplate.name}</SheetTitle>
                 <SheetDescription>
-                  {selectedTemplate.type.endsWith('_customer') 
-                    ? 'This email is sent to customers.'
-                    : 'This email is sent to admins and owners.'
-                  }
+                  {selectedTemplate.type.endsWith('_customer') ? 'Sent to customers.' : 'Sent to admins.'}
                 </SheetDescription>
               </SheetHeader>
               <ScrollArea className="h-[calc(100vh-200px)] mt-6 pr-4">
                 <div className="space-y-6">
-                  {/* Recipient Badge */}
                   <div className="flex gap-2">
                     {selectedTemplate.type.endsWith('_customer') ? (
-                      <Badge className="bg-blue-500/20 text-blue-700">
-                        <Users className="h-3 w-3 mr-1" />
-                        Sent to Customer
-                      </Badge>
+                      <Badge className="bg-blue-500/20 text-blue-700"><Users className="h-3 w-3 mr-1" />Customer</Badge>
                     ) : (
-                      <Badge className="bg-purple-500/20 text-purple-700">
-                        <ShieldCheck className="h-3 w-3 mr-1" />
-                        Sent to Admins
-                      </Badge>
+                      <Badge className="bg-purple-500/20 text-purple-700"><ShieldCheck className="h-3 w-3 mr-1" />Admin</Badge>
                     )}
                   </div>
 
-                  {/* Subject Line */}
                   <div className="space-y-2">
                     <Label htmlFor="subject">Subject Line</Label>
-                    <Input
-                      id="subject"
-                      value={editSubject}
-                      onChange={(e) => setEditSubject(e.target.value)}
-                      placeholder="Email subject..."
-                    />
+                    <Input id="subject" value={editSubject} onChange={(e) => setEditSubject(e.target.value)} />
                   </div>
 
-                  {/* Content */}
                   <div className="space-y-2">
                     <Label htmlFor="content">Email Content (HTML)</Label>
                     <Textarea
                       id="content"
                       value={editContent}
                       onChange={(e) => setEditContent(e.target.value)}
-                      placeholder="Email HTML content..."
                       className="min-h-[300px] font-mono text-sm"
                     />
                   </div>
 
-                  {/* Variables Reference */}
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
                       <Info className="h-4 w-4 text-muted-foreground" />
                       <Label>Available Variables</Label>
                     </div>
-                    <div className="bg-muted rounded-lg p-3 space-y-1 max-h-[200px] overflow-y-auto">
+                    <div className="bg-muted rounded-lg p-3 space-y-1 max-h-[150px] overflow-y-auto">
                       {variablesList.map((v) => (
                         <div key={v.variable} className="flex items-center justify-between text-sm">
-                          <button
-                            onClick={() => copyToClipboard(v.variable)}
-                            className="font-mono text-primary hover:underline flex items-center gap-1"
-                          >
-                            {v.variable}
-                            <Copy className="h-3 w-3" />
+                          <button onClick={() => copyToClipboard(v.variable)} className="font-mono text-primary hover:underline flex items-center gap-1">
+                            {v.variable}<Copy className="h-3 w-3" />
                           </button>
                           <span className="text-muted-foreground text-xs">{v.description}</span>
                         </div>
@@ -832,89 +737,20 @@ export default function EmailTemplates() {
                     </div>
                   </div>
 
-                  {/* Conditionals Help */}
-                  <div className="space-y-2">
-                    <Label>Conditional Syntax</Label>
-                    <div className="bg-muted rounded-lg p-3">
-                      {conditionalHelp.map((c) => (
-                        <div key={c.syntax} className="text-sm">
-                          <code className="font-mono text-primary">{c.syntax}</code>
-                          <span className="text-muted-foreground ml-2">- {c.description}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Actions */}
                   <div className="flex gap-2 pt-4 border-t">
-                    <Button
-                      variant="outline"
-                      onClick={() => setShowPreview(true)}
-                      className="flex-1"
-                    >
-                      <Eye className="h-4 w-4 mr-2" />
-                      Preview
+                    <Button variant="outline" onClick={() => setShowPreview(true)} className="flex-1">
+                      <Eye className="h-4 w-4 mr-2" />Preview
                     </Button>
-                    <Button
-                      onClick={handleSaveTemplate}
-                      disabled={updateMutation.isPending}
-                      className="flex-1"
-                    >
+                    <Button variant="outline" onClick={() => handleOpenTestDialog(selectedTemplate)}>
+                      <TestTube className="h-4 w-4 mr-2" />Test
+                    </Button>
+                    <Button onClick={handleSaveTemplate} disabled={updateMutation.isPending} className="flex-1">
                       {updateMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                      Save Template
+                      Save
                     </Button>
                   </div>
                 </div>
               </ScrollArea>
-            </>
-          )}
-        </SheetContent>
-      </Sheet>
-
-      {/* SMS Edit Sheet */}
-      <Sheet open={!!selectedSmsTemplate} onOpenChange={() => setSelectedSmsTemplate(null)}>
-        <SheetContent className="w-full sm:max-w-xl">
-          {selectedSmsTemplate && (
-            <>
-              <SheetHeader>
-                <SheetTitle>Edit SMS: {selectedSmsTemplate.name}</SheetTitle>
-                <SheetDescription>
-                  Customize the SMS message. Keep it under 160 characters for single SMS.
-                </SheetDescription>
-              </SheetHeader>
-              <div className="mt-6 space-y-6">
-                <div className="space-y-2">
-                  <Label htmlFor="sms-content">SMS Content</Label>
-                  <Textarea
-                    id="sms-content"
-                    value={editSmsContent}
-                    onChange={(e) => setEditSmsContent(e.target.value)}
-                    placeholder="SMS message..."
-                    className="min-h-[150px]"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {editSmsContent.length} characters ({Math.ceil(editSmsContent.length / 160)} SMS)
-                  </p>
-                </div>
-
-                <div className="flex gap-2 pt-4 border-t">
-                  <Button
-                    variant="outline"
-                    onClick={() => setSelectedSmsTemplate(null)}
-                    className="flex-1"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={handleSaveSmsTemplate}
-                    disabled={updateSmsMutation.isPending}
-                    className="flex-1"
-                  >
-                    {updateSmsMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                    Save SMS Template
-                  </Button>
-                </div>
-              </div>
             </>
           )}
         </SheetContent>
@@ -932,15 +768,43 @@ export default function EmailTemplates() {
               <p className="text-sm">{editSubject.replace(/\{\{order_number\}\}/g, 'ORD-20260108-XYZ789')}</p>
             </div>
             <div className="border rounded-lg p-4 bg-white">
-              <div 
-                className="prose prose-sm max-w-none"
-                dangerouslySetInnerHTML={{ __html: getPreviewHtml() }}
+              <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: getPreviewHtml() }} />
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Test Email Dialog */}
+      <Dialog open={showTestDialog} onOpenChange={setShowTestDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <TestTube className="h-5 w-5" />
+              Send Test Email
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <p className="text-sm text-muted-foreground">
+              Send a test email for "<strong>{templateToTest?.name}</strong>" with dummy data. The subject will be prefixed with [TEST].
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="test-email">Recipient Email</Label>
+              <Input
+                id="test-email"
+                type="email"
+                placeholder="your@email.com"
+                value={testEmailRecipient}
+                onChange={(e) => setTestEmailRecipient(e.target.value)}
               />
             </div>
-            <p className="text-xs text-muted-foreground text-center">
-              This is a preview with sample data. Actual emails will contain real order information.
-            </p>
           </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowTestDialog(false)}>Cancel</Button>
+            <Button onClick={handleSendTestEmail} disabled={isSendingTest || !testEmailRecipient}>
+              {isSendingTest ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+              Send Test
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

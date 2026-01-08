@@ -551,38 +551,56 @@ export type Database = {
       email_logs: {
         Row: {
           created_at: string | null
+          customer_name: string | null
           email_id: string | null
+          email_subject: string | null
           email_type: string | null
           event_data: Json | null
           event_type: string | null
           id: string
+          is_test: boolean | null
           order_id: string | null
+          order_number: string | null
           recipient_email: string
+          recipient_type: string | null
           status: string
+          trigger_event: string | null
           updated_at: string | null
         }
         Insert: {
           created_at?: string | null
+          customer_name?: string | null
           email_id?: string | null
+          email_subject?: string | null
           email_type?: string | null
           event_data?: Json | null
           event_type?: string | null
           id?: string
+          is_test?: boolean | null
           order_id?: string | null
+          order_number?: string | null
           recipient_email: string
+          recipient_type?: string | null
           status: string
+          trigger_event?: string | null
           updated_at?: string | null
         }
         Update: {
           created_at?: string | null
+          customer_name?: string | null
           email_id?: string | null
+          email_subject?: string | null
           email_type?: string | null
           event_data?: Json | null
           event_type?: string | null
           id?: string
+          is_test?: boolean | null
           order_id?: string | null
+          order_number?: string | null
           recipient_email?: string
+          recipient_type?: string | null
           status?: string
+          trigger_event?: string | null
           updated_at?: string | null
         }
         Relationships: [
