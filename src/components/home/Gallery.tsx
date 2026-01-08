@@ -103,6 +103,8 @@ export function Gallery() {
                 <img
                   src={image.image_url}
                   alt={image.title || "Gallery image"}
+                  loading="lazy"
+                  decoding="async"
                   className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                 />
               </div>
@@ -122,6 +124,8 @@ export function Gallery() {
                 <img
                   src={image.image_url}
                   alt={image.title || "Gallery image"}
+                  loading="lazy"
+                  decoding="async"
                   className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                 />
               </div>
