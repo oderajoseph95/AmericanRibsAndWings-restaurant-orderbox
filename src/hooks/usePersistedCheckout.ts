@@ -15,6 +15,7 @@ export interface PersistedCheckoutData {
   customerLat?: number;
   customerLng?: number;
   activeSection?: string;
+  geocodedAddress?: string;
   savedAt: number;
 }
 

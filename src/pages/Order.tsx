@@ -48,7 +48,7 @@ const Order = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const { setIsCheckoutOpen: setSalesPopCheckoutOpen } = useSalesPopContext();
-  const { cart, setCart, showWelcomeBack, dismissWelcomeBack } = usePersistedCart();
+  const { cart, setCart, showWelcomeBack, dismissWelcomeBack, clearCart } = usePersistedCart();
   
   // Recovery mode state
   const [isRecoveryMode, setIsRecoveryMode] = useState(false);
@@ -495,10 +495,7 @@ const Order = () => {
     setCart((prevCart) => prevCart.filter((item) => item.id !== itemId));
   };
 
-  // Clear cart
-  const clearCart = () => {
-    setCart([]);
-  };
+  // Clear cart - use the hook's clearCart which also clears localStorage
 
   // Handle order confirmation - redirect to tracking page
   const handleOrderConfirmed = async (
