@@ -6,6 +6,7 @@ const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
 const FROM_EMAIL = "American Ribs & Wings <team@updates.arwfloridablanca.shop>";
 const BUSINESS_NAME = "American Ribs & Wings";
 const BUSINESS_ADDRESS = "Floridablanca, Pampanga";
+const BUSINESS_PHONE = "+63 921 408 0286";
 
 // CRITICAL: General notification email - ALWAYS receives admin notifications
 const GENERAL_NOTIFICATION_EMAIL = "arwfloridablancapampanga@gmail.com";
@@ -15,27 +16,208 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+interface OrderItem {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+  sku?: string;
+  flavors?: Array<{ name: string; quantity: number; surcharge?: number }>;
+}
+
 interface EmailPayload {
   type: string;
-  recipientEmail?: string; // Optional - if not provided, only admin emails are sent
+  recipientEmail?: string;
   orderId?: string;
   orderNumber?: string;
   customerName?: string;
   customerPhone?: string;
   customerEmail?: string;
   totalAmount?: number;
+  subtotal?: number;
+  deliveryFee?: number;
+  deliveryDistance?: number;
   deliveryAddress?: string;
   orderType?: string;
+  paymentMethod?: string;
+  pickupDate?: string;
+  pickupTime?: string;
+  landmark?: string;
+  notes?: string;
   driverName?: string;
   driverPhone?: string;
   payoutAmount?: number;
   reason?: string;
+  orderItems?: OrderItem[];
+}
+
+// Format currency
+function formatCurrency(amount: number | undefined): string {
+  if (amount === undefined || amount === null) return "₱0.00";
+  return `₱${amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+// Format payment method for display
+function formatPaymentMethod(method: string | undefined): string {
+  if (!method) return "Not specified";
+  const methods: Record<string, string> = {
+    cash: "Cash on Delivery/Pickup",
+    gcash: "GCash",
+    bank: "Bank Transfer",
+  };
+  return methods[method.toLowerCase()] || method;
+}
+
+// Format order type for display
+function formatOrderType(type: string | undefined): string {
+  if (!type) return "";
+  return type === "delivery" ? "🚗 Delivery" : "🏪 Pickup";
+}
+
+// Generate HTML table for order items
+function generateOrderItemsHtml(items: OrderItem[] | undefined): string {
+  if (!items || items.length === 0) {
+    return '<p style="color: #6b7280; font-style: italic;">Order items not available</p>';
+  }
+
+  let html = `
+    <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+      <thead>
+        <tr style="background: #f3f4f6; border-bottom: 2px solid #e5e7eb;">
+          <th style="text-align: left; padding: 10px; font-size: 13px; color: #374151;">Item</th>
+          <th style="text-align: center; padding: 10px; font-size: 13px; color: #374151;">Qty</th>
+          <th style="text-align: right; padding: 10px; font-size: 13px; color: #374151;">Price</th>
+          <th style="text-align: right; padding: 10px; font-size: 13px; color: #374151;">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  for (const item of items) {
+    const flavorsText = item.flavors && item.flavors.length > 0
+      ? `<br><span style="font-size: 11px; color: #6b7280;">Flavors: ${item.flavors.map(f => `${f.name} (${f.quantity})`).join(', ')}</span>`
+      : '';
+    
+    html += `
+      <tr style="border-bottom: 1px solid #e5e7eb;">
+        <td style="padding: 12px 10px; font-size: 14px;">
+          <strong>${item.name}</strong>${item.sku ? `<br><span style="font-size: 11px; color: #9ca3af;">SKU: ${item.sku}</span>` : ''}${flavorsText}
+        </td>
+        <td style="text-align: center; padding: 12px 10px; font-size: 14px;">${item.quantity}</td>
+        <td style="text-align: right; padding: 12px 10px; font-size: 14px;">${formatCurrency(item.unitPrice)}</td>
+        <td style="text-align: right; padding: 12px 10px; font-size: 14px; font-weight: 600;">${formatCurrency(item.lineTotal)}</td>
+      </tr>
+    `;
+  }
+
+  html += `
+      </tbody>
+    </table>
+  `;
+
+  return html;
+}
+
+// Generate order summary section
+function generateOrderSummaryHtml(payload: EmailPayload): string {
+  const { subtotal, deliveryFee, deliveryDistance, totalAmount, paymentMethod } = payload;
+  
+  let html = `
+    <div style="background: #f9fafb; border-radius: 8px; padding: 15px; margin-top: 15px;">
+      <table style="width: 100%;">
+  `;
+
+  if (subtotal !== undefined) {
+    html += `
+      <tr>
+        <td style="padding: 5px 0; color: #6b7280;">Subtotal:</td>
+        <td style="text-align: right; padding: 5px 0;">${formatCurrency(subtotal)}</td>
+      </tr>
+    `;
+  }
+
+  if (deliveryFee !== undefined && deliveryFee > 0) {
+    html += `
+      <tr>
+        <td style="padding: 5px 0; color: #6b7280;">Delivery Fee${deliveryDistance ? ` (${deliveryDistance.toFixed(1)} km)` : ''}:</td>
+        <td style="text-align: right; padding: 5px 0;">${formatCurrency(deliveryFee)}</td>
+      </tr>
+    `;
+  }
+
+  html += `
+      <tr style="border-top: 2px solid #e5e7eb;">
+        <td style="padding: 10px 0 5px; font-weight: bold; font-size: 16px; color: #111827;">Total:</td>
+        <td style="text-align: right; padding: 10px 0 5px; font-weight: bold; font-size: 18px; color: #ea580c;">${formatCurrency(totalAmount)}</td>
+      </tr>
+    </table>
+    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #e5e7eb;">
+      <span style="color: #6b7280; font-size: 13px;">Payment Method:</span>
+      <span style="font-weight: 600; margin-left: 5px;">${formatPaymentMethod(paymentMethod)}</span>
+    </div>
+  </div>
+  `;
+
+  return html;
+}
+
+// Generate customer info section
+function generateCustomerInfoHtml(payload: EmailPayload): string {
+  const { customerName, customerPhone, customerEmail, orderType, deliveryAddress, landmark, pickupDate, pickupTime, notes } = payload;
+  
+  let html = `
+    <div style="background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 15px; margin: 15px 0;">
+      <h3 style="margin: 0 0 10px; font-size: 14px; color: #c2410c; text-transform: uppercase; letter-spacing: 0.5px;">Customer Information</h3>
+      <table style="width: 100%;">
+  `;
+
+  if (customerName) {
+    html += `<tr><td style="padding: 4px 0; color: #6b7280; width: 100px;">Name:</td><td style="padding: 4px 0; font-weight: 600;">${customerName}</td></tr>`;
+  }
+  if (customerPhone) {
+    html += `<tr><td style="padding: 4px 0; color: #6b7280;">Phone:</td><td style="padding: 4px 0;"><a href="tel:${customerPhone}" style="color: #ea580c; text-decoration: none;">${customerPhone}</a></td></tr>`;
+  }
+  if (customerEmail) {
+    html += `<tr><td style="padding: 4px 0; color: #6b7280;">Email:</td><td style="padding: 4px 0;"><a href="mailto:${customerEmail}" style="color: #ea580c; text-decoration: none;">${customerEmail}</a></td></tr>`;
+  }
+
+  html += `</table></div>`;
+
+  // Delivery/Pickup info
+  if (orderType === 'delivery' && deliveryAddress) {
+    html += `
+      <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 15px; margin: 15px 0;">
+        <h3 style="margin: 0 0 10px; font-size: 14px; color: #166534; text-transform: uppercase; letter-spacing: 0.5px;">🚗 Delivery Details</h3>
+        <p style="margin: 0 0 8px;"><strong>Address:</strong> ${deliveryAddress}</p>
+        ${landmark ? `<p style="margin: 0 0 8px;"><strong>Landmark:</strong> ${landmark}</p>` : ''}
+      </div>
+    `;
+  } else if (orderType === 'pickup') {
+    html += `
+      <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 15px; margin: 15px 0;">
+        <h3 style="margin: 0 0 10px; font-size: 14px; color: #1e40af; text-transform: uppercase; letter-spacing: 0.5px;">🏪 Pickup Details</h3>
+        ${pickupDate ? `<p style="margin: 0 0 8px;"><strong>Date:</strong> ${pickupDate}</p>` : ''}
+        ${pickupTime ? `<p style="margin: 0 0 8px;"><strong>Time:</strong> ${pickupTime}</p>` : ''}
+        <p style="margin: 0;"><strong>Store:</strong> ${BUSINESS_ADDRESS}</p>
+      </div>
+    `;
+  }
+
+  if (notes) {
+    html += `
+      <div style="background: #fefce8; border: 1px solid #fef08a; border-radius: 8px; padding: 15px; margin: 15px 0;">
+        <h3 style="margin: 0 0 8px; font-size: 14px; color: #854d0e;">📝 Customer Notes</h3>
+        <p style="margin: 0; font-style: italic;">${notes}</p>
+      </div>
+    `;
+  }
+
+  return html;
 }
 
 // Fetch ALL admin emails (owners + super_owners) from the database
 async function getAdminEmails(supabase: any): Promise<string[]> {
   try {
-    // Get all users with 'owner' role OR is_super_owner = true
     const { data: adminRoles, error: rolesError } = await supabase
       .from('user_roles')
       .select('user_id, role, is_super_owner')
@@ -48,10 +230,8 @@ async function getAdminEmails(supabase: any): Promise<string[]> {
 
     console.log(`Found ${adminRoles.length} admin roles (owner + super_owner)`);
 
-    // Get unique user IDs
     const uniqueUserIds = [...new Set(adminRoles.map((r: any) => r.user_id))];
 
-    // Fetch email for each admin user using admin API
     const adminEmails: string[] = [];
     for (const userId of uniqueUserIds) {
       const { data: userData, error: userError } = await supabase.auth.admin.getUserById(userId);
@@ -68,11 +248,11 @@ async function getAdminEmails(supabase: any): Promise<string[]> {
   }
 }
 
-// Log email sent to admin_logs table
+// Log email sent
 async function logEmailSent(supabase: any, payload: EmailPayload, recipients: string[], emailType: string): Promise<void> {
   try {
-    const { error } = await supabase.from('admin_logs').insert({
-      user_id: '00000000-0000-0000-0000-000000000000', // System user
+    await supabase.from('admin_logs').insert({
+      user_id: '00000000-0000-0000-0000-000000000000',
       user_email: 'system@arwfloridablanca.shop',
       action: 'email_sent',
       entity_type: 'email',
@@ -87,32 +267,21 @@ async function logEmailSent(supabase: any, payload: EmailPayload, recipients: st
         customer_name: payload.customerName,
       },
     });
-    
-    if (error) {
-      console.error("Error logging email:", error);
-    } else {
-      console.log(`Email logged: ${emailType} to ${recipients.join(', ')}`);
-    }
   } catch (error) {
     console.error("Error logging email:", error);
   }
 }
 
-// Create admin notifications for email sent
+// Create admin notifications
 async function createEmailNotification(supabase: any, payload: EmailPayload, recipientType: string): Promise<void> {
   try {
-    // Get all admin user IDs (owner, manager, cashier)
     const { data: adminRoles, error: rolesError } = await supabase
       .from('user_roles')
       .select('user_id')
       .in('role', ['owner', 'manager', 'cashier']);
     
-    if (rolesError || !adminRoles) {
-      console.error("Error fetching admin roles:", rolesError);
-      return;
-    }
+    if (rolesError || !adminRoles) return;
 
-    // Create notification for each admin
     const notifications = adminRoles.map((role: any) => ({
       user_id: role.user_id,
       title: `📧 Email Sent`,
@@ -120,19 +289,10 @@ async function createEmailNotification(supabase: any, payload: EmailPayload, rec
       type: 'email_sent',
       order_id: payload.orderId || null,
       action_url: payload.orderId ? `/admin/orders?order=${payload.orderId}` : '/admin/email-templates',
-      metadata: {
-        email_type: payload.type,
-        recipient_type: recipientType,
-        order_number: payload.orderNumber,
-      },
+      metadata: { email_type: payload.type, recipient_type: recipientType, order_number: payload.orderNumber },
     }));
 
-    const { error } = await supabase.from('admin_notifications').insert(notifications);
-    if (error) {
-      console.error("Error creating email notifications:", error);
-    } else {
-      console.log(`Created ${notifications.length} email notifications`);
-    }
+    await supabase.from('admin_notifications').insert(notifications);
   } catch (error) {
     console.error("Error creating email notifications:", error);
   }
@@ -162,26 +322,37 @@ function getEmailTypeLabel(type: string): string {
   return labels[type] || type.replace(/_/g, ' ');
 }
 
-// Replace template variables with actual values
+// Replace template variables
 function replaceVariables(text: string, payload: EmailPayload): string {
   let result = text;
   
-  // Replace simple variables
   result = result.replace(/\{\{order_number\}\}/g, payload.orderNumber || '');
   result = result.replace(/\{\{customer_name\}\}/g, payload.customerName || '');
   result = result.replace(/\{\{customer_phone\}\}/g, payload.customerPhone || '');
   result = result.replace(/\{\{customer_email\}\}/g, payload.customerEmail || '');
-  result = result.replace(/\{\{total_amount\}\}/g, payload.totalAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 }) || '0.00');
+  result = result.replace(/\{\{total_amount\}\}/g, formatCurrency(payload.totalAmount));
+  result = result.replace(/\{\{subtotal\}\}/g, formatCurrency(payload.subtotal));
+  result = result.replace(/\{\{delivery_fee\}\}/g, formatCurrency(payload.deliveryFee));
+  result = result.replace(/\{\{delivery_distance\}\}/g, payload.deliveryDistance?.toFixed(1) || '');
   result = result.replace(/\{\{delivery_address\}\}/g, payload.deliveryAddress || '');
-  result = result.replace(/\{\{order_type\}\}/g, payload.orderType === 'delivery' ? 'Delivery' : 'Pickup');
+  result = result.replace(/\{\{landmark\}\}/g, payload.landmark || '');
+  result = result.replace(/\{\{order_type\}\}/g, formatOrderType(payload.orderType));
+  result = result.replace(/\{\{payment_method\}\}/g, formatPaymentMethod(payload.paymentMethod));
+  result = result.replace(/\{\{pickup_date\}\}/g, payload.pickupDate || '');
+  result = result.replace(/\{\{pickup_time\}\}/g, payload.pickupTime || '');
+  result = result.replace(/\{\{notes\}\}/g, payload.notes || '');
   result = result.replace(/\{\{driver_name\}\}/g, payload.driverName || '');
   result = result.replace(/\{\{driver_phone\}\}/g, payload.driverPhone || '');
-  result = result.replace(/\{\{payout_amount\}\}/g, payload.payoutAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 }) || '0.00');
+  result = result.replace(/\{\{payout_amount\}\}/g, formatCurrency(payload.payoutAmount));
   result = result.replace(/\{\{reason\}\}/g, payload.reason || '');
   result = result.replace(/\{\{business_name\}\}/g, BUSINESS_NAME);
   result = result.replace(/\{\{business_address\}\}/g, BUSINESS_ADDRESS);
+  result = result.replace(/\{\{business_phone\}\}/g, BUSINESS_PHONE);
+  result = result.replace(/\{\{order_items\}\}/g, generateOrderItemsHtml(payload.orderItems));
+  result = result.replace(/\{\{order_summary\}\}/g, generateOrderSummaryHtml(payload));
+  result = result.replace(/\{\{customer_info\}\}/g, generateCustomerInfoHtml(payload));
   
-  // Handle conditionals {{#if variable}}content{{/if}}
+  // Handle conditionals
   const conditionalRegex = /\{\{#if (\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g;
   result = result.replace(conditionalRegex, (_, variable, content) => {
     const value = (payload as any)[variable] || (payload as any)[variable.replace(/_([a-z])/g, (g: string) => g[1].toUpperCase())];
@@ -191,12 +362,33 @@ function replaceVariables(text: string, payload: EmailPayload): string {
   return result;
 }
 
+// Email styles
+const baseStyles = `
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5; }
+    .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    .header { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); color: white; padding: 30px; text-align: center; }
+    .header h1 { margin: 0; font-size: 24px; }
+    .content { padding: 30px; }
+    .order-box { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 20px; margin: 20px 0; }
+    .order-number { font-size: 20px; font-weight: bold; color: #ea580c; }
+    .status-badge { display: inline-block; padding: 6px 12px; border-radius: 20px; font-weight: 600; font-size: 14px; margin: 10px 0; }
+    .status-approved { background: #dcfce7; color: #166534; }
+    .status-rejected { background: #fee2e2; color: #991b1b; }
+    .status-info { background: #dbeafe; color: #1e40af; }
+    .status-warning { background: #fef3c7; color: #92400e; }
+    .driver-box { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 20px; margin: 20px 0; }
+    .cta-button { display: inline-block; background: #ea580c; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; margin: 20px 0; }
+    .footer { background: #f9fafb; padding: 20px; text-align: center; color: #6b7280; font-size: 14px; }
+  </style>
+`;
+
 function getDefaultSubject(type: string, orderNumber?: string): string {
   const subjects: Record<string, string> = {
-    new_order: `🔔 New Order #${orderNumber} Received!`,
-    order_pending: `📋 Order #${orderNumber} Received - Pending Review`,
+    new_order: `🔔 Order Confirmation - #${orderNumber}`,
+    order_pending: `📋 Order #${orderNumber} Received`,
     order_for_verification: `🔍 Order #${orderNumber} - Payment Verification`,
-    order_approved: `✅ Your Order #${orderNumber} is Approved!`,
+    order_approved: `✅ Order #${orderNumber} Approved!`,
     order_rejected: `❌ Order #${orderNumber} Update`,
     order_cancelled: `Order #${orderNumber} Cancelled`,
     order_preparing: `👨‍🍳 Order #${orderNumber} is Being Prepared!`,
@@ -207,51 +399,26 @@ function getDefaultSubject(type: string, orderNumber?: string): string {
     order_delivered: `🎉 Order #${orderNumber} Delivered!`,
     order_completed: `✨ Order #${orderNumber} Completed`,
     order_returned: `↩️ Order #${orderNumber} Returned`,
-    driver_assigned: `🚗 Driver Assigned to Order #${orderNumber}`,
-    payout_requested: `💰 New Payout Request`,
-    payout_approved: `✅ Your Payout has been Approved!`,
+    driver_assigned: `🚗 Driver Assigned - Order #${orderNumber}`,
+    payout_requested: `💰 Payout Request Submitted`,
+    payout_approved: `✅ Payout Approved!`,
     payout_rejected: `Payout Request Update`,
   };
   return subjects[type] || `Order #${orderNumber} Update`;
 }
 
+// Generate comprehensive customer email template
 function getDefaultTemplate(payload: EmailPayload): string {
-  const { type, orderNumber, customerName, totalAmount, deliveryAddress, orderType, driverName, driverPhone, payoutAmount, reason } = payload;
-  
-  const baseStyles = `
-    <style>
-      body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5; }
-      .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-      .header { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); color: white; padding: 30px; text-align: center; }
-      .header h1 { margin: 0; font-size: 24px; }
-      .content { padding: 30px; }
-      .order-box { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 20px; margin: 20px 0; }
-      .order-number { font-size: 20px; font-weight: bold; color: #ea580c; }
-      .detail-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f3f4f6; }
-      .detail-label { color: #6b7280; }
-      .detail-value { font-weight: 600; color: #111827; }
-      .total-row { font-size: 18px; font-weight: bold; color: #ea580c; padding-top: 15px; }
-      .cta-button { display: inline-block; background: #ea580c; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; margin: 20px 0; }
-      .footer { background: #f9fafb; padding: 20px; text-align: center; color: #6b7280; font-size: 14px; }
-      .status-badge { display: inline-block; padding: 6px 12px; border-radius: 20px; font-weight: 600; font-size: 14px; }
-      .status-approved { background: #dcfce7; color: #166534; }
-      .status-rejected { background: #fee2e2; color: #991b1b; }
-      .status-info { background: #dbeafe; color: #1e40af; }
-      .status-warning { background: #fef3c7; color: #92400e; }
-      .driver-box { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 20px; margin: 20px 0; }
-    </style>
-  `;
+  const { type, orderNumber, customerName, driverName, driverPhone, payoutAmount, reason } = payload;
 
-  const header = `
-    <div class="header">
-      <h1>${BUSINESS_NAME}</h1>
-    </div>
-  `;
-
+  const header = `<div class="header"><h1>${BUSINESS_NAME}</h1></div>`;
   const footer = `
     <div class="footer">
       <p>Thank you for choosing ${BUSINESS_NAME}!</p>
-      <p>${BUSINESS_ADDRESS}</p>
+      <p>${BUSINESS_ADDRESS} | ${BUSINESS_PHONE}</p>
+      <p style="font-size: 12px; color: #9ca3af; margin-top: 15px;">
+        Questions? Reply to this email or call us at ${BUSINESS_PHONE}
+      </p>
     </div>
   `;
 
@@ -261,60 +428,24 @@ function getDefaultTemplate(payload: EmailPayload): string {
     case 'new_order':
       content = `
         <div class="content">
-          <h2>New Order Received! 🎉</h2>
+          <h2>Thank you for your order, ${customerName}! 🎉</h2>
+          <p>We've received your order and it's being reviewed. You'll receive an update once it's confirmed.</p>
+          
           <div class="order-box">
             <div class="order-number">Order #${orderNumber}</div>
-            <div class="detail-row">
-              <span class="detail-label">Customer:</span>
-              <span class="detail-value">${customerName}</span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">Order Type:</span>
-              <span class="detail-value">${orderType === 'delivery' ? '🚗 Delivery' : '🏪 Pickup'}</span>
-            </div>
-            ${deliveryAddress ? `
-            <div class="detail-row">
-              <span class="detail-label">Delivery Address:</span>
-              <span class="detail-value">${deliveryAddress}</span>
-            </div>
-            ` : ''}
-            <div class="total-row">
-              <span>Total: ₱${totalAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
-            </div>
+            <span class="status-badge status-warning">Order Received</span>
           </div>
-          <p>Please review and approve this order in the admin dashboard.</p>
-        </div>
-      `;
-      break;
 
-    case 'order_pending':
-      content = `
-        <div class="content">
-          <h2>Order Received! 📋</h2>
-          <p>Hi ${customerName},</p>
-          <p>Thank you for your order! We've received it and it's pending review.</p>
-          <div class="order-box">
-            <div class="order-number">Order #${orderNumber}</div>
-            <span class="status-badge status-warning">Pending Review</span>
-            <div class="total-row">Total: ₱${totalAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</div>
-          </div>
-          <p>We'll notify you once your order is confirmed!</p>
-        </div>
-      `;
-      break;
-
-    case 'order_for_verification':
-      content = `
-        <div class="content">
-          <h2>Payment Verification 🔍</h2>
-          <p>Hi ${customerName},</p>
-          <p>Your order is being verified. We're reviewing your payment proof.</p>
-          <div class="order-box">
-            <div class="order-number">Order #${orderNumber}</div>
-            <span class="status-badge status-info">Verifying Payment</span>
-            <div class="total-row">Total: ₱${totalAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</div>
-          </div>
-          <p>This usually takes just a few minutes. We'll update you shortly!</p>
+          ${generateCustomerInfoHtml(payload)}
+          
+          <h3 style="margin-top: 25px; border-bottom: 2px solid #fed7aa; padding-bottom: 10px;">📦 Order Details</h3>
+          ${generateOrderItemsHtml(payload.orderItems)}
+          ${generateOrderSummaryHtml(payload)}
+          
+          <p style="margin-top: 20px; padding: 15px; background: #f0fdf4; border-radius: 8px; text-align: center;">
+            <strong>What's next?</strong><br>
+            We'll verify your order and send you a confirmation shortly.
+          </p>
         </div>
       `;
       break;
@@ -323,13 +454,19 @@ function getDefaultTemplate(payload: EmailPayload): string {
       content = `
         <div class="content">
           <h2>Great news, ${customerName}! ✅</h2>
-          <p>Your order has been approved and is now being prepared.</p>
+          <p>Your order has been <strong>approved</strong> and we're now preparing your food!</p>
+          
           <div class="order-box">
             <div class="order-number">Order #${orderNumber}</div>
-            <span class="status-badge status-approved">Approved</span>
-            <div class="total-row">Total: ₱${totalAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</div>
+            <span class="status-badge status-approved">Approved & Preparing</span>
           </div>
-          <p>We'll notify you when your order is ready${orderType === 'delivery' ? ' for delivery' : ' for pickup'}!</p>
+
+          <h3 style="margin-top: 25px; border-bottom: 2px solid #fed7aa; padding-bottom: 10px;">📦 Your Order</h3>
+          ${generateOrderItemsHtml(payload.orderItems)}
+          ${generateOrderSummaryHtml(payload)}
+          ${generateCustomerInfoHtml(payload)}
+          
+          <p style="margin-top: 20px;">We'll notify you when your order is ready${payload.orderType === 'delivery' ? ' for delivery' : ' for pickup'}!</p>
         </div>
       `;
       break;
@@ -340,12 +477,18 @@ function getDefaultTemplate(payload: EmailPayload): string {
           <h2>Order Update</h2>
           <p>Hi ${customerName},</p>
           <p>Unfortunately, we were unable to process your order at this time.</p>
+          
           <div class="order-box">
             <div class="order-number">Order #${orderNumber}</div>
-            <span class="status-badge status-rejected">Rejected</span>
+            <span class="status-badge status-rejected">Order Not Processed</span>
             ${reason ? `<p style="margin-top: 15px;"><strong>Reason:</strong> ${reason}</p>` : ''}
           </div>
+
+          ${generateOrderItemsHtml(payload.orderItems)}
+          ${generateOrderSummaryHtml(payload)}
+          
           <p>Please contact us if you have any questions. We apologize for the inconvenience.</p>
+          <p><strong>Contact:</strong> ${BUSINESS_PHONE}</p>
         </div>
       `;
       break;
@@ -356,11 +499,16 @@ function getDefaultTemplate(payload: EmailPayload): string {
           <h2>Order Cancelled</h2>
           <p>Hi ${customerName},</p>
           <p>Your order has been cancelled.</p>
+          
           <div class="order-box">
             <div class="order-number">Order #${orderNumber}</div>
-            ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ''}
+            <span class="status-badge status-rejected">Cancelled</span>
+            ${reason ? `<p style="margin-top: 15px;"><strong>Reason:</strong> ${reason}</p>` : ''}
           </div>
-          <p>If you didn't request this cancellation, please contact us immediately.</p>
+
+          ${generateOrderItemsHtml(payload.orderItems)}
+          
+          <p>If you didn't request this cancellation, please contact us immediately at ${BUSINESS_PHONE}.</p>
         </div>
       `;
       break;
@@ -370,11 +518,18 @@ function getDefaultTemplate(payload: EmailPayload): string {
         <div class="content">
           <h2>Your order is being prepared! 👨‍🍳</h2>
           <p>Hi ${customerName},</p>
+          <p>Our kitchen team is now preparing your delicious food!</p>
+          
           <div class="order-box">
             <div class="order-number">Order #${orderNumber}</div>
             <span class="status-badge status-info">Preparing</span>
           </div>
-          <p>Our team is now preparing your delicious order. We'll update you when it's ready!</p>
+
+          <h3>📦 What We're Making</h3>
+          ${generateOrderItemsHtml(payload.orderItems)}
+          ${generateOrderSummaryHtml(payload)}
+          
+          <p>We'll update you when it's ready!</p>
         </div>
       `;
       break;
@@ -384,26 +539,22 @@ function getDefaultTemplate(payload: EmailPayload): string {
         <div class="content">
           <h2>Your order is ready! 🍗</h2>
           <p>Hi ${customerName},</p>
+          <p>Your order is ready and waiting for you!</p>
+          
           <div class="order-box">
             <div class="order-number">Order #${orderNumber}</div>
             <span class="status-badge status-approved">Ready for Pickup</span>
           </div>
-          <p>Your order is ready and waiting for you at our store.</p>
-          <p><strong>Store Address:</strong> ${BUSINESS_ADDRESS}</p>
-        </div>
-      `;
-      break;
 
-    case 'order_waiting_for_rider':
-      content = `
-        <div class="content">
-          <h2>Waiting for Driver 🚗</h2>
-          <p>Hi ${customerName},</p>
-          <div class="order-box">
-            <div class="order-number">Order #${orderNumber}</div>
-            <span class="status-badge status-warning">Waiting for Driver</span>
+          <h3>📦 Your Order</h3>
+          ${generateOrderItemsHtml(payload.orderItems)}
+          ${generateOrderSummaryHtml(payload)}
+          
+          <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 20px; margin: 20px 0; text-align: center;">
+            <h3 style="margin: 0 0 10px; color: #1e40af;">📍 Pickup Location</h3>
+            <p style="margin: 0; font-size: 16px; font-weight: 600;">${BUSINESS_ADDRESS}</p>
+            <p style="margin: 5px 0 0; color: #6b7280;">${BUSINESS_PHONE}</p>
           </div>
-          <p>Your order is ready and we're assigning a driver to deliver it to you. We'll notify you once a driver picks it up!</p>
         </div>
       `;
       break;
@@ -414,31 +565,23 @@ function getDefaultTemplate(payload: EmailPayload): string {
           <h2>Driver Assigned! 🚗</h2>
           <p>Hi ${customerName},</p>
           <p>A driver has been assigned to deliver your order.</p>
+          
           <div class="order-box">
             <div class="order-number">Order #${orderNumber}</div>
           </div>
+
           ${driverName ? `
           <div class="driver-box">
-            <h3 style="margin-top: 0;">Your Driver</h3>
-            <p><strong>Name:</strong> ${driverName}</p>
-            ${driverPhone ? `<p><strong>Contact:</strong> ${driverPhone}</p>` : ''}
+            <h3 style="margin-top: 0;">👤 Your Driver</h3>
+            <p style="margin: 5px 0;"><strong>Name:</strong> ${driverName}</p>
+            ${driverPhone ? `<p style="margin: 5px 0;"><strong>Contact:</strong> <a href="tel:${driverPhone}" style="color: #ea580c;">${driverPhone}</a></p>` : ''}
           </div>
           ` : ''}
-          <p>You'll receive another notification once your order is on the way!</p>
-        </div>
-      `;
-      break;
 
-    case 'order_picked_up':
-      content = `
-        <div class="content">
-          <h2>Order Picked Up! 📦</h2>
-          <p>Hi ${customerName},</p>
-          <div class="order-box">
-            <div class="order-number">Order #${orderNumber}</div>
-            <span class="status-badge status-info">Picked Up</span>
-          </div>
-          ${driverName ? `<p>Your driver <strong>${driverName}</strong> has picked up your order and will be heading your way soon!</p>` : '<p>Your order has been picked up!</p>'}
+          <h3>📦 Your Order</h3>
+          ${generateOrderItemsHtml(payload.orderItems)}
+          ${generateOrderSummaryHtml(payload)}
+          ${generateCustomerInfoHtml(payload)}
         </div>
       `;
       break;
@@ -448,18 +591,27 @@ function getDefaultTemplate(payload: EmailPayload): string {
         <div class="content">
           <h2>Your order is on the way! 🚗</h2>
           <p>Hi ${customerName},</p>
+          <p>Your rider is heading to you now!</p>
+          
           <div class="order-box">
             <div class="order-number">Order #${orderNumber}</div>
-            <span class="status-badge status-info">In Transit</span>
+            <span class="status-badge status-info">Out for Delivery</span>
           </div>
+
           ${driverName ? `
           <div class="driver-box">
-            <h3 style="margin-top: 0;">Your Driver</h3>
-            <p><strong>Name:</strong> ${driverName}</p>
-            ${driverPhone ? `<p><strong>Contact:</strong> ${driverPhone}</p>` : ''}
+            <h3 style="margin-top: 0;">👤 Your Driver</h3>
+            <p style="margin: 5px 0;"><strong>Name:</strong> ${driverName}</p>
+            ${driverPhone ? `<p style="margin: 5px 0;"><strong>Contact:</strong> <a href="tel:${driverPhone}" style="color: #ea580c;">${driverPhone}</a></p>` : ''}
           </div>
           ` : ''}
-          <p>Your delicious food is being delivered right now. Get ready!</p>
+
+          <h3>📦 What's Coming</h3>
+          ${generateOrderItemsHtml(payload.orderItems)}
+          ${generateOrderSummaryHtml(payload)}
+          ${generateCustomerInfoHtml(payload)}
+          
+          <p style="text-align: center; margin-top: 20px;">Please prepare the exact amount if paying cash!</p>
         </div>
       `;
       break;
@@ -469,12 +621,21 @@ function getDefaultTemplate(payload: EmailPayload): string {
         <div class="content">
           <h2>Order Delivered! 🎉</h2>
           <p>Hi ${customerName},</p>
+          <p>Your order has been successfully delivered. Enjoy your meal!</p>
+          
           <div class="order-box">
             <div class="order-number">Order #${orderNumber}</div>
             <span class="status-badge status-approved">Delivered</span>
           </div>
-          <p>Your order has been delivered. Enjoy your meal!</p>
-          <p>Thank you for choosing ${BUSINESS_NAME}. We hope to serve you again soon!</p>
+
+          <h3>📦 What You Got</h3>
+          ${generateOrderItemsHtml(payload.orderItems)}
+          ${generateOrderSummaryHtml(payload)}
+          
+          <p style="text-align: center; margin-top: 20px; padding: 20px; background: #fef3c7; border-radius: 8px;">
+            <strong>Thank you for ordering from ${BUSINESS_NAME}!</strong><br>
+            We hope you enjoy your food. See you again soon! 🍗
+          </p>
         </div>
       `;
       break;
@@ -484,13 +645,21 @@ function getDefaultTemplate(payload: EmailPayload): string {
         <div class="content">
           <h2>Thank You! ✨</h2>
           <p>Hi ${customerName},</p>
+          <p>Your order is complete! We hope you enjoyed your meal.</p>
+          
           <div class="order-box">
             <div class="order-number">Order #${orderNumber}</div>
             <span class="status-badge status-approved">Completed</span>
-            <div class="total-row">Total: ₱${totalAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</div>
           </div>
-          <p>Your order is complete! Thank you for choosing ${BUSINESS_NAME}.</p>
-          <p>We hope you enjoyed your meal and look forward to serving you again!</p>
+
+          <h3>📦 Order Summary</h3>
+          ${generateOrderItemsHtml(payload.orderItems)}
+          ${generateOrderSummaryHtml(payload)}
+          
+          <p style="text-align: center; margin-top: 20px;">
+            Thank you for choosing ${BUSINESS_NAME}! 🙏<br>
+            We look forward to serving you again!
+          </p>
         </div>
       `;
       break;
@@ -500,12 +669,18 @@ function getDefaultTemplate(payload: EmailPayload): string {
         <div class="content">
           <h2>Order Returned ↩️</h2>
           <p>Hi ${customerName},</p>
+          <p>Your order was returned to the restaurant.</p>
+          
           <div class="order-box">
             <div class="order-number">Order #${orderNumber}</div>
             <span class="status-badge status-rejected">Returned</span>
             ${reason ? `<p style="margin-top: 15px;"><strong>Reason:</strong> ${reason}</p>` : ''}
           </div>
-          <p>Your order was returned to the restaurant. Please contact us for more information or to arrange a refund.</p>
+
+          ${generateOrderItemsHtml(payload.orderItems)}
+          ${generateOrderSummaryHtml(payload)}
+          
+          <p>Please contact us at ${BUSINESS_PHONE} for more information or to arrange a refund.</p>
         </div>
       `;
       break;
@@ -517,10 +692,10 @@ function getDefaultTemplate(payload: EmailPayload): string {
           <p>Hi ${driverName},</p>
           <div class="order-box">
             <div class="order-number">Payout Request</div>
-            <span class="status-badge status-warning">Pending</span>
-            <div class="total-row">Amount: ₱${payoutAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</div>
+            <span class="status-badge status-warning">Pending Review</span>
+            <p style="font-size: 24px; font-weight: bold; color: #ea580c; margin: 15px 0;">₱${payoutAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</p>
           </div>
-          <p>Your payout request has been submitted and is pending review. We'll notify you once it's processed.</p>
+          <p>Your payout request has been submitted. We'll review it and process it as soon as possible.</p>
         </div>
       `;
       break;
@@ -533,7 +708,7 @@ function getDefaultTemplate(payload: EmailPayload): string {
           <div class="order-box">
             <div class="order-number">Payout Approved</div>
             <span class="status-badge status-approved">Approved</span>
-            <div class="total-row">Amount: ₱${payoutAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</div>
+            <p style="font-size: 24px; font-weight: bold; color: #059669; margin: 15px 0;">₱${payoutAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</p>
           </div>
           <p>Your payout has been approved and will be processed soon. Thank you for your hard work!</p>
         </div>
@@ -547,10 +722,10 @@ function getDefaultTemplate(payload: EmailPayload): string {
           <p>Hi ${driverName},</p>
           <div class="order-box">
             <div class="order-number">Payout Request</div>
-            <span class="status-badge status-rejected">Rejected</span>
+            <span class="status-badge status-rejected">Not Approved</span>
             ${reason ? `<p style="margin-top: 15px;"><strong>Reason:</strong> ${reason}</p>` : ''}
           </div>
-          <p>Please contact us if you have any questions about this decision.</p>
+          <p>Please contact us if you have questions about this decision.</p>
         </div>
       `;
       break;
@@ -559,10 +734,13 @@ function getDefaultTemplate(payload: EmailPayload): string {
       content = `
         <div class="content">
           <h2>Order Update</h2>
+          <p>Hi ${customerName},</p>
           <div class="order-box">
             <div class="order-number">Order #${orderNumber}</div>
           </div>
-          <p>There's been an update to your order. Please check your order status for more details.</p>
+          ${generateOrderItemsHtml(payload.orderItems)}
+          ${generateOrderSummaryHtml(payload)}
+          <p>Please check your order status for more details.</p>
         </div>
       `;
   }
@@ -586,7 +764,7 @@ function getDefaultTemplate(payload: EmailPayload): string {
   `;
 }
 
-// Wrap custom content with email wrapper
+// Wrap custom template content
 function wrapWithEmailLayout(content: string): string {
   return `
     <!DOCTYPE html>
@@ -594,26 +772,15 @@ function wrapWithEmailLayout(content: string): string {
     <head>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5; }
-        .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        .header { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); color: white; padding: 30px; text-align: center; }
-        .header h1 { margin: 0; font-size: 24px; }
-        .content { padding: 30px; }
-        .footer { background: #f9fafb; padding: 20px; text-align: center; color: #6b7280; font-size: 14px; }
-      </style>
+      ${baseStyles}
     </head>
     <body>
       <div class="container">
-        <div class="header">
-          <h1>${BUSINESS_NAME}</h1>
-        </div>
-        <div class="content">
-          ${content}
-        </div>
+        <div class="header"><h1>${BUSINESS_NAME}</h1></div>
+        <div class="content">${content}</div>
         <div class="footer">
           <p>Thank you for choosing ${BUSINESS_NAME}!</p>
-          <p>${BUSINESS_ADDRESS}</p>
+          <p>${BUSINESS_ADDRESS} | ${BUSINESS_PHONE}</p>
         </div>
       </div>
     </body>
@@ -621,12 +788,12 @@ function wrapWithEmailLayout(content: string): string {
   `;
 }
 
-// Generate admin notification subject (shorter, action-focused)
+// Admin notification subject
 function getAdminNotificationSubject(type: string, orderNumber?: string, payload?: EmailPayload): string {
   const subjects: Record<string, string> = {
-    new_order: `🔔 [NEW ORDER] #${orderNumber} - ₱${payload?.totalAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`,
+    new_order: `🔔 [NEW ORDER] #${orderNumber} - ${formatCurrency(payload?.totalAmount)} - ${payload?.customerName}`,
     order_pending: `📋 Order #${orderNumber} - Pending Review`,
-    order_for_verification: `🔍 [VERIFY] Order #${orderNumber} - Needs Verification`,
+    order_for_verification: `🔍 [VERIFY] Order #${orderNumber} - Payment Needs Verification`,
     order_approved: `✅ Order #${orderNumber} Approved`,
     order_rejected: `❌ Order #${orderNumber} Rejected`,
     order_cancelled: `🚫 Order #${orderNumber} Cancelled`,
@@ -638,103 +805,159 @@ function getAdminNotificationSubject(type: string, orderNumber?: string, payload
     order_delivered: `🎉 Order #${orderNumber} Delivered`,
     order_completed: `✨ [COMPLETED] Order #${orderNumber}`,
     order_returned: `↩️ [RETURNED] Order #${orderNumber}`,
-    payout_requested: `💰 [PAYOUT REQUEST] ₱${payload?.payoutAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`,
+    payout_requested: `💰 [PAYOUT REQUEST] ${formatCurrency(payload?.payoutAmount)} - ${payload?.driverName}`,
     payout_approved: `✅ Payout Approved`,
     payout_rejected: `Payout Rejected`,
   };
   return subjects[type] || `Order #${orderNumber} Update`;
 }
 
-// Generate admin notification template (brief, action-focused)
+// Comprehensive admin notification template
 function getAdminNotificationTemplate(type: string, payload: EmailPayload): string {
-  const { orderNumber, customerName, totalAmount, deliveryAddress, orderType, driverName, payoutAmount, reason, customerPhone } = payload;
+  const { orderNumber, customerName, customerPhone, customerEmail, totalAmount, deliveryAddress, orderType, driverName, payoutAmount, reason, subtotal, deliveryFee, deliveryDistance, paymentMethod, landmark, notes } = payload;
   
-  const baseStyles = `
+  const adminStyles = `
     <style>
       body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5; }
-      .container { max-width: 500px; margin: 0 auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+      .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
       .header { background: #1f2937; color: white; padding: 15px 20px; }
       .header h1 { margin: 0; font-size: 16px; font-weight: 600; }
       .content { padding: 20px; font-size: 14px; }
-      .order-info { background: #f3f4f6; border-radius: 6px; padding: 12px; margin: 12px 0; }
-      .order-number { font-weight: bold; color: #ea580c; }
-      .amount { font-size: 18px; font-weight: bold; color: #059669; }
-      .cta { display: inline-block; background: #ea580c; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 13px; margin-top: 12px; }
+      .section { background: #f9fafb; border-radius: 8px; padding: 15px; margin: 15px 0; }
+      .section-title { font-size: 12px; text-transform: uppercase; color: #6b7280; margin: 0 0 10px; letter-spacing: 0.5px; }
+      .order-number { font-weight: bold; color: #ea580c; font-size: 18px; }
+      .amount { font-size: 20px; font-weight: bold; color: #059669; }
+      .cta { display: inline-block; background: #ea580c; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px; margin-top: 15px; }
       .footer { background: #f9fafb; padding: 12px; text-align: center; color: #9ca3af; font-size: 11px; }
+      table { width: 100%; border-collapse: collapse; }
+      td { padding: 6px 0; }
+      .label { color: #6b7280; width: 120px; }
     </style>
   `;
 
-  let content = '';
   const orderLink = `https://arwfloridablanca.shop/admin/orders`;
+  let content = '';
 
-  switch (type) {
-    case 'new_order':
-      content = `
-        <div class="content">
-          <p style="margin: 0 0 12px;">🚨 <strong>New order received!</strong></p>
-          <div class="order-info">
-            <span class="order-number">Order #${orderNumber}</span><br>
-            <strong>${customerName}</strong><br>
-            ${customerPhone ? `📞 ${customerPhone}<br>` : ''}
-            ${orderType === 'delivery' ? `🚗 ${deliveryAddress || 'Delivery'}` : '🏪 Pickup'}<br>
-            <span class="amount">₱${totalAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
-          </div>
-          <a href="${orderLink}" class="cta">View Order →</a>
+  if (type === 'new_order' || type === 'order_for_verification') {
+    // Full order details for new orders
+    content = `
+      <div class="content">
+        <p style="margin: 0 0 15px; font-size: 16px; font-weight: 600;">
+          ${type === 'new_order' ? '🚨 New Order Received!' : '🔍 Order Needs Verification'}
+        </p>
+        
+        <div class="section">
+          <p class="section-title">Order Info</p>
+          <span class="order-number">Order #${orderNumber}</span><br>
+          <span class="amount">${formatCurrency(totalAmount)}</span>
         </div>
-      `;
-      break;
 
-    case 'order_approved':
-    case 'order_rejected':
-    case 'order_cancelled':
-    case 'order_preparing':
-    case 'order_ready_for_pickup':
-    case 'order_delivered':
-    case 'order_completed':
-    case 'order_returned':
-      const statusMap: Record<string, string> = {
-        order_approved: '✅ Approved',
-        order_rejected: '❌ Rejected',
-        order_cancelled: '🚫 Cancelled',
-        order_preparing: '👨‍🍳 Preparing',
-        order_ready_for_pickup: '🍗 Ready',
-        order_delivered: '🎉 Delivered',
-        order_completed: '✨ Completed',
-        order_returned: '↩️ Returned',
-      };
-      content = `
-        <div class="content">
-          <p style="margin: 0 0 12px;">Order #${orderNumber} status updated</p>
-          <div class="order-info">
-            <strong>${statusMap[type]}</strong><br>
-            Customer: ${customerName}<br>
-            ${reason ? `Reason: ${reason}` : ''}
-          </div>
-          <a href="${orderLink}" class="cta">View Details →</a>
+        <div class="section">
+          <p class="section-title">Customer</p>
+          <table>
+            <tr><td class="label">Name:</td><td><strong>${customerName}</strong></td></tr>
+            <tr><td class="label">Phone:</td><td><a href="tel:${customerPhone}" style="color: #ea580c;">${customerPhone}</a></td></tr>
+            ${customerEmail ? `<tr><td class="label">Email:</td><td>${customerEmail}</td></tr>` : ''}
+          </table>
         </div>
-      `;
-      break;
 
-    case 'payout_requested':
-      content = `
-        <div class="content">
-          <p style="margin: 0 0 12px;">💰 New payout request</p>
-          <div class="order-info">
-            <strong>${driverName}</strong><br>
-            <span class="amount">₱${payoutAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
-          </div>
-          <a href="https://arwfloridablanca.shop/admin/payouts" class="cta">Review Payout →</a>
+        <div class="section">
+          <p class="section-title">${orderType === 'delivery' ? '🚗 Delivery' : '🏪 Pickup'}</p>
+          ${orderType === 'delivery' ? `
+            <p style="margin: 0;"><strong>Address:</strong> ${deliveryAddress}</p>
+            ${landmark ? `<p style="margin: 5px 0 0;"><strong>Landmark:</strong> ${landmark}</p>` : ''}
+            ${deliveryDistance ? `<p style="margin: 5px 0 0;"><strong>Distance:</strong> ${deliveryDistance.toFixed(1)} km</p>` : ''}
+          ` : `
+            <p style="margin: 0;">Customer will pick up at store</p>
+          `}
         </div>
-      `;
-      break;
 
-    default:
-      content = `
-        <div class="content">
-          <p>Order #${orderNumber} update</p>
-          <a href="${orderLink}" class="cta">View in Admin →</a>
+        <div class="section">
+          <p class="section-title">Order Items</p>
+          ${generateOrderItemsHtml(payload.orderItems)}
         </div>
-      `;
+
+        <div class="section">
+          <p class="section-title">Payment Summary</p>
+          <table>
+            ${subtotal ? `<tr><td class="label">Subtotal:</td><td>${formatCurrency(subtotal)}</td></tr>` : ''}
+            ${deliveryFee ? `<tr><td class="label">Delivery Fee:</td><td>${formatCurrency(deliveryFee)}</td></tr>` : ''}
+            <tr><td class="label"><strong>Total:</strong></td><td><strong style="color: #ea580c; font-size: 16px;">${formatCurrency(totalAmount)}</strong></td></tr>
+            <tr><td class="label">Payment:</td><td>${formatPaymentMethod(paymentMethod)}</td></tr>
+          </table>
+        </div>
+
+        ${notes ? `
+        <div class="section" style="background: #fef3c7;">
+          <p class="section-title">📝 Customer Notes</p>
+          <p style="margin: 0; font-style: italic;">${notes}</p>
+        </div>
+        ` : ''}
+
+        <a href="${orderLink}" class="cta">View Order in Admin →</a>
+      </div>
+    `;
+  } else if (type === 'payout_requested') {
+    content = `
+      <div class="content">
+        <p style="margin: 0 0 15px; font-size: 16px; font-weight: 600;">💰 New Payout Request</p>
+        <div class="section">
+          <p><strong>Driver:</strong> ${driverName}</p>
+          <span class="amount">${formatCurrency(payoutAmount)}</span>
+        </div>
+        <a href="https://arwfloridablanca.shop/admin/payouts" class="cta">Review Payout →</a>
+      </div>
+    `;
+  } else {
+    // Status update with full details
+    const statusMap: Record<string, string> = {
+      order_approved: '✅ Approved',
+      order_rejected: '❌ Rejected',
+      order_cancelled: '🚫 Cancelled',
+      order_preparing: '👨‍🍳 Preparing',
+      order_ready_for_pickup: '🍗 Ready for Pickup',
+      order_waiting_for_rider: '🚗 Waiting for Driver',
+      order_picked_up: '📦 Picked Up',
+      order_in_transit: '🚗 In Transit',
+      order_delivered: '🎉 Delivered',
+      order_completed: '✨ Completed',
+      order_returned: '↩️ Returned',
+    };
+    
+    content = `
+      <div class="content">
+        <p style="margin: 0 0 15px; font-size: 16px;">Order #${orderNumber} Status Updated</p>
+        
+        <div class="section">
+          <p style="font-size: 18px; margin: 0;"><strong>${statusMap[type] || type}</strong></p>
+          ${reason ? `<p style="margin: 10px 0 0; color: #dc2626;"><strong>Reason:</strong> ${reason}</p>` : ''}
+        </div>
+
+        <div class="section">
+          <p class="section-title">Customer</p>
+          <table>
+            <tr><td class="label">Name:</td><td><strong>${customerName}</strong></td></tr>
+            <tr><td class="label">Phone:</td><td><a href="tel:${customerPhone}" style="color: #ea580c;">${customerPhone}</a></td></tr>
+          </table>
+        </div>
+
+        <div class="section">
+          <p class="section-title">Order Summary</p>
+          <p><strong>Total:</strong> ${formatCurrency(totalAmount)}</p>
+          <p><strong>Type:</strong> ${formatOrderType(orderType)}</p>
+          ${deliveryAddress ? `<p><strong>Address:</strong> ${deliveryAddress}</p>` : ''}
+        </div>
+
+        ${payload.orderItems && payload.orderItems.length > 0 ? `
+        <div class="section">
+          <p class="section-title">Items</p>
+          ${generateOrderItemsHtml(payload.orderItems)}
+        </div>
+        ` : ''}
+
+        <a href="${orderLink}" class="cta">View Order Details →</a>
+      </div>
+    `;
   }
 
   return `
@@ -743,17 +966,13 @@ function getAdminNotificationTemplate(type: string, payload: EmailPayload): stri
     <head>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      ${baseStyles}
+      ${adminStyles}
     </head>
     <body>
       <div class="container">
-        <div class="header">
-          <h1>🔔 Admin Notification</h1>
-        </div>
+        <div class="header"><h1>🔔 Admin Notification - ${BUSINESS_NAME}</h1></div>
         ${content}
-        <div class="footer">
-          ${BUSINESS_NAME} Admin
-        </div>
+        <div class="footer">${BUSINESS_NAME} Admin Dashboard</div>
       </div>
     </body>
     </html>
@@ -762,36 +981,32 @@ function getAdminNotificationTemplate(type: string, payload: EmailPayload): stri
 
 // MAIN HANDLER
 const handler = async (req: Request): Promise<Response> => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
     const payload: EmailPayload = await req.json();
-    console.log("Email notification request:", payload);
+    console.log("Email notification request:", JSON.stringify(payload));
 
     const { type, recipientEmail, orderNumber } = payload;
 
-    // Initialize Supabase client
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // ===== STEP 1: ALWAYS SEND ADMIN EMAILS (regardless of customer email) =====
+    // ===== STEP 1: ALWAYS SEND ADMIN EMAILS =====
     const adminEmails = await getAdminEmails(supabase);
-    console.log(`Fetched ${adminEmails.length} admin emails from database:`, adminEmails);
+    console.log(`Fetched ${adminEmails.length} admin emails:`, adminEmails);
     
-    // Build unique admin recipients list (GENERAL_NOTIFICATION_EMAIL + all admin emails)
     const allAdminRecipients = new Set<string>([GENERAL_NOTIFICATION_EMAIL]);
     adminEmails.forEach(email => allAdminRecipients.add(email.toLowerCase()));
     
-    console.log(`Admin recipients (${allAdminRecipients.size}):`, [...allAdminRecipients]);
+    console.log(`Sending to ${allAdminRecipients.size} admin recipients`);
 
     const adminSubject = getAdminNotificationSubject(type, orderNumber, payload);
     const adminHtml = getAdminNotificationTemplate(type, payload);
 
-    // Send SEPARATE email to each admin (NO CC, NO BCC)
     let adminEmailsSent = 0;
     for (const adminEmail of allAdminRecipients) {
       try {
@@ -801,30 +1016,25 @@ const handler = async (req: Request): Promise<Response> => {
           subject: adminSubject,
           html: adminHtml,
         });
-        console.log(`Admin notification sent to ${adminEmail}`);
+        console.log(`Admin email sent to ${adminEmail}`);
         adminEmailsSent++;
       } catch (adminEmailError) {
-        console.error(`Failed to send admin notification to ${adminEmail}:`, adminEmailError);
+        console.error(`Failed to send to ${adminEmail}:`, adminEmailError);
       }
     }
 
-    // Log admin emails
     await logEmailSent(supabase, payload, [...allAdminRecipients], 'admin');
-    
-    // Create in-app notifications for admins
     await createEmailNotification(supabase, payload, 'admin');
 
-    // ===== STEP 2: SEND CUSTOMER EMAIL (only if recipientEmail provided) =====
+    // ===== STEP 2: SEND CUSTOMER EMAIL =====
     let customerEmailSent = false;
     if (recipientEmail) {
-      // Don't send customer email if recipient is one of the admins
       const isAdminEmail = allAdminRecipients.has(recipientEmail.toLowerCase());
       
       if (!isAdminEmail) {
         let subject: string;
         let html: string;
 
-        // Try to fetch template from database
         try {
           const { data: template, error } = await supabase
             .from('email_templates')
@@ -837,57 +1047,46 @@ const handler = async (req: Request): Promise<Response> => {
             subject = replaceVariables(template.subject, payload);
             html = wrapWithEmailLayout(replaceVariables(template.content, payload));
           } else {
-            console.log(`Using default template for ${type} (no active db template found)`);
+            console.log(`Using default template for ${type}`);
             subject = getDefaultSubject(type, orderNumber);
             html = getDefaultTemplate(payload);
           }
         } catch (dbError) {
-          console.error("Error fetching template from database:", dbError);
+          console.error("Template fetch error:", dbError);
           subject = getDefaultSubject(type, orderNumber);
           html = getDefaultTemplate(payload);
         }
 
-        console.log(`Sending customer ${type} email to ${recipientEmail}`);
-
         try {
-          const customerEmailResponse = await resend.emails.send({
+          await resend.emails.send({
             from: FROM_EMAIL,
             to: [recipientEmail],
             subject,
             html,
           });
-          console.log("Customer email sent successfully:", customerEmailResponse);
+          console.log(`Customer email sent to ${recipientEmail}`);
           customerEmailSent = true;
-
-          // Log customer email separately
           await logEmailSent(supabase, payload, [recipientEmail], 'customer');
         } catch (customerError) {
-          console.error("Failed to send customer email:", customerError);
+          console.error("Customer email failed:", customerError);
         }
-      } else {
-        console.log(`Skipping customer email - ${recipientEmail} is an admin email`);
       }
-    } else {
-      console.log("No recipientEmail provided - only admin emails were sent");
     }
 
     return new Response(JSON.stringify({ 
       success: true, 
       adminEmailsSent,
       customerEmailSent,
-      message: `Admin emails: ${adminEmailsSent} sent. Customer email: ${customerEmailSent ? 'sent' : 'not sent'}`
+      message: `Admin: ${adminEmailsSent} sent. Customer: ${customerEmailSent ? 'sent' : 'not sent'}`
     }), {
       status: 200,
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });
   } catch (error: any) {
-    console.error("Error sending email:", error);
+    console.error("Email notification error:", error);
     return new Response(
       JSON.stringify({ success: false, error: error.message }),
-      {
-        status: 500,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      }
+      { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
     );
   }
 };
