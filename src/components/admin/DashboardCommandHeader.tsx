@@ -100,25 +100,29 @@ export function DashboardCommandHeader() {
   const firstName = displayName?.split(" ")[0] || "Admin";
 
   return (
-    <Card className="hidden md:flex flex-col items-end justify-center p-6 bg-gradient-to-br from-card via-card to-primary/5 border-primary/10 min-w-[280px] max-w-[320px]">
+    <Card className="hidden md:flex flex-row items-center justify-between gap-8 px-6 py-4 bg-gradient-to-br from-card via-card to-primary/5 border-primary/10 flex-1">
       {/* Greeting */}
-      <div className="text-right mb-4">
+      <div className="flex flex-col">
         <p className="text-sm text-muted-foreground">{greeting},</p>
-        <p className="text-2xl font-bold text-foreground">{firstName}</p>
+        <p className="text-xl font-bold text-foreground">{firstName}</p>
       </div>
 
-      {/* Live Clock - Much Bigger */}
-      <div className="text-right mb-4">
-        <p className="text-4xl font-bold tabular-nums text-foreground tracking-tight">
+      <div className="h-12 w-px bg-border" />
+
+      {/* Live Clock */}
+      <div className="flex flex-col items-center">
+        <p className="text-3xl font-bold tabular-nums text-foreground tracking-tight">
           {formatTime(currentTime)}
         </p>
-        <p className="text-sm text-muted-foreground mt-0.5">
+        <p className="text-sm text-muted-foreground">
           {formatDate(currentTime)}
         </p>
       </div>
 
-      {/* Store Status - More Prominent */}
-      <div className="text-right mb-3">
+      <div className="h-12 w-px bg-border" />
+
+      {/* Store Status */}
+      <div className="flex flex-col items-center gap-1">
         <Badge 
           variant={isStoreOpen ? "default" : "secondary"}
           className={`text-sm px-3 py-1 ${
@@ -133,14 +137,16 @@ export function DashboardCommandHeader() {
           {isStoreOpen ? "Store Open" : "Store Closed"}
         </Badge>
         {storeHours && (
-          <p className="text-xs text-muted-foreground mt-1.5">
-            Hours: {formatStoreHours(storeHours)}
+          <p className="text-xs text-muted-foreground">
+            {formatStoreHours(storeHours)}
           </p>
         )}
       </div>
 
+      <div className="h-12 w-px bg-border" />
+
       {/* Context Line */}
-      <p className="text-xs text-muted-foreground/80 italic text-right">
+      <p className="text-sm text-muted-foreground/80 italic max-w-[180px] text-right">
         {contextLine}
       </p>
     </Card>
