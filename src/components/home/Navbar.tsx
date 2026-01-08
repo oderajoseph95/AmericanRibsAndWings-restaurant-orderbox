@@ -1,16 +1,23 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { Menu, ShoppingBag } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { Menu, ShoppingBag, ShoppingCart } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Badge } from "@/components/ui/badge";
 import { NotificationBell } from "@/components/NotificationBell";
+import { Cart } from "@/components/customer/Cart";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePersistedCart } from "@/hooks/usePersistedCart";
+import type { CartItem } from "@/pages/Order";
 
 export function Navbar() {
+  const navigate = useNavigate();
   const { user, role } = useAuth();
   const isAdmin = role === 'owner' || role === 'manager';
   const [isScrolled, setIsScrolled] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const { cart, setCart } = usePersistedCart();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -26,6 +33,56 @@ export function Navbar() {
     { name: "About", href: "#about" },
     { name: "Location", href: "#location" },
   ];
+
+  // Cart calculations
+  const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const cartTotal = cart.reduce((sum, item) => sum + item.lineTotal, 0);
+
+  // Cart operations
+  const updateCartItemQuantity = (itemId: string, delta: number) => {
+    setCart((prevCart) =>
+      prevCart
+        .map((item) => {
+          if (item.id !== itemId) return item;
+          const newQty = item.quantity + delta;
+          if (newQty <= 0) return null;
+          const flavorSurcharge = item.flavors?.reduce(
+            (sum, f) => sum + f.surcharge,
+            0
+          ) || 0;
+          return {
+            ...item,
+            quantity: newQty,
+            lineTotal: newQty * (item.product.price + flavorSurcharge),
+          };
+        })
+        .filter(Boolean) as CartItem[]
+    );
+  };
+
+  const removeFromCart = (itemId: string) => {
+    setCart((prevCart) => prevCart.filter((item) => item.id !== itemId));
+  };
+
+  // Cart Sheet content component (used in both desktop and mobile)
+  const CartSheetContent = () => (
+    <SheetContent side="right" className="w-full sm:max-w-md p-0">
+      <SheetHeader className="p-4 border-b">
+        <SheetTitle>Your Cart ({cartItemCount})</SheetTitle>
+      </SheetHeader>
+      <Cart
+        items={cart}
+        onUpdateQuantity={updateCartItemQuantity}
+        onRemove={removeFromCart}
+        onCheckout={() => {
+          setIsCartOpen(false);
+          navigate("/order");
+        }}
+        onClose={() => setIsCartOpen(false)}
+        total={cartTotal}
+      />
+    </SheetContent>
+  );
 
   return (
     <nav
@@ -43,7 +100,7 @@ export function Navbar() {
           />
         </Link>
 
-        {/* Mobile "Now Taking Orders" Badge - between logo and hamburger */}
+        {/* Mobile "Now Taking Orders" Badge - between logo and cart/hamburger */}
         <div className="flex md:hidden items-center flex-1 justify-center">
           <div className="inline-flex items-center gap-1 bg-primary/10 text-primary px-2 py-1 rounded-full text-[10px] font-medium">
             <span className="relative flex h-1.5 w-1.5">
@@ -67,8 +124,23 @@ export function Navbar() {
           ))}
         </div>
 
-        {/* CTA Button + Notification Bell */}
+        {/* Desktop: Cart + Notification + Order Now */}
         <div className="hidden md:flex items-center gap-2">
+          {/* Cart Icon - Desktop */}
+          <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" className="relative">
+                <ShoppingCart className="h-5 w-5" />
+                {cartItemCount > 0 && (
+                  <Badge className="absolute -top-2 -right-2 h-5 w-5 p-0 flex items-center justify-center bg-primary text-primary-foreground text-xs">
+                    {cartItemCount}
+                  </Badge>
+                )}
+              </Button>
+            </SheetTrigger>
+            <CartSheetContent />
+          </Sheet>
+          
           {isAdmin && (
             <NotificationBell userType="admin" />
           )}
@@ -80,34 +152,52 @@ export function Navbar() {
           </Button>
         </div>
 
-        {/* Mobile Menu */}
-        <Sheet open={isOpen} onOpenChange={setIsOpen}>
-          <SheetTrigger asChild className="md:hidden">
-            <Button variant="ghost" size="icon" className="text-foreground">
-              <Menu className="h-6 w-6" />
-            </Button>
-          </SheetTrigger>
-          <SheetContent side="right" className="w-[280px] bg-white">
-            <div className="flex flex-col gap-6 mt-8">
-              {navLinks.map((link) => (
-                <a
-                  key={link.name}
-                  href={link.href}
-                  onClick={() => setIsOpen(false)}
-                  className="text-lg font-medium text-foreground hover:text-primary transition-colors"
-                >
-                  {link.name}
-                </a>
-              ))}
-              <Button asChild className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-full mt-4">
-                <Link to="/order" onClick={() => setIsOpen(false)}>
-                  <ShoppingBag className="mr-2 h-4 w-4" />
-                  Order Now
-                </Link>
+        {/* Mobile: Cart Icon + Hamburger Menu */}
+        <div className="flex md:hidden items-center gap-1">
+          {/* Cart Icon - Mobile */}
+          <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" className="relative">
+                <ShoppingCart className="h-5 w-5" />
+                {cartItemCount > 0 && (
+                  <Badge className="absolute -top-2 -right-2 h-5 w-5 p-0 flex items-center justify-center bg-primary text-primary-foreground text-xs">
+                    {cartItemCount}
+                  </Badge>
+                )}
               </Button>
-            </div>
-          </SheetContent>
-        </Sheet>
+            </SheetTrigger>
+            <CartSheetContent />
+          </Sheet>
+
+          {/* Hamburger Menu */}
+          <Sheet open={isOpen} onOpenChange={setIsOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" className="text-foreground">
+                <Menu className="h-6 w-6" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="right" className="w-[280px] bg-white">
+              <div className="flex flex-col gap-6 mt-8">
+                {navLinks.map((link) => (
+                  <a
+                    key={link.name}
+                    href={link.href}
+                    onClick={() => setIsOpen(false)}
+                    className="text-lg font-medium text-foreground hover:text-primary transition-colors"
+                  >
+                    {link.name}
+                  </a>
+                ))}
+                <Button asChild className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-full mt-4">
+                  <Link to="/order" onClick={() => setIsOpen(false)}>
+                    <ShoppingBag className="mr-2 h-4 w-4" />
+                    Order Now
+                  </Link>
+                </Button>
+              </div>
+            </SheetContent>
+          </Sheet>
+        </div>
       </div>
     </nav>
   );

@@ -42,7 +42,7 @@ export function Cart({ items, onUpdateQuantity, onRemove, onCheckout, onClose, t
 
   return (
     <div className="flex flex-col h-full">
-      <ScrollArea className="flex-1 max-h-[50vh] lg:max-h-[40vh]">
+      <ScrollArea className="flex-1 max-h-[50vh] lg:max-h-[calc(100vh-350px)]">
         <div className="p-4 space-y-4">
           {items.map((item) => (
             <div key={item.id} className="flex gap-3">

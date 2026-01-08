@@ -8,7 +8,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, ShoppingCart, Filter, Search, X } from "lucide-react";
+import { ArrowLeft, ShoppingCart, Filter, Search, X, Check } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { ProductCard } from "@/components/customer/ProductCard";
@@ -235,6 +235,15 @@ const Order = () => {
           },
         ]);
       }
+      
+      // Show toast notification for simple products
+      toast.success(`${product.name} added to cart!`, {
+        duration: 2000,
+        action: {
+          label: "View Cart",
+          onClick: () => setIsCartOpen(true),
+        },
+      });
     }
   };
 
@@ -272,11 +281,20 @@ const Order = () => {
         product,
         quantity: 1,
         flavors: selectedFlavors,
-        lineTotal,
-      },
-    ]);
-    setIsFlavorModalOpen(false);
-    setSelectedProduct(null);
+      lineTotal,
+    },
+  ]);
+  setIsFlavorModalOpen(false);
+  setSelectedProduct(null);
+  
+  // Show toast notification for flavored products
+  toast.success(`${product.name} added to cart!`, {
+    duration: 2000,
+    action: {
+      label: "View Cart",
+      onClick: () => setIsCartOpen(true),
+    },
+  });
   };
 
   // Update cart item quantity
