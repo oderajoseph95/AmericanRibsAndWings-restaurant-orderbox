@@ -26,3 +26,12 @@ verify_jwt = false
 
 [functions.auth-by-username]
 verify_jwt = false
+
+[functions.save-abandoned-checkout]
+verify_jwt = false
+
+[functions.recover-abandoned-checkout]
+verify_jwt = false
+
+[functions.send-cart-reminder]
+verify_jwt = false

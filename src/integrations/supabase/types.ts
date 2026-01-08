@@ -14,6 +14,133 @@ export type Database = {
   }
   public: {
     Tables: {
+      abandoned_checkout_reminders: {
+        Row: {
+          abandoned_checkout_id: string | null
+          channel: string
+          created_at: string | null
+          error_message: string | null
+          id: string
+          scheduled_for: string
+          sent_at: string | null
+          status: string | null
+        }
+        Insert: {
+          abandoned_checkout_id?: string | null
+          channel: string
+          created_at?: string | null
+          error_message?: string | null
+          id?: string
+          scheduled_for: string
+          sent_at?: string | null
+          status?: string | null
+        }
+        Update: {
+          abandoned_checkout_id?: string | null
+          channel?: string
+          created_at?: string | null
+          error_message?: string | null
+          id?: string
+          scheduled_for?: string
+          sent_at?: string | null
+          status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "abandoned_checkout_reminders_abandoned_checkout_id_fkey"
+            columns: ["abandoned_checkout_id"]
+            isOneToOne: false
+            referencedRelation: "abandoned_checkouts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      abandoned_checkouts: {
+        Row: {
+          cart_items: Json
+          cart_total: number
+          converted_order_id: string | null
+          created_at: string | null
+          customer_email: string | null
+          customer_name: string | null
+          customer_phone: string | null
+          delivery_address: string | null
+          delivery_barangay: string | null
+          delivery_city: string | null
+          device_info: string | null
+          email_attempts: number | null
+          id: string
+          last_reminder_sent_at: string | null
+          last_section: string | null
+          next_reminder_scheduled_at: string | null
+          order_type: string | null
+          recovery_completed_at: string | null
+          recovery_started_at: string | null
+          session_id: string | null
+          sms_attempts: number | null
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          cart_items: Json
+          cart_total: number
+          converted_order_id?: string | null
+          created_at?: string | null
+          customer_email?: string | null
+          customer_name?: string | null
+          customer_phone?: string | null
+          delivery_address?: string | null
+          delivery_barangay?: string | null
+          delivery_city?: string | null
+          device_info?: string | null
+          email_attempts?: number | null
+          id?: string
+          last_reminder_sent_at?: string | null
+          last_section?: string | null
+          next_reminder_scheduled_at?: string | null
+          order_type?: string | null
+          recovery_completed_at?: string | null
+          recovery_started_at?: string | null
+          session_id?: string | null
+          sms_attempts?: number | null
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          cart_items?: Json
+          cart_total?: number
+          converted_order_id?: string | null
+          created_at?: string | null
+          customer_email?: string | null
+          customer_name?: string | null
+          customer_phone?: string | null
+          delivery_address?: string | null
+          delivery_barangay?: string | null
+          delivery_city?: string | null
+          device_info?: string | null
+          email_attempts?: number | null
+          id?: string
+          last_reminder_sent_at?: string | null
+          last_section?: string | null
+          next_reminder_scheduled_at?: string | null
+          order_type?: string | null
+          recovery_completed_at?: string | null
+          recovery_started_at?: string | null
+          session_id?: string | null
+          sms_attempts?: number | null
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "abandoned_checkouts_converted_order_id_fkey"
+            columns: ["converted_order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       admin_logs: {
         Row: {
           action: string
