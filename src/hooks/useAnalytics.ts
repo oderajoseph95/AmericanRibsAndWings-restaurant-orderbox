@@ -8,6 +8,7 @@ type EventType =
   | "view_product"
   | "add_to_cart"
   | "checkout_start"
+  | "checkout_stage"
   | "checkout_complete";
 
 export function useAnalytics() {
