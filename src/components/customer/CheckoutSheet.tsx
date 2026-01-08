@@ -161,6 +161,7 @@ export function CheckoutSheet({
   const [completedSections, setCompletedSections] = useState<Set<SectionId>>(new Set(["order-type"]));
   const [datePopoverOpen, setDatePopoverOpen] = useState(false);
   const [hasRestoredData, setHasRestoredData] = useState(false);
+  const [orderCompleted, setOrderCompleted] = useState(false);
 
   // Checkout persistence hook
   const { 
@@ -246,6 +247,63 @@ export function CheckoutSheet({
       }
     }
   }, [open, cart, total]);
+
+  // Generate/retrieve session ID when checkout opens
+  useEffect(() => {
+    if (open) {
+      if (!sessionStorage.getItem('checkout_session_id')) {
+        sessionStorage.setItem('checkout_session_id', crypto.randomUUID());
+      }
+      // Reset order completed flag when opening
+      setOrderCompleted(false);
+    }
+  }, [open]);
+
+  // Save to abandoned_checkouts when user closes without completing
+  const saveAbandonedCheckout = async () => {
+    const formData = form.getValues();
+    
+    // Only save if they have meaningful contact info
+    if (!formData.name && !formData.phone && !formData.email) {
+      return;
+    }
+    
+    // Only save if cart has items
+    if (cart.length === 0) {
+      return;
+    }
+    
+    try {
+      await supabase.functions.invoke('save-abandoned-checkout', {
+        body: {
+          customer_name: formData.name || null,
+          customer_phone: formData.phone || null,
+          customer_email: formData.email || null,
+          cart_items: cart,
+          cart_total: grandTotal,
+          order_type: formData.orderType,
+          delivery_address: formData.streetAddress || null,
+          delivery_city: formData.city || null,
+          delivery_barangay: barangay || null,
+          last_section: activeSection,
+          session_id: sessionStorage.getItem('checkout_session_id') || crypto.randomUUID(),
+          device_info: navigator.userAgent,
+        }
+      });
+      console.log('Abandoned checkout saved');
+    } catch (error) {
+      console.error('Failed to save abandoned checkout:', error);
+    }
+  };
+
+  // Handle sheet close - save abandoned checkout if not completed
+  const handleSheetOpenChange = (isOpen: boolean) => {
+    if (!isOpen && !orderCompleted) {
+      // User is closing without completing - save as abandoned
+      saveAbandonedCheckout();
+    }
+    onOpenChange(isOpen);
+  };
 
   // Reset delivery fee when switching order type
   useEffect(() => {
@@ -613,6 +671,12 @@ export function CheckoutSheet({
         };
       });
 
+      // Mark order as completed to prevent saving as abandoned
+      setOrderCompleted(true);
+      
+      // Clear session ID
+      sessionStorage.removeItem('checkout_session_id');
+      
       // Show success and redirect immediately (don't wait for notifications)
       toast.success("Order placed successfully!");
       window.location.href = `/thank-you/${order.id}?source=checkout`;
@@ -735,7 +799,7 @@ export function CheckoutSheet({
         </div>
       )}
 
-      <Sheet open={open} onOpenChange={onOpenChange}>
+      <Sheet open={open} onOpenChange={handleSheetOpenChange}>
         <SheetContent side="right" className="w-full sm:max-w-lg p-0">
           <SheetHeader className="p-4 border-b">
             <SheetTitle>Checkout</SheetTitle>
