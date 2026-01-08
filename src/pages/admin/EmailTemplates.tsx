@@ -18,6 +18,7 @@ import { Mail, Loader2, Edit, Eye, Copy, RefreshCw, Info, History, CheckCircle, 
 import { format, subDays } from 'date-fns';
 import { sendTestEmail } from '@/hooks/useEmailNotifications';
 import { DateRangeSelector } from '@/components/admin/DateRangeSelector';
+import { logAdminAction } from '@/lib/adminLogger';
 
 type EmailTemplate = {
   id: string;
@@ -261,6 +262,7 @@ export default function EmailTemplates() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, subject, content, is_active }: { id: string; subject?: string; content?: string; is_active?: boolean }) => {
+      const template = templates.find(t => t.id === id);
       const updates: Partial<EmailTemplate> = {};
       if (subject !== undefined) updates.subject = subject;
       if (content !== undefined) updates.content = content;
@@ -271,10 +273,23 @@ export default function EmailTemplates() {
         .update(updates)
         .eq('id', id);
       if (error) throw error;
+      
+      return { template, updates };
     },
-    onSuccess: () => {
+    onSuccess: async ({ template, updates }) => {
       queryClient.invalidateQueries({ queryKey: ['email-templates'] });
       toast.success('Template saved successfully');
+      
+      // Log the action
+      await logAdminAction({
+        action: 'update',
+        entityType: 'email_template',
+        entityId: template?.id,
+        entityName: template?.name || 'Unknown',
+        oldValues: { subject: template?.subject, is_active: template?.is_active },
+        newValues: updates,
+        details: `Updated email template: ${template?.name}`,
+      });
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to save template');

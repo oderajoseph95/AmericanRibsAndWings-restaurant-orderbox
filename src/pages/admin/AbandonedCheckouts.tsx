@@ -13,6 +13,8 @@ import { Loader2, ShoppingCart, RefreshCw, Mail, MessageSquare, Clock, CheckCirc
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { format, formatDistanceToNow } from "date-fns";
+import { logAdminAction } from "@/lib/adminLogger";
+import { createAdminNotification } from "@/hooks/useAdminNotifications";
 
 interface AbandonedCheckout {
   id: string;
@@ -136,15 +138,37 @@ export default function AbandonedCheckouts() {
   // Recovery mutation
   const recoverMutation = useMutation({
     mutationFn: async (checkoutId: string) => {
+      const checkout = checkouts.find(c => c.id === checkoutId);
       const { data, error } = await supabase.functions.invoke('recover-abandoned-checkout', {
         body: { abandoned_checkout_id: checkoutId },
       });
       if (error) throw error;
-      return data;
+      return { ...data, checkout };
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       toast.success(`Recovery started! ${data.reminders_scheduled} reminders scheduled.`);
       queryClient.invalidateQueries({ queryKey: ['abandoned-checkouts'] });
+      
+      // Log the action
+      await logAdminAction({
+        action: 'start_recovery',
+        entityType: 'abandoned_checkout',
+        entityId: data.checkout?.id,
+        entityName: data.checkout?.customer_name || 'Unknown',
+        details: `Started recovery with ${data.reminders_scheduled} reminders for cart worth ₱${data.checkout?.cart_total?.toLocaleString()}`,
+      });
+      
+      // Create notification
+      await createAdminNotification({
+        title: "🔄 Cart Recovery Started",
+        message: `Recovery started for ${data.checkout?.customer_name || 'Unknown'} (₱${data.checkout?.cart_total?.toLocaleString()})`,
+        type: "system",
+        metadata: { 
+          customer_name: data.checkout?.customer_name, 
+          amount: data.checkout?.cart_total 
+        },
+        action_url: "/admin/abandoned-checkouts",
+      });
     },
     onError: (error: any) => {
       toast.error(error.message || 'Failed to start recovery');
@@ -154,6 +178,7 @@ export default function AbandonedCheckouts() {
   // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: async (checkoutId: string) => {
+      const checkout = checkouts.find(c => c.id === checkoutId);
       // First delete related records (events and reminders)
       await supabase.from('abandoned_checkout_events').delete().eq('abandoned_checkout_id', checkoutId);
       await supabase.from('abandoned_checkout_reminders').delete().eq('abandoned_checkout_id', checkoutId);
@@ -161,10 +186,32 @@ export default function AbandonedCheckouts() {
       // Then delete the checkout itself
       const { error } = await supabase.from('abandoned_checkouts').delete().eq('id', checkoutId);
       if (error) throw error;
+      return checkout;
     },
-    onSuccess: () => {
+    onSuccess: async (checkout) => {
       toast.success('Abandoned checkout deleted');
       queryClient.invalidateQueries({ queryKey: ['abandoned-checkouts'] });
+      
+      // Log the action
+      await logAdminAction({
+        action: 'delete',
+        entityType: 'abandoned_checkout',
+        entityId: checkout?.id,
+        entityName: checkout?.customer_name || 'Unknown',
+        details: `Deleted abandoned checkout worth ₱${checkout?.cart_total?.toLocaleString()}`,
+      });
+      
+      // Create notification
+      await createAdminNotification({
+        title: "🗑️ Abandoned Checkout Deleted",
+        message: `Deleted abandoned checkout for ${checkout?.customer_name || 'Unknown'}`,
+        type: "system",
+        metadata: { 
+          customer_name: checkout?.customer_name,
+          amount: checkout?.cart_total
+        },
+        action_url: "/admin/abandoned-checkouts",
+      });
     },
     onError: (error: any) => {
       toast.error(error.message || 'Failed to delete');

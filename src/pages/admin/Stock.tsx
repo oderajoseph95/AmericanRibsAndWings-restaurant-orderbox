@@ -15,6 +15,8 @@ import { toast } from 'sonner';
 import { Plus, Minus, History, Loader2, AlertTriangle, Search, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Tables } from '@/integrations/supabase/types';
+import { logAdminAction } from '@/lib/adminLogger';
+import { createAdminNotification } from '@/hooks/useAdminNotifications';
 
 type StockWithProduct = Tables<'stock'> & {
   products: Tables<'products'> | null;
@@ -109,12 +111,54 @@ export default function Stock() {
         notes,
       });
       if (adjustError) throw adjustError;
+      
+      return { stock, type, quantity, previousQty, newQty, notes };
     },
-    onSuccess: () => {
+    onSuccess: async ({ stock, type, quantity, previousQty, newQty, notes }) => {
       queryClient.invalidateQueries({ queryKey: ['stocks'] });
       toast.success('Stock adjusted');
       setAdjustDialogOpen(false);
       setSelectedStock(null);
+      
+      const productName = stock.products?.name || 'Unknown';
+      
+      // Log the action
+      await logAdminAction({
+        action: type === 'add' ? 'stock_add' : 'stock_deduct',
+        entityType: 'stock',
+        entityId: stock.id,
+        entityName: productName,
+        oldValues: { current_stock: previousQty },
+        newValues: { current_stock: newQty },
+        details: `${type === 'add' ? 'Added' : 'Deducted'} ${quantity} units. Reason: ${notes || 'No reason provided'}`,
+      });
+      
+      // Create notification
+      await createAdminNotification({
+        title: type === 'add' ? "📦 Stock Added" : "📦 Stock Deducted",
+        message: `${quantity} units ${type === 'add' ? 'added to' : 'removed from'} ${productName}`,
+        type: "system",
+        metadata: { 
+          event: `stock_${type}`,
+          amount: quantity 
+        },
+        action_url: "/admin/stock",
+      });
+      
+      // Low stock warning
+      const threshold = stock.low_stock_threshold || 10;
+      if (newQty <= threshold) {
+        await createAdminNotification({
+          title: "⚠️ Low Stock Warning",
+          message: `${productName} is running low (${newQty} remaining)`,
+          type: "system",
+          metadata: { 
+            event: 'low_stock_warning',
+            amount: newQty 
+          },
+          action_url: "/admin/stock",
+        });
+      }
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to adjust stock');

@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2, Loader2, Info } from 'lucide-react';
 import type { Tables } from '@/integrations/supabase/types';
+import { logAdminAction } from '@/lib/adminLogger';
 
 type FlavorRule = Tables<'product_flavor_rules'> & {
   products: Tables<'products'> | null;
@@ -116,12 +117,14 @@ export default function Bundles() {
       allow_special_flavors?: boolean;
       special_flavor_surcharge?: number;
     }) => {
+      const product = flavoredProducts.find(p => p.id === rule.product_id);
       if (editingRule) {
         const { error } = await supabase
           .from('product_flavor_rules')
           .update(rule)
           .eq('id', editingRule.id);
         if (error) throw error;
+        return { action: 'update', product };
       } else {
         const { error } = await supabase.from('product_flavor_rules').insert({
           product_id: rule.product_id,
@@ -133,13 +136,22 @@ export default function Bundles() {
           special_flavor_surcharge: rule.special_flavor_surcharge,
         });
         if (error) throw error;
+        return { action: 'create', product };
       }
     },
-    onSuccess: () => {
+    onSuccess: async (result) => {
       queryClient.invalidateQueries({ queryKey: ['flavor-rules'] });
       toast.success(editingRule ? 'Rule updated' : 'Rule created');
       setRuleDialogOpen(false);
       setEditingRule(null);
+      
+      // Log the action
+      await logAdminAction({
+        action: result.action,
+        entityType: 'flavor_rule',
+        entityName: result.product?.name || 'Unknown',
+        details: `${result.action === 'create' ? 'Created' : 'Updated'} flavor rule for ${result.product?.name}`,
+      });
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to save rule');
@@ -148,15 +160,26 @@ export default function Bundles() {
 
   const deleteRuleMutation = useMutation({
     mutationFn: async (id: string) => {
+      const rule = flavorRules.find(r => r.id === id);
       const { error } = await supabase
         .from('product_flavor_rules')
         .delete()
         .eq('id', id);
       if (error) throw error;
+      return rule;
     },
-    onSuccess: () => {
+    onSuccess: async (rule) => {
       queryClient.invalidateQueries({ queryKey: ['flavor-rules'] });
       toast.success('Rule deleted');
+      
+      // Log the action
+      await logAdminAction({
+        action: 'delete',
+        entityType: 'flavor_rule',
+        entityId: rule?.id,
+        entityName: rule?.products?.name || 'Unknown',
+        details: `Deleted flavor rule for ${rule?.products?.name}`,
+      });
     },
   });
 
@@ -170,12 +193,15 @@ export default function Bundles() {
       total_units?: number | null;
       units_per_flavor?: number | null;
     }) => {
+      const bundleProduct = bundleProducts.find(p => p.id === component.bundle_product_id);
+      const componentProduct = allProducts.find(p => p.id === component.component_product_id);
       if (editingBundle) {
         const { error } = await supabase
           .from('bundle_components')
           .update(component)
           .eq('id', editingBundle.id);
         if (error) throw error;
+        return { action: 'update', bundleProduct, componentProduct };
       } else {
         const { error } = await supabase.from('bundle_components').insert({
           bundle_product_id: component.bundle_product_id,
@@ -186,13 +212,22 @@ export default function Bundles() {
           units_per_flavor: component.units_per_flavor,
         });
         if (error) throw error;
+        return { action: 'create', bundleProduct, componentProduct };
       }
     },
-    onSuccess: () => {
+    onSuccess: async (result) => {
       queryClient.invalidateQueries({ queryKey: ['bundle-components'] });
       toast.success(editingBundle ? 'Component updated' : 'Component added');
       setBundleDialogOpen(false);
       setEditingBundle(null);
+      
+      // Log the action
+      await logAdminAction({
+        action: result.action,
+        entityType: 'bundle_component',
+        entityName: `${result.bundleProduct?.name} - ${result.componentProduct?.name}`,
+        details: `${result.action === 'create' ? 'Added' : 'Updated'} component ${result.componentProduct?.name} to bundle ${result.bundleProduct?.name}`,
+      });
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to save component');
@@ -201,15 +236,26 @@ export default function Bundles() {
 
   const deleteBundleMutation = useMutation({
     mutationFn: async (id: string) => {
+      const component = bundleComponents.find(c => c.id === id);
       const { error } = await supabase
         .from('bundle_components')
         .delete()
         .eq('id', id);
       if (error) throw error;
+      return component;
     },
-    onSuccess: () => {
+    onSuccess: async (component) => {
       queryClient.invalidateQueries({ queryKey: ['bundle-components'] });
       toast.success('Component removed');
+      
+      // Log the action
+      await logAdminAction({
+        action: 'delete',
+        entityType: 'bundle_component',
+        entityId: component?.id,
+        entityName: `${component?.bundle_product?.name} - ${component?.component_product?.name}`,
+        details: `Removed component ${component?.component_product?.name} from bundle ${component?.bundle_product?.name}`,
+      });
     },
   });
 

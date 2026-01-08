@@ -23,6 +23,7 @@ import { logAdminAction } from '@/lib/adminLogger';
 import { Shield, Loader2, Upload, CreditCard, X, Trash2, AlertTriangle, ShoppingBag, FileText } from 'lucide-react';
 import type { Json } from '@/integrations/supabase/types';
 import type { Enums } from '@/integrations/supabase/types';
+import { createAdminNotification } from '@/hooks/useAdminNotifications';
 
 export default function Settings() {
   const { role, user } = useAuth();
@@ -310,6 +311,17 @@ export default function Settings() {
         action: 'data_wipe',
         entityType: 'system',
         details: 'Performed complete data wipe: orders, customers, driver earnings/payouts, stock adjustments',
+      });
+      
+      // Create notification
+      await createAdminNotification({
+        title: "🚨 Data Wipe Performed",
+        message: "Complete data wipe: orders, customers, driver earnings/payouts, stock adjustments",
+        type: "system",
+        metadata: { 
+          event: 'data_wipe',
+        },
+        action_url: "/admin/logs",
       });
 
       // Invalidate all related queries
