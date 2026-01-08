@@ -5,14 +5,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowRight, Flame, Eye, ShoppingCart } from "lucide-react";
+import { ArrowRight, Flame, ShoppingCart, Share2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { shareProduct } from "@/lib/productUtils";
 
 interface FeaturedMenuContent {
   title?: string;
@@ -28,14 +23,29 @@ interface Product {
   image_url: string | null;
   product_type: string | null;
   categories: { name: string } | null;
+  slug?: string | null;
 }
 
 export function FeaturedMenu() {
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const navigate = useNavigate();
 
-  const handleOrderProduct = (productId: string) => {
+  const handleOrderProduct = (e: React.MouseEvent, productId: string) => {
+    e.stopPropagation();
     navigate(`/order?addToCart=${productId}`);
+  };
+
+  const handleShareProduct = (e: React.MouseEvent, product: Product) => {
+    e.stopPropagation();
+    shareProduct({
+      name: product.name,
+      slug: product.slug || null,
+      id: product.id,
+    });
+  };
+
+  const handleCardClick = (product: Product) => {
+    const slug = product.slug || product.id;
+    navigate(`/product/${slug}`);
   };
   
   const { data: sectionConfig } = useQuery({
@@ -65,7 +75,7 @@ export function FeaturedMenu() {
         .limit(6);
       
       if (error) throw error;
-      return data;
+      return data as Product[];
     },
   });
 
@@ -105,7 +115,8 @@ export function FeaturedMenu() {
             products?.map((product) => (
               <Card 
                 key={product.id} 
-                className="overflow-hidden group hover:shadow-lg transition-all duration-300 border-border/50"
+                className="overflow-hidden group hover:shadow-lg transition-all duration-300 border-border/50 cursor-pointer"
+                onClick={() => handleCardClick(product)}
               >
                 {/* Image */}
                 <div className="relative h-40 bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center overflow-hidden">
@@ -157,15 +168,14 @@ export function FeaturedMenu() {
                       <Button 
                         size="sm" 
                         variant="outline"
-                        onClick={() => setSelectedProduct(product as Product)}
+                        onClick={(e) => handleShareProduct(e, product)}
                       >
-                        <Eye className="h-3 w-3 mr-1" />
-                        View
+                        <Share2 className="h-3 w-3" />
                       </Button>
                       <Button 
                         size="sm" 
                         variant="secondary"
-                        onClick={() => handleOrderProduct(product.id)}
+                        onClick={(e) => handleOrderProduct(e, product.id)}
                       >
                         <ShoppingCart className="h-3 w-3 mr-1" />
                         Order
@@ -188,59 +198,6 @@ export function FeaturedMenu() {
           </Button>
         </div>
       </div>
-
-      {/* Product Details Modal */}
-      <Dialog open={!!selectedProduct} onOpenChange={() => setSelectedProduct(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{selectedProduct?.name}</DialogTitle>
-          </DialogHeader>
-          {selectedProduct && (
-            <div className="space-y-4">
-              {/* Product Image */}
-              <div className="aspect-square rounded-lg overflow-hidden bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-                {selectedProduct.image_url ? (
-                  <img 
-                    src={selectedProduct.image_url} 
-                    alt={selectedProduct.name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="text-6xl opacity-50">🍖</div>
-                )}
-              </div>
-              
-              {/* Product Info */}
-              <div>
-                {selectedProduct.categories && (
-                  <Badge variant="secondary" className="mb-2">
-                    {selectedProduct.categories.name}
-                  </Badge>
-                )}
-                {selectedProduct.description && (
-                  <p className="text-muted-foreground">
-                    {selectedProduct.description}
-                  </p>
-                )}
-              </div>
-              
-              {/* Price and CTA */}
-              <div className="flex items-center justify-between pt-4 border-t">
-                <span className="text-2xl font-bold text-primary">
-                  ₱{selectedProduct.price.toFixed(2)}
-                </span>
-                <Button onClick={() => {
-                  handleOrderProduct(selectedProduct.id);
-                  setSelectedProduct(null);
-                }}>
-                  <ShoppingCart className="mr-2 h-4 w-4" />
-                  Add to Cart
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </section>
   );
 }
