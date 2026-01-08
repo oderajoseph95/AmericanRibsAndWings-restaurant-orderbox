@@ -1,0 +1,36 @@
+import { supabase } from "@/integrations/supabase/client";
+
+export type SmsType = 
+  | "order_received"
+  | "payment_verified"
+  | "driver_assigned"
+  | "order_out_for_delivery"
+  | "order_delivered";
+
+export interface SmsNotificationPayload {
+  type: SmsType;
+  recipientPhone?: string;
+  orderId?: string;
+  orderNumber?: string;
+  customerName?: string;
+  driverName?: string;
+}
+
+export async function sendSmsNotification(payload: SmsNotificationPayload): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { data, error } = await supabase.functions.invoke("send-sms-notification", {
+      body: payload,
+    });
+    
+    if (error) {
+      console.error("SMS notification error:", error);
+      return { success: false, error: error.message };
+    }
+    
+    console.log("SMS notification sent:", data);
+    return { success: true };
+  } catch (error: any) {
+    console.error("SMS notification error:", error);
+    return { success: false, error: error.message || "Unknown error" };
+  }
+}

@@ -1176,6 +1176,86 @@ export type Database = {
         }
         Relationships: []
       }
+      sms_logs: {
+        Row: {
+          created_at: string | null
+          id: string
+          message: string
+          message_id: string | null
+          metadata: Json | null
+          network: string | null
+          order_id: string | null
+          provider: string | null
+          recipient_phone: string
+          sms_type: string | null
+          status: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          message: string
+          message_id?: string | null
+          metadata?: Json | null
+          network?: string | null
+          order_id?: string | null
+          provider?: string | null
+          recipient_phone: string
+          sms_type?: string | null
+          status?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          message?: string
+          message_id?: string | null
+          metadata?: Json | null
+          network?: string | null
+          order_id?: string | null
+          provider?: string | null
+          recipient_phone?: string
+          sms_type?: string | null
+          status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sms_logs_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sms_templates: {
+        Row: {
+          content: string
+          created_at: string | null
+          id: string
+          is_active: boolean | null
+          name: string
+          type: string
+          updated_at: string | null
+        }
+        Insert: {
+          content: string
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          name: string
+          type: string
+          updated_at?: string | null
+        }
+        Update: {
+          content?: string
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          type?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       stock: {
         Row: {
           created_at: string | null

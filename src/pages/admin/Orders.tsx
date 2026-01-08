@@ -39,6 +39,7 @@ import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink,
 import { sendPushNotification } from '@/hooks/usePushNotifications';
 import { createAdminNotification } from '@/hooks/useAdminNotifications';
 import { createDriverNotification } from '@/hooks/useDriverNotifications';
+import { sendSmsNotification, SmsType } from '@/hooks/useSmsNotifications';
 import { sendEmailNotification, EmailType } from '@/hooks/useEmailNotifications';
 import { ADMIN_EMAIL } from '@/lib/constants';
 import { format } from 'date-fns';
@@ -426,6 +427,31 @@ export default function Orders() {
         console.error("Failed to send email notification:", e);
       }
 
+      // Send SMS notifications for key status changes
+      try {
+        const statusToSmsType: Record<string, SmsType> = {
+          approved: 'payment_verified',
+          picked_up: 'order_out_for_delivery',
+          in_transit: 'order_out_for_delivery',
+          delivered: 'order_delivered',
+        };
+        
+        const smsType = statusToSmsType[status];
+        if (smsType && customerPhone) {
+          await sendSmsNotification({
+            type: smsType,
+            recipientPhone: customerPhone,
+            orderId: id,
+            orderNumber: orderNum,
+            customerName: order?.customers?.name || '',
+            driverName: order?.drivers?.name,
+          });
+          console.log(`SMS notification sent for status ${status}`);
+        }
+      } catch (e) {
+        console.error("Failed to send SMS notification:", e);
+      }
+
       return { id, status };
     },
     onSuccess: (_, variables) => {
@@ -531,6 +557,19 @@ export default function Orders() {
             deliveryAddress: order?.delivery_address || undefined,
             driverName: driverRecord?.name,
             driverPhone: driverRecord?.phone,
+          });
+        }
+
+        // Send SMS notification for driver assigned
+        const customerPhone = order?.customers?.phone;
+        if (customerPhone) {
+          await sendSmsNotification({
+            type: "driver_assigned",
+            recipientPhone: customerPhone,
+            orderId,
+            orderNumber: orderNum,
+            customerName: order?.customers?.name || '',
+            driverName: driverRecord?.name,
           });
         }
       }
