@@ -23,6 +23,7 @@ import { sendPushNotification } from "@/hooks/usePushNotifications";
 import { createAdminNotification } from "@/hooks/useAdminNotifications";
 import { trackAnalyticsEvent } from "@/hooks/useAnalytics";
 import { sendEmailNotification } from "@/hooks/useEmailNotifications";
+import { sendSmsNotification } from "@/hooks/useSmsNotifications";
 import { ADMIN_EMAIL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { DeliveryMapPicker } from "./DeliveryMapPicker";
@@ -600,6 +601,15 @@ export function CheckoutSheet({
           orderType: data.orderType,
           deliveryAddress: data.orderType === "delivery" ? `${data.streetAddress}, ${barangay}, ${data.city}` : undefined,
         }).catch(e => console.error("Customer email failed:", e)) : Promise.resolve(),
+        
+        // SMS Notification - always sent to customer + admin backups
+        sendSmsNotification({
+          type: "order_received",
+          recipientPhone: data.phone,
+          orderId: order.id,
+          orderNumber: order.order_number,
+          customerName: data.name,
+        }).catch(e => console.error("SMS notification failed:", e)),
       ]);
 
       form.reset();

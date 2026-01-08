@@ -14,7 +14,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Mail, Loader2, Edit, Eye, Copy, RefreshCw, Info, History, CheckCircle, XCircle, AlertCircle, Clock } from 'lucide-react';
+import { Mail, Loader2, Edit, Eye, Copy, RefreshCw, Info, History, CheckCircle, XCircle, AlertCircle, Clock, MessageSquare } from 'lucide-react';
 import { format } from 'date-fns';
 
 type EmailTemplate = {
@@ -22,6 +22,16 @@ type EmailTemplate = {
   type: string;
   name: string;
   subject: string;
+  content: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+type SmsTemplate = {
+  id: string;
+  type: string;
+  name: string;
   content: string;
   is_active: boolean;
   created_at: string;
@@ -37,6 +47,18 @@ type EmailLog = {
   email_id: string | null;
   order_id: string | null;
   event_data: any;
+  created_at: string;
+};
+
+type SmsLog = {
+  id: string;
+  recipient_phone: string;
+  sms_type: string | null;
+  message: string;
+  status: string;
+  message_id: string | null;
+  order_id: string | null;
+  network: string | null;
   created_at: string;
 };
 
@@ -63,8 +85,10 @@ const conditionalHelp = [
 export default function EmailTemplates() {
   const queryClient = useQueryClient();
   const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
+  const [selectedSmsTemplate, setSelectedSmsTemplate] = useState<SmsTemplate | null>(null);
   const [editSubject, setEditSubject] = useState('');
   const [editContent, setEditContent] = useState('');
+  const [editSmsContent, setEditSmsContent] = useState('');
   const [showPreview, setShowPreview] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('templates');
@@ -81,6 +105,19 @@ export default function EmailTemplates() {
     },
   });
 
+  // Fetch SMS templates
+  const { data: smsTemplates = [], isLoading: isLoadingSms } = useQuery({
+    queryKey: ['sms-templates'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('sms_templates')
+        .select('*')
+        .order('name');
+      if (error) throw error;
+      return data as SmsTemplate[];
+    },
+  });
+
   // Fetch email logs from webhook events
   const { data: emailLogs = [], isLoading: isLoadingLogs, refetch: refetchLogs } = useQuery({
     queryKey: ['email-logs'],
@@ -92,6 +129,20 @@ export default function EmailTemplates() {
         .limit(100);
       if (error) throw error;
       return data as EmailLog[];
+    },
+  });
+
+  // Fetch SMS logs
+  const { data: smsLogs = [], isLoading: isLoadingSmsLogs, refetch: refetchSmsLogs } = useQuery({
+    queryKey: ['sms-logs'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('sms_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      return data as SmsLog[];
     },
   });
 
@@ -116,6 +167,49 @@ export default function EmailTemplates() {
       toast.error(error.message || 'Failed to save template');
     },
   });
+
+  // SMS template update mutation
+  const updateSmsMutation = useMutation({
+    mutationFn: async ({ id, content, is_active }: { id: string; content?: string; is_active?: boolean }) => {
+      const updates: Partial<SmsTemplate> = {};
+      if (content !== undefined) updates.content = content;
+      if (is_active !== undefined) updates.is_active = is_active;
+      
+      const { error } = await supabase
+        .from('sms_templates')
+        .update(updates)
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sms-templates'] });
+      toast.success('SMS template saved');
+      setSelectedSmsTemplate(null);
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to save SMS template');
+    },
+  });
+
+  const handleEditSmsTemplate = (template: SmsTemplate) => {
+    setSelectedSmsTemplate(template);
+    setEditSmsContent(template.content);
+  };
+
+  const handleSaveSmsTemplate = () => {
+    if (!selectedSmsTemplate) return;
+    updateSmsMutation.mutate({
+      id: selectedSmsTemplate.id,
+      content: editSmsContent,
+    });
+  };
+
+  const handleToggleSmsActive = (template: SmsTemplate) => {
+    updateSmsMutation.mutate({
+      id: template.id,
+      is_active: !template.is_active,
+    });
+  };
 
   const handleEditTemplate = (template: EmailTemplate) => {
     setSelectedTemplate(template);
@@ -238,8 +332,8 @@ export default function EmailTemplates() {
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Email Management</h1>
-          <p className="text-muted-foreground mt-1">Manage email templates and view delivery logs</p>
+          <h1 className="text-3xl font-bold text-foreground">Notifications Management</h1>
+          <p className="text-muted-foreground mt-1">Manage email & SMS templates and view delivery logs</p>
         </div>
         <Button variant="outline" onClick={handleRefresh} disabled={isRefreshing}>
           <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
@@ -251,14 +345,18 @@ export default function EmailTemplates() {
         <TabsList>
           <TabsTrigger value="templates" className="gap-2">
             <Mail className="h-4 w-4" />
-            Templates
+            Email
+          </TabsTrigger>
+          <TabsTrigger value="sms" className="gap-2">
+            <MessageSquare className="h-4 w-4" />
+            SMS
+            {smsTemplates.length > 0 && (
+              <Badge variant="secondary" className="ml-1 text-xs">{smsTemplates.length}</Badge>
+            )}
           </TabsTrigger>
           <TabsTrigger value="logs" className="gap-2">
             <History className="h-4 w-4" />
-            Email Logs
-            {emailLogs.length > 0 && (
-              <Badge variant="secondary" className="ml-1 text-xs">{emailLogs.length}</Badge>
-            )}
+            Logs
           </TabsTrigger>
         </TabsList>
 

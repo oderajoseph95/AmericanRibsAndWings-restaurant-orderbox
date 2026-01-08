@@ -15,6 +15,9 @@ verify_jwt = false
 [functions.send-email-notification]
 verify_jwt = false
 
+[functions.send-sms-notification]
+verify_jwt = false
+
 [functions.resend-webhook]
 verify_jwt = false
 

@@ -28,6 +28,7 @@ import {
 import type { Tables } from '@/integrations/supabase/types';
 import { logDriverAction } from '@/lib/driverLogger';
 import { sendEmailNotification, EmailType } from '@/hooks/useEmailNotifications';
+import { sendSmsNotification, SmsType } from '@/hooks/useSmsNotifications';
 // Email notification now handles admin recipients automatically in edge function
 
 type Order = Tables<'orders'> & {
@@ -252,6 +253,19 @@ export default function DriverOrders() {
         driverPhone: driver.phone,
       });
 
+      // Send SMS notification
+      const smsType: SmsType = photoAction === 'pickup' ? 'order_out_for_delivery' : 'order_delivered';
+      if (order?.customer?.phone) {
+        await sendSmsNotification({
+          type: smsType,
+          recipientPhone: order.customer.phone,
+          orderId: uploadingOrderId,
+          orderNumber: order?.order_number || '',
+          customerName: order?.customer?.name || '',
+          driverName: driver.name,
+        });
+      }
+
       toast.success(`${photoAction === 'pickup' ? 'Pickup' : 'Delivery'} photo uploaded`);
     } catch (error: any) {
       toast.error('Upload failed: ' + error.message);
@@ -301,6 +315,18 @@ export default function DriverOrders() {
         driverName: driver.name,
         driverPhone: driver.phone,
       });
+
+      // Send SMS notification for out for delivery
+      if (order?.customer?.phone) {
+        await sendSmsNotification({
+          type: 'order_out_for_delivery',
+          recipientPhone: order.customer.phone,
+          orderId: orderId,
+          orderNumber: order?.order_number || '',
+          customerName: order?.customer?.name || '',
+          driverName: driver.name,
+        });
+      }
     }
   };
 
