@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -22,6 +22,8 @@ type FunnelStep = {
 };
 
 export function ConversionFunnelCard({ dateFilter }: ConversionFunnelCardProps) {
+  const queryClient = useQueryClient();
+  
   const dateRange = useMemo(() => {
     const now = new Date();
     switch (dateFilter) {
@@ -38,6 +40,32 @@ export function ConversionFunnelCard({ dateFilter }: ConversionFunnelCardProps) 
         return { start: startOfDay(now), end: endOfDay(now) };
     }
   }, [dateFilter]);
+
+  // Real-time subscription for funnel updates
+  useEffect(() => {
+    const channel = supabase
+      .channel('funnel-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'analytics_events' },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['conversion-funnel'] });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'abandoned_checkouts' },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['abandoned-checkouts-funnel'] });
+          queryClient.invalidateQueries({ queryKey: ['conversion-funnel'] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
 
   // Fetch analytics events
   const { data: funnelData } = useQuery({
