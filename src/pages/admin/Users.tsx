@@ -15,6 +15,8 @@ import { logAdminAction } from '@/lib/adminLogger';
 import { Plus, Trash2, Shield, Loader2, Search, Pencil, Users as UsersIcon, Crown, Wand2, User } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Enums } from '@/integrations/supabase/types';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { MobileCard, MobileCardRow } from '@/components/admin/MobileCard';
 
 interface UserData {
   email: string | null;
@@ -25,6 +27,7 @@ interface UserData {
 
 export default function Users() {
   const { role, user, isSuperOwner } = useAuth();
+  const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [addDialogOpen, setAddDialogOpen] = useState(false);
@@ -371,34 +374,35 @@ export default function Users() {
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 sm:space-y-6 animate-fade-in">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Users</h1>
-          <p className="text-muted-foreground mt-1">
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Users</h1>
+          <p className="text-sm text-muted-foreground mt-1">
             Manage admin panel access ({userRoles.length} users)
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {callerIsSuperOwner && usersWithoutUsernames > 0 && (
             <Button 
               variant="outline" 
+              size={isMobile ? "sm" : "default"}
               onClick={() => generateUsernamesMutation.mutate()}
               disabled={generateUsernamesMutation.isPending}
             >
               <Wand2 className="h-4 w-4 mr-2" />
-              {generateUsernamesMutation.isPending ? 'Generating...' : `Generate ${usersWithoutUsernames} Usernames`}
+              {generateUsernamesMutation.isPending ? 'Generating...' : isMobile ? `Generate (${usersWithoutUsernames})` : `Generate ${usersWithoutUsernames} Usernames`}
             </Button>
           )}
           {callerIsSuperOwner && (
             <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
               <DialogTrigger asChild>
-                <Button>
+                <Button size={isMobile ? "sm" : "default"}>
                   <Plus className="h-4 w-4 mr-2" />
                   Add User
                 </Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent className="max-w-[95vw] sm:max-w-lg">
                 <DialogHeader>
                   <DialogTitle>Add Admin User</DialogTitle>
                   <DialogDescription>
@@ -457,7 +461,71 @@ export default function Users() {
               <UsersIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>No admin users configured yet.</p>
             </div>
+          ) : isMobile ? (
+            // Mobile: Card layout
+            <div className="space-y-3">
+              {filteredRoles.map((ur) => {
+                const userData = userDataMap[ur.user_id];
+                return (
+                  <MobileCard key={ur.id}>
+                    <div className="space-y-3">
+                      <div className="flex items-start justify-between">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium">
+                              {userData?.display_name || <span className="text-muted-foreground italic">No name</span>}
+                            </span>
+                            {userData?.is_super_owner && (
+                              <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/30">
+                                <Crown className="h-3 w-3 mr-1" /> Super
+                              </Badge>
+                            )}
+                            {ur.user_id === user?.id && (
+                              <Badge variant="outline" className="text-xs">You</Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                            <User className="h-3 w-3" />
+                            <span className="font-mono">@{userData?.username || 'no_username'}</span>
+                          </div>
+                        </div>
+                        <Badge variant="outline" className={roleColors[ur.role]}>
+                          {ur.role.charAt(0).toUpperCase() + ur.role.slice(1)}
+                        </Badge>
+                      </div>
+                      
+                      <div className="flex items-center justify-between pt-2 border-t">
+                        <span className="text-xs text-muted-foreground">
+                          Added {ur.created_at && format(new Date(ur.created_at), 'MMM d, yyyy')}
+                        </span>
+                        {callerIsSuperOwner && (
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="sm" onClick={() => openEditDialog(ur.id, ur.user_id, ur.role)}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            {ur.user_id !== user?.id && !userData?.is_super_owner && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  if (confirm('Remove this user from admin access?')) {
+                                    deleteRoleMutation.mutate({ id: ur.id, userId: ur.user_id, role: ur.role });
+                                  }
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </MobileCard>
+                );
+              })}
+            </div>
           ) : (
+            // Desktop: Table layout
             <Table>
               <TableHeader>
                 <TableRow>
@@ -513,11 +581,9 @@ export default function Users() {
                       <TableCell>
                         {callerIsSuperOwner && (
                           <div className="flex gap-1">
-                            {/* Edit button - allow editing any user including self */}
                             <Button variant="ghost" size="icon" onClick={() => openEditDialog(ur.id, ur.user_id, ur.role)}>
                               <Pencil className="h-4 w-4" />
                             </Button>
-                            {/* Delete button - prevent deleting self or other super owners */}
                             {ur.user_id !== user?.id && !userData?.is_super_owner && (
                               <Button
                                 variant="ghost"
@@ -544,7 +610,7 @@ export default function Users() {
       </Card>
 
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-[95vw] sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Edit User</DialogTitle>
             <DialogDescription>Update username and role for this user.</DialogDescription>

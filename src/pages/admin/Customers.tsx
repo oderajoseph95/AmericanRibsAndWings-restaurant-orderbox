@@ -26,9 +26,12 @@ import { logAdminAction } from '@/lib/adminLogger';
 import { Plus, Pencil, Trash2, Search, Loader2, Eye, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Tables } from '@/integrations/supabase/types';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { MobileCard, MobileCardRow } from '@/components/admin/MobileCard';
 
 export default function Customers() {
   const { role } = useAuth();
+  const isMobile = useIsMobile();
   const isOwner = role === 'owner';
   const canEdit = role === 'owner' || role === 'manager';
   const [search, setSearch] = useState('');
@@ -228,12 +231,12 @@ export default function Customers() {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 sm:space-y-6 animate-fade-in">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div>
-            <h1 className="text-3xl font-bold text-foreground">Customers</h1>
-            <p className="text-muted-foreground mt-1">
+            <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Customers</h1>
+            <p className="text-sm text-muted-foreground mt-1">
               {customers.length} total customers
             </p>
           </div>
@@ -247,9 +250,9 @@ export default function Customers() {
             <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
           </Button>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {isOwner && selectedCustomerIds.size > 0 && (
-            <Button variant="destructive" onClick={() => setShowDeleteDialog(true)}>
+            <Button variant="destructive" size={isMobile ? "sm" : "default"} onClick={() => setShowDeleteDialog(true)}>
               <Trash2 className="h-4 w-4 mr-2" />
               Delete ({selectedCustomerIds.size})
             </Button>
@@ -257,12 +260,12 @@ export default function Customers() {
           {canEdit && (
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
-                <Button onClick={openNewDialog}>
+                <Button size={isMobile ? "sm" : "default"} onClick={openNewDialog}>
                   <Plus className="h-4 w-4 mr-2" />
                   Add Customer
                 </Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent className="max-w-[95vw] sm:max-w-lg">
                 <DialogHeader>
                   <DialogTitle>
                     {editingCustomer ? 'Edit Customer' : 'New Customer'}
@@ -338,7 +341,73 @@ export default function Customers() {
             <div className="text-center py-8 text-muted-foreground">
               No customers found
             </div>
+          ) : isMobile ? (
+            // Mobile: Card layout
+            <>
+              <div className="space-y-3">
+                {paginatedCustomers.map((customer) => (
+                  <MobileCard key={customer.id} onClick={() => setSelectedCustomer(customer)}>
+                    <div className="space-y-2">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="font-medium">{customer.name}</p>
+                          <p className="text-sm text-muted-foreground">{customer.phone || customer.email || 'No contact'}</p>
+                        </div>
+                        <Badge variant="outline">{customer.total_orders || 0} orders</Badge>
+                      </div>
+                      <div className="flex items-center justify-between pt-2 border-t">
+                        <span className="text-sm font-medium">₱{(customer.total_spent || 0).toFixed(2)}</span>
+                        <div className="flex gap-1">
+                          {canEdit && (
+                            <>
+                              <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); openEditDialog(customer); }}>
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (confirm('Delete this customer?')) {
+                                    deleteMutation.mutate(customer.id);
+                                  }
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </MobileCard>
+                ))}
+              </div>
+              {/* Mobile Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between pt-4 border-t mt-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm">{currentPage} / {totalPages}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                  >
+                    Next
+                  </Button>
+                </div>
+              )}
+            </>
           ) : (
+            // Desktop: Table layout
             <>
               <Table>
               <TableHeader>
