@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Share2 } from "lucide-react";
+import { Plus, Link2 } from "lucide-react";
 import { shareProduct } from "@/lib/productUtils";
 import type { Tables } from "@/integrations/supabase/types";
 
@@ -144,9 +144,9 @@ export function ProductDetailModal({
           <DialogTitle>{product.name}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
-          {/* Product Image */}
+          {/* Product Image - Square 1:1 */}
           {product.image_url && (
-            <div className="w-full h-48 rounded-lg overflow-hidden">
+            <div className="w-full aspect-square rounded-lg overflow-hidden bg-muted">
               <img
                 src={product.image_url}
                 alt={product.name}
@@ -178,19 +178,25 @@ export function ProductDetailModal({
           )}
 
           {/* Price and actions */}
-          <div className="flex items-center justify-between pt-2 border-t">
-            <span className="text-2xl font-bold text-primary">
-              ₱{product.price.toFixed(2)}
-            </span>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={handleShare}>
-                <Share2 className="h-4 w-4" />
-              </Button>
+          <div className="flex flex-col gap-3 pt-4 border-t">
+            <div className="flex items-center justify-between">
+              <span className="text-2xl font-bold text-primary">
+                ₱{product.price.toFixed(2)}
+              </span>
               <Button onClick={handleAddToCart} className="gap-1">
                 <Plus className="h-4 w-4" />
                 Add to Order
               </Button>
             </div>
+            
+            {/* Share as text link */}
+            <button 
+              onClick={handleShare}
+              className="text-sm text-muted-foreground hover:text-primary transition-colors flex items-center gap-1 justify-center"
+            >
+              <Link2 className="h-3.5 w-3.5" />
+              Share product
+            </button>
           </div>
         </div>
       </DialogContent>

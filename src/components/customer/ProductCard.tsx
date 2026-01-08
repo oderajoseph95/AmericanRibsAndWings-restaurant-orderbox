@@ -1,11 +1,9 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Share2 } from "lucide-react";
+import { Eye, Plus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { shareProduct } from "@/lib/productUtils";
 import type { Tables } from "@/integrations/supabase/types";
-
 type ProductWithCategory = Tables<"products"> & {
   categories: { name: string } | null;
   product_flavor_rules?: Tables<"product_flavor_rules">[] | Tables<"product_flavor_rules"> | null;
@@ -32,14 +30,10 @@ export function ProductCard({ product, onAdd }: ProductCardProps) {
     navigate(`/product/${slug}`);
   };
 
-  // Share product
-  const handleShare = (e: React.MouseEvent) => {
+  // View product (same as card click)
+  const handleView = (e: React.MouseEvent) => {
     e.stopPropagation();
-    shareProduct({
-      name: product.name,
-      slug: product.slug || null,
-      id: product.id,
-    });
+    handleCardClick();
   };
 
   // Add to cart
@@ -102,14 +96,14 @@ export function ProductCard({ product, onAdd }: ProductCardProps) {
             <Button 
               size="sm" 
               variant="outline"
-              onClick={handleShare}
-              className="px-2"
+              onClick={handleView}
             >
-              <Share2 className="h-4 w-4" />
+              <Eye className="h-4 w-4 mr-1" />
+              View
             </Button>
             <Button size="sm" onClick={handleAdd} className="gap-1">
               <Plus className="h-4 w-4" />
-              Add
+              Order
             </Button>
           </div>
         </div>
