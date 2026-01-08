@@ -87,6 +87,17 @@ const Order = () => {
             return;
           }
 
+          // Track the link click event for timeline
+          try {
+            await supabase.from("abandoned_checkout_events").insert({
+              abandoned_checkout_id: recoverId,
+              event_type: "link_clicked",
+              metadata: { user_agent: navigator.userAgent }
+            });
+          } catch (e) {
+            console.error("Failed to track link click:", e);
+          }
+
           // Restore cart items
           if (checkout.cart_items && Array.isArray(checkout.cart_items) && checkout.cart_items.length > 0) {
             // Map abandoned cart items to proper cart format
@@ -110,12 +121,23 @@ const Order = () => {
               },
             });
 
-            // Mark checkout as recovered (update status)
+            // Track cart restored event
+            try {
+              await supabase.from("abandoned_checkout_events").insert({
+                abandoned_checkout_id: recoverId,
+                event_type: "cart_restored",
+                metadata: { items_count: recoveredItems.length }
+              });
+            } catch (e) {
+              console.error("Failed to track cart restore:", e);
+            }
+
+            // Update recovery_started_at but DO NOT mark as recovered yet
+            // Will only mark as recovered when order is actually placed
             await supabase
               .from("abandoned_checkouts")
               .update({ 
-                status: "recovered",
-                recovery_completed_at: new Date().toISOString()
+                recovery_started_at: new Date().toISOString()
               })
               .eq("id", recoverId);
           }
@@ -273,6 +295,21 @@ const Order = () => {
         currency: 'PHP',
       });
       console.log('Meta Pixel AddToCart event fired:', product.name);
+    }
+
+    // Fire Google Analytics 4 add_to_cart event
+    if (typeof gtag === 'function') {
+      gtag('event', 'add_to_cart', {
+        currency: 'PHP',
+        value: product.price,
+        items: [{
+          item_id: product.id,
+          item_name: product.name,
+          price: product.price,
+          quantity: 1,
+        }]
+      });
+      console.log('GA4 add_to_cart event fired:', product.name);
     }
 
     if (product.product_type === "bundle") {
@@ -463,6 +500,7 @@ const Order = () => {
                 items={cart}
                 onUpdateQuantity={updateCartItemQuantity}
                 onRemove={removeFromCart}
+                onClearCart={clearCart}
                 onCheckout={() => {
                   setIsCartOpen(false);
                   setIsCheckoutOpen(true);
@@ -628,6 +666,7 @@ const Order = () => {
                   items={cart}
                   onUpdateQuantity={updateCartItemQuantity}
                   onRemove={removeFromCart}
+                  onClearCart={clearCart}
                   onCheckout={() => setIsCheckoutOpen(true)}
                   total={cartTotal}
                 />

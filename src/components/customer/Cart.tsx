@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Minus, Plus, Trash2, ShoppingBag } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import type { CartItem } from "@/pages/Order";
@@ -9,12 +11,14 @@ interface CartProps {
   items: CartItem[];
   onUpdateQuantity: (itemId: string, delta: number) => void;
   onRemove: (itemId: string) => void;
+  onClearCart?: () => void;
   onCheckout: () => void;
   onClose?: () => void;
   total: number;
 }
 
-export function Cart({ items, onUpdateQuantity, onRemove, onCheckout, onClose, total }: CartProps) {
+export function Cart({ items, onUpdateQuantity, onRemove, onClearCart, onCheckout, onClose, total }: CartProps) {
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -155,11 +159,47 @@ export function Cart({ items, onUpdateQuantity, onRemove, onCheckout, onClose, t
           <span className="text-primary">₱{total.toFixed(2)}</span>
         </div>
 
-        {/* Checkout button */}
-        <Button className="w-full" size="lg" onClick={onCheckout}>
-          Proceed to Checkout
-        </Button>
+        {/* Action buttons */}
+        <div className="flex gap-2">
+          {onClearCart && (
+            <Button 
+              variant="ghost" 
+              size="lg"
+              className="text-destructive hover:text-destructive hover:bg-destructive/10"
+              onClick={() => setShowClearConfirm(true)}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+          <Button className="flex-1" size="lg" onClick={onCheckout}>
+            Proceed to Checkout
+          </Button>
+        </div>
       </div>
+
+      {/* Clear Cart Confirmation Dialog */}
+      <AlertDialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear your cart?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove all {items.length} items from your cart. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                onClearCart?.();
+                setShowClearConfirm(false);
+              }}
+            >
+              Clear Cart
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

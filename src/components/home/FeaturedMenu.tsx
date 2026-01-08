@@ -5,8 +5,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowRight, Flame, ShoppingCart, Eye } from "lucide-react";
+import { ArrowRight, Flame, ShoppingCart, Eye, FileText } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { MenuModal } from "./MenuModal";
 
 interface FeaturedMenuContent {
   title?: string;
@@ -27,6 +28,7 @@ interface Product {
 
 export function FeaturedMenu() {
   const navigate = useNavigate();
+  const [menuModalOpen, setMenuModalOpen] = useState(false);
 
   const handleOrderProduct = (e: React.MouseEvent, productId: string) => {
     e.stopPropagation();
@@ -204,16 +206,28 @@ export function FeaturedMenu() {
           )}
         </div>
 
-        {/* View all button */}
-        <div className="text-center">
+        {/* Action buttons */}
+        <div className="flex justify-center gap-3 flex-wrap">
           <Button asChild size="lg" className="rounded-full px-8">
             <Link to="/order">
-              View Full Menu
-              <ArrowRight className="ml-2 h-5 w-5" />
+              <ShoppingCart className="mr-2 h-5 w-5" />
+              Order Now
             </Link>
+          </Button>
+          <Button 
+            variant="outline" 
+            size="lg" 
+            className="rounded-full px-8"
+            onClick={() => setMenuModalOpen(true)}
+          >
+            <FileText className="mr-2 h-5 w-5" />
+            View Full Menu
           </Button>
         </div>
       </div>
+
+      {/* Menu Modal */}
+      <MenuModal open={menuModalOpen} onOpenChange={setMenuModalOpen} />
     </section>
   );
 }

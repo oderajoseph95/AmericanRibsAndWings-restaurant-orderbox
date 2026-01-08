@@ -43,6 +43,14 @@ interface Reminder {
   error_message: string | null;
 }
 
+interface CheckoutEvent {
+  id: string;
+  event_type: string;
+  channel: string | null;
+  metadata: any;
+  created_at: string;
+}
+
 export default function AbandonedCheckouts() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedCheckout, setSelectedCheckout] = useState<AbandonedCheckout | null>(null);
@@ -104,6 +112,22 @@ export default function AbandonedCheckouts() {
         .order('scheduled_for', { ascending: true });
       if (error) throw error;
       return data as Reminder[];
+    },
+    enabled: !!selectedCheckout,
+  });
+
+  // Fetch events/timeline for selected checkout
+  const { data: checkoutEvents = [] } = useQuery({
+    queryKey: ['checkout-events', selectedCheckout?.id],
+    queryFn: async () => {
+      if (!selectedCheckout) return [];
+      const { data, error } = await supabase
+        .from('abandoned_checkout_events')
+        .select('*')
+        .eq('abandoned_checkout_id', selectedCheckout.id)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      return data as CheckoutEvent[];
     },
     enabled: !!selectedCheckout,
   });
@@ -383,6 +407,39 @@ export default function AbandonedCheckouts() {
                                           )}
                                         </div>
                                       ))}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Activity Timeline */}
+                                {checkoutEvents.length > 0 && (
+                                  <div>
+                                    <h4 className="font-medium mb-2">Activity Timeline</h4>
+                                    <div className="relative pl-4 border-l-2 border-muted space-y-3">
+                                      {checkoutEvents.map((event) => {
+                                        const eventLabels: Record<string, { label: string; color: string }> = {
+                                          created: { label: 'Checkout abandoned', color: 'bg-orange-500' },
+                                          recovery_started: { label: 'Recovery initiated', color: 'bg-blue-500' },
+                                          link_clicked: { label: 'Recovery link clicked', color: 'bg-purple-500' },
+                                          cart_restored: { label: 'Cart restored', color: 'bg-green-500' },
+                                          order_placed: { label: 'Order completed!', color: 'bg-emerald-600' },
+                                          reminder_sent: { label: `Reminder sent (${event.channel || 'email'})`, color: 'bg-blue-400' },
+                                          reminder_failed: { label: 'Reminder failed', color: 'bg-red-500' },
+                                        };
+                                        const info = eventLabels[event.event_type] || { label: event.event_type, color: 'bg-gray-500' };
+                                        
+                                        return (
+                                          <div key={event.id} className="relative pb-1">
+                                            <div className={`absolute -left-[9px] w-3 h-3 rounded-full ${info.color} border-2 border-background`} />
+                                            <div className="text-sm ml-2">
+                                              <span className="font-medium">{info.label}</span>
+                                              <span className="text-xs text-muted-foreground ml-2">
+                                                {format(new Date(event.created_at), 'MMM d, h:mm a')}
+                                              </span>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
                                     </div>
                                   </div>
                                 )}

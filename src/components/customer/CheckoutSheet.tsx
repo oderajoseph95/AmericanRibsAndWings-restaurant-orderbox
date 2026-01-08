@@ -222,7 +222,7 @@ export function CheckoutSheet({
   const customerName = form.watch("name");
   const customerPhone = form.watch("phone");
 
-  // Fire Meta Pixel InitiateCheckout event when checkout opens
+  // Fire Meta Pixel & GA4 InitiateCheckout event when checkout opens
   useEffect(() => {
     if (open) {
       // Track checkout_start analytics
@@ -244,6 +244,21 @@ export function CheckoutSheet({
           currency: 'PHP',
         });
         console.log('Meta Pixel InitiateCheckout event fired:', total);
+      }
+
+      // Fire Google Analytics 4 begin_checkout event
+      if (typeof gtag === 'function') {
+        gtag('event', 'begin_checkout', {
+          currency: 'PHP',
+          value: total,
+          items: cart.map(item => ({
+            item_id: item.product.id,
+            item_name: item.product.name,
+            price: item.product.price,
+            quantity: item.quantity,
+          }))
+        });
+        console.log('GA4 begin_checkout event fired:', total);
       }
     }
   }, [open, cart, total]);

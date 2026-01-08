@@ -338,13 +338,19 @@ export default function Dashboard() {
     },
   });
 
-  if (loadingStats) {
-    return (
-      <div className="min-h-[400px] flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  // Random loading messages for engaging UX
+  const loadingMessages = [
+    "Crunching the numbers...",
+    "Pulling up your data...",
+    "Almost there...",
+    "Counting those orders...",
+    "Fetching sales data...",
+    "Loading your dashboard...",
+    "Brewing fresh stats...",
+    "Gathering insights...",
+  ];
+  const getRandomLoadingMessage = () => 
+    loadingMessages[Math.floor(Math.random() * loadingMessages.length)];
 
   const pendingOrders = globalCounts?.pendingOrders || 0;
   const awaitingVerification = globalCounts?.awaitingVerification || 0;
@@ -412,7 +418,16 @@ export default function Dashboard() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4 relative">
+        {/* Loading overlay */}
+        {loadingStats && (
+          <div className="absolute inset-0 bg-background/80 flex items-center justify-center z-10 rounded-lg">
+            <div className="flex flex-col items-center gap-2">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              <span className="text-sm text-muted-foreground">{getRandomLoadingMessage()}</span>
+            </div>
+          </div>
+        )}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">{dateRange.label}'s Sales</CardTitle>
@@ -457,22 +472,34 @@ export default function Dashboard() {
 
         <Card className="border-orange-500/20 bg-orange-500/5">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Abandoned Carts</CardTitle>
+            <CardTitle className="text-sm font-medium">Abandoned Value</CardTitle>
             <ShoppingBag className="h-4 w-4 text-orange-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-600">{abandonedCartsStats?.abandonedCount || 0}</div>
+            <div className="text-2xl font-bold text-orange-600">₱{(abandonedCartsStats?.potentialRevenue || 0).toLocaleString('en-PH')}</div>
             <p className="text-xs text-muted-foreground">
-              ₱{(abandonedCartsStats?.potentialRevenue || 0).toLocaleString('en-PH')} potential
+              {abandonedCartsStats?.abandonedCount || 0} abandoned carts
             </p>
-            {(abandonedCartsStats?.recoveringCount || 0) > 0 && (
-              <p className="text-xs text-blue-600 mt-0.5">
-                {abandonedCartsStats?.recoveringCount} in recovery queue
-              </p>
-            )}
           </CardContent>
         </Card>
       </div>
+
+      {/* Recovery Queue Card - Always show if there are carts in recovery */}
+      {(abandonedCartsStats?.recoveringCount || 0) > 0 && (
+        <Card className="border-blue-500/20 bg-blue-500/5">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">In Recovery Queue</CardTitle>
+            <RotateCcw className="h-4 w-4 text-blue-500 animate-spin" style={{ animationDuration: '3s' }} />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-600">{abandonedCartsStats?.recoveringCount || 0}</div>
+            <p className="text-xs text-muted-foreground">Reminders being sent</p>
+            <Link to="/admin/abandoned-checkouts" className="text-xs text-blue-600 hover:underline mt-1 inline-block">
+              View queue →
+            </Link>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Cart Recovery Stats - only show if there's activity */}
       {((abandonedCartsStats?.recoveredCount || 0) + (abandonedCartsStats?.expiredCount || 0)) > 0 && (

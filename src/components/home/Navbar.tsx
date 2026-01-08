@@ -66,25 +66,10 @@ export function Navbar() {
     setCart((prevCart) => prevCart.filter((item) => item.id !== itemId));
   };
 
-  // Cart Sheet content component (used in both desktop and mobile)
-  const CartSheetContent = () => (
-    <SheetContent side="right" className="w-full sm:max-w-md p-0">
-      <SheetHeader className="p-4 border-b">
-        <SheetTitle>Your Cart ({cartItemCount})</SheetTitle>
-      </SheetHeader>
-      <Cart
-        items={cart}
-        onUpdateQuantity={updateCartItemQuantity}
-        onRemove={removeFromCart}
-        onCheckout={() => {
-          setIsCartOpen(false);
-          navigate("/order");
-        }}
-        onClose={() => setIsCartOpen(false)}
-        total={cartTotal}
-      />
-    </SheetContent>
-  );
+  // Clear cart
+  const clearCart = () => {
+    setCart([]);
+  };
 
   return (
     <nav
@@ -150,7 +135,23 @@ export function Navbar() {
                 )}
               </Button>
             </SheetTrigger>
-            <CartSheetContent />
+            <SheetContent side="right" className="w-full sm:max-w-md p-0" onInteractOutside={(e) => e.preventDefault()}>
+              <SheetHeader className="p-4 border-b">
+                <SheetTitle>Your Cart ({cartItemCount})</SheetTitle>
+              </SheetHeader>
+              <Cart
+                items={cart}
+                onUpdateQuantity={updateCartItemQuantity}
+                onRemove={removeFromCart}
+                onClearCart={clearCart}
+                onCheckout={() => {
+                  setIsCartOpen(false);
+                  navigate("/order");
+                }}
+                onClose={() => setIsCartOpen(false)}
+                total={cartTotal}
+              />
+            </SheetContent>
           </Sheet>
           
           {isAdmin && (
@@ -178,7 +179,23 @@ export function Navbar() {
                 )}
               </Button>
             </SheetTrigger>
-            <CartSheetContent />
+            <SheetContent side="right" className="w-full sm:max-w-md p-0" onInteractOutside={(e) => e.preventDefault()}>
+              <SheetHeader className="p-4 border-b">
+                <SheetTitle>Your Cart ({cartItemCount})</SheetTitle>
+              </SheetHeader>
+              <Cart
+                items={cart}
+                onUpdateQuantity={updateCartItemQuantity}
+                onRemove={removeFromCart}
+                onClearCart={clearCart}
+                onCheckout={() => {
+                  setIsCartOpen(false);
+                  navigate("/order");
+                }}
+                onClose={() => setIsCartOpen(false)}
+                total={cartTotal}
+              />
+            </SheetContent>
           </Sheet>
 
           {/* Hamburger Menu */}
