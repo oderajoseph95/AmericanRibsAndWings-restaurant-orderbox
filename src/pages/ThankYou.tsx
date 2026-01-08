@@ -256,22 +256,37 @@ export default function ThankYou() {
     }
   }, [orderData]);
 
-  // Fire Meta Pixel Purchase event on page load
+  // Fire Meta Pixel Purchase event ONLY ONCE per order
   useEffect(() => {
     if (trackingData?.order && trackingData.order.total_amount && typeof window !== 'undefined') {
-      const fbq = (window as any).fbq;
-      if (typeof fbq === 'function') {
-        fbq('track', 'Purchase', {
-          currency: 'PHP',
-          value: trackingData.order.total_amount,
-          content_type: 'product',
-          content_ids: trackingData.items?.map(item => item.id) || [],
-          num_items: trackingData.items?.reduce((sum, item) => sum + item.quantity, 0) || 1,
-        });
-        console.log('Meta Pixel Purchase event fired:', {
-          currency: 'PHP',
-          value: trackingData.order.total_amount
-        });
+      const orderId = trackingData.order.id;
+      const storageKey = 'meta_pixel_purchases';
+      
+      // Get list of already-tracked order IDs from localStorage
+      const trackedOrders: string[] = JSON.parse(localStorage.getItem(storageKey) || '[]');
+      
+      // Only fire if this order hasn't been tracked yet
+      if (!trackedOrders.includes(orderId)) {
+        const fbq = (window as any).fbq;
+        if (typeof fbq === 'function') {
+          fbq('track', 'Purchase', {
+            currency: 'PHP',
+            value: trackingData.order.total_amount,
+            content_type: 'product',
+            content_ids: trackingData.items?.map(item => item.id) || [],
+            num_items: trackingData.items?.reduce((sum, item) => sum + item.quantity, 0) || 1,
+          });
+          console.log('Meta Pixel Purchase event fired (first time):', {
+            orderId,
+            value: trackingData.order.total_amount
+          });
+          
+          // Mark this order as tracked
+          trackedOrders.push(orderId);
+          localStorage.setItem(storageKey, JSON.stringify(trackedOrders));
+        }
+      } else {
+        console.log('Meta Pixel Purchase event skipped (already tracked):', orderId);
       }
     }
   }, [trackingData]);
