@@ -1067,9 +1067,11 @@ export type Database = {
           category_id: string | null
           created_at: string | null
           description: string | null
+          featured_sort_order: number | null
           id: string
           image_url: string | null
           is_active: boolean | null
+          is_featured: boolean | null
           name: string
           price: number
           product_type: Database["public"]["Enums"]["product_type"] | null
@@ -1085,9 +1087,11 @@ export type Database = {
           category_id?: string | null
           created_at?: string | null
           description?: string | null
+          featured_sort_order?: number | null
           id?: string
           image_url?: string | null
           is_active?: boolean | null
+          is_featured?: boolean | null
           name: string
           price?: number
           product_type?: Database["public"]["Enums"]["product_type"] | null
@@ -1103,9 +1107,11 @@ export type Database = {
           category_id?: string | null
           created_at?: string | null
           description?: string | null
+          featured_sort_order?: number | null
           id?: string
           image_url?: string | null
           is_active?: boolean | null
+          is_featured?: boolean | null
           name?: string
           price?: number
           product_type?: Database["public"]["Enums"]["product_type"] | null
