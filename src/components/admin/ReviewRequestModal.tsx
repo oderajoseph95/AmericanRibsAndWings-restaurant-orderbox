@@ -46,17 +46,22 @@ export function ReviewRequestModal({
   orderItems,
   onSuccess 
 }: ReviewRequestModalProps) {
-  const [sendEmail, setSendEmail] = useState(true);
-  const [sendSms, setSendSms] = useState(true);
-  const [isSending, setIsSending] = useState(false);
-
   const hasEmail = !!order.customers?.email;
   const hasPhone = !!order.customers?.phone;
   const wasRequested = !!order.last_review_requested_at;
 
+  const [sendEmail, setSendEmail] = useState(hasEmail);
+  const [sendSms, setSendSms] = useState(hasPhone);
+  const [isSending, setIsSending] = useState(false);
+
+  // Calculate if we can actually send
+  const canSendEmail = hasEmail && sendEmail;
+  const canSendSms = hasPhone && sendSms;
+  const canSend = canSendEmail || canSendSms;
+
   const handleSend = async () => {
-    if (!sendEmail && !sendSms) {
-      toast.error('Please select at least one method');
+    if (!canSend) {
+      toast.error('Please select at least one available method');
       return;
     }
 
@@ -252,7 +257,7 @@ export function ReviewRequestModal({
           </Button>
           <Button 
             onClick={handleSend}
-            disabled={isSending || (!sendEmail && !sendSms) || (!hasEmail && sendEmail) || (!hasPhone && sendSms)}
+            disabled={isSending || !canSend}
             className="gap-2"
           >
             {isSending ? (
