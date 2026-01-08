@@ -1282,23 +1282,29 @@ export type Database = {
         Row: {
           created_at: string | null
           id: string
+          is_super_owner: boolean | null
           role: Database["public"]["Enums"]["app_role"]
           updated_at: string | null
           user_id: string
+          username: string | null
         }
         Insert: {
           created_at?: string | null
           id?: string
+          is_super_owner?: boolean | null
           role: Database["public"]["Enums"]["app_role"]
           updated_at?: string | null
           user_id: string
+          username?: string | null
         }
         Update: {
           created_at?: string | null
           id?: string
+          is_super_owner?: boolean | null
           role?: Database["public"]["Enums"]["app_role"]
           updated_at?: string | null
           user_id?: string
+          username?: string | null
         }
         Relationships: []
       }
@@ -1435,6 +1441,7 @@ export type Database = {
         }
         Returns: string
       }
+      generate_random_username: { Args: { role_name: string }; Returns: string }
       get_order_tracking: { Args: { p_order_id: string }; Returns: Json }
       get_orders_by_contact: {
         Args: { p_email?: string; p_phone?: string }

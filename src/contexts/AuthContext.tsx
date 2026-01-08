@@ -4,12 +4,21 @@ import { supabase } from '@/integrations/supabase/client';
 
 type AppRole = 'owner' | 'manager' | 'cashier' | 'driver';
 
+interface UserRoleData {
+  role: AppRole;
+  username: string | null;
+  is_super_owner: boolean;
+}
+
 interface AuthContextType {
   user: User | null;
   session: Session | null;
   role: AppRole | null;
+  username: string | null;
+  isSuperOwner: boolean;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signInWithUsername: (username: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (email: string, password: string) => Promise<{ error: Error | null; data: { user: User | null } | null }>;
   signOut: () => Promise<void>;
   isOwner: boolean;
@@ -27,12 +36,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [role, setRole] = useState<AppRole | null>(null);
+  const [username, setUsername] = useState<string | null>(null);
+  const [isSuperOwner, setIsSuperOwner] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const fetchUserRole = async (userId: string) => {
+  const fetchUserRole = async (userId: string): Promise<UserRoleData | null> => {
     const { data, error } = await supabase
       .from('user_roles')
-      .select('role')
+      .select('role, username, is_super_owner')
       .eq('user_id', userId)
       .maybeSingle();
     
@@ -41,7 +52,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return null;
     }
     
-    return data?.role as AppRole | null;
+    return data ? {
+      role: data.role as AppRole,
+      username: data.username,
+      is_super_owner: data.is_super_owner || false,
+    } : null;
   };
 
   useEffect(() => {
@@ -55,13 +70,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (session?.user) {
           setLoading(true); // Set loading while fetching role
           setTimeout(() => {
-            fetchUserRole(session.user.id).then((fetchedRole) => {
-              setRole(fetchedRole);
+            fetchUserRole(session.user.id).then((fetchedData) => {
+              setRole(fetchedData?.role || null);
+              setUsername(fetchedData?.username || null);
+              setIsSuperOwner(fetchedData?.is_super_owner || false);
               setLoading(false);
             });
           }, 0);
         } else {
           setRole(null);
+          setUsername(null);
+          setIsSuperOwner(false);
           setLoading(false);
         }
       }
@@ -73,8 +92,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(session?.user ?? null);
       
       if (session?.user) {
-        fetchUserRole(session.user.id).then((fetchedRole) => {
-          setRole(fetchedRole);
+        fetchUserRole(session.user.id).then((fetchedData) => {
+          setRole(fetchedData?.role || null);
+          setUsername(fetchedData?.username || null);
+          setIsSuperOwner(fetchedData?.is_super_owner || false);
           setLoading(false);
         });
       } else {
@@ -88,6 +109,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return { error: error as Error | null };
+  };
+
+  const signInWithUsername = async (username: string, password: string) => {
+    try {
+      const response = await supabase.functions.invoke('auth-by-username', {
+        body: { username, password }
+      });
+
+      if (response.error) {
+        return { error: new Error(response.error.message || 'Login failed') };
+      }
+
+      if (response.data?.error) {
+        return { error: new Error(response.data.error) };
+      }
+
+      if (response.data?.session) {
+        // Set the session from the edge function response
+        const { error: setSessionError } = await supabase.auth.setSession({
+          access_token: response.data.session.access_token,
+          refresh_token: response.data.session.refresh_token,
+        });
+
+        if (setSessionError) {
+          return { error: setSessionError as Error };
+        }
+      }
+
+      return { error: null };
+    } catch (err) {
+      return { error: err as Error };
+    }
   };
 
   const signUp = async (email: string, password: string) => {
@@ -105,6 +158,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     await supabase.auth.signOut();
     setRole(null);
+    setUsername(null);
+    setIsSuperOwner(false);
   };
 
   const isOwner = role === 'owner';
@@ -113,7 +168,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isDriver = role === 'driver';
   const canManageProducts = isOwner || isManager;
   const canManageSettings = isOwner;
-  const canManageUsers = isOwner;
+  const canManageUsers = isSuperOwner; // Only super owner can manage users now
 
   return (
     <AuthContext.Provider
@@ -121,8 +176,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         session,
         role,
+        username,
+        isSuperOwner,
         loading,
         signIn,
+        signInWithUsername,
         signUp,
         signOut,
         isOwner,

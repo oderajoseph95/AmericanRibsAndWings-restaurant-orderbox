@@ -59,7 +59,69 @@ Deno.serve(async (req) => {
 
     const { action, ...params } = await req.json();
 
-    // Action: Get emails for multiple user IDs
+    // Super Owner email constant
+    const SUPER_OWNER_EMAIL = "oderajoseph168@gmail.com";
+
+    // Check if caller is super owner for certain actions
+    const isSuperOwner = user.email === SUPER_OWNER_EMAIL;
+
+    // Action: Get emails and usernames for multiple user IDs
+    if (action === "get-user-data") {
+      const { userIds } = params as { userIds: string[] };
+      
+      if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+        return new Response(
+          JSON.stringify({ users: {} }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Fetch all users and filter by requested IDs
+      const { data: { users }, error: listError } = await adminClient.auth.admin.listUsers({
+        perPage: 1000
+      });
+
+      if (listError) {
+        console.error("Error listing users:", listError);
+        return new Response(
+          JSON.stringify({ error: "Failed to fetch user data" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Fetch usernames from user_roles
+      const { data: roleData } = await adminClient
+        .from("user_roles")
+        .select("user_id, username, is_super_owner")
+        .in("user_id", userIds);
+
+      const usernameMap: Record<string, { username: string | null; is_super_owner: boolean }> = {};
+      for (const role of roleData || []) {
+        usernameMap[role.user_id] = { 
+          username: role.username, 
+          is_super_owner: role.is_super_owner || false 
+        };
+      }
+
+      // Create a map of user_id -> user data
+      const userDataMap: Record<string, { email: string; username: string | null; is_super_owner: boolean }> = {};
+      for (const u of users) {
+        if (userIds.includes(u.id)) {
+          userDataMap[u.id] = {
+            email: u.email || "No email",
+            username: usernameMap[u.id]?.username || null,
+            is_super_owner: usernameMap[u.id]?.is_super_owner || false,
+          };
+        }
+      }
+
+      return new Response(
+        JSON.stringify({ users: userDataMap, callerIsSuperOwner: isSuperOwner }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Action: Get emails for multiple user IDs (legacy)
     if (action === "get-emails") {
       const { userIds } = params as { userIds: string[] };
       
@@ -97,8 +159,158 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Action: Generate usernames for all users without one
+    if (action === "generate-usernames") {
+      // Only super owner can do this
+      if (!isSuperOwner) {
+        return new Response(
+          JSON.stringify({ error: "Only super owner can generate usernames" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Get all users without usernames
+      const { data: rolesWithoutUsernames, error: fetchError } = await adminClient
+        .from("user_roles")
+        .select("id, user_id, role")
+        .is("username", null);
+
+      if (fetchError) {
+        return new Response(
+          JSON.stringify({ error: "Failed to fetch users" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const adjectives = ["swift", "blazing", "cosmic", "golden", "silver", "royal", "stellar", "prime", "ace", "alpha", "bold", "brave", "quick", "sharp", "wise"];
+      const generated: { user_id: string; username: string }[] = [];
+
+      for (const roleEntry of rolesWithoutUsernames || []) {
+        const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
+        const num = Math.floor(Math.random() * 900 + 100);
+        const username = `${roleEntry.role}_${adj}_${num}`.toLowerCase();
+
+        const { error: updateError } = await adminClient
+          .from("user_roles")
+          .update({ username })
+          .eq("id", roleEntry.id);
+
+        if (!updateError) {
+          generated.push({ user_id: roleEntry.user_id, username });
+        }
+      }
+
+      // Also mark super owner
+      const { data: { users } } = await adminClient.auth.admin.listUsers({ perPage: 1000 });
+      const superOwnerUser = users.find(u => u.email === SUPER_OWNER_EMAIL);
+      if (superOwnerUser) {
+        await adminClient
+          .from("user_roles")
+          .update({ is_super_owner: true })
+          .eq("user_id", superOwnerUser.id);
+      }
+
+      return new Response(
+        JSON.stringify({ success: true, generated }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Action: Update username
+    if (action === "update-username") {
+      const { userId, newUsername } = params as { userId: string; newUsername: string };
+
+      // Only super owner can update usernames
+      if (!isSuperOwner) {
+        return new Response(
+          JSON.stringify({ error: "Only super owner can update usernames" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (!userId || !newUsername) {
+        return new Response(
+          JSON.stringify({ error: "userId and newUsername are required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Validate username format (alphanumeric and underscores only)
+      const usernameRegex = /^[a-z0-9_]{3,30}$/;
+      const cleanUsername = newUsername.toLowerCase().trim();
+      if (!usernameRegex.test(cleanUsername)) {
+        return new Response(
+          JSON.stringify({ error: "Username must be 3-30 characters, lowercase, alphanumeric and underscores only" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Check if username is already taken
+      const { data: existing } = await adminClient
+        .from("user_roles")
+        .select("user_id")
+        .eq("username", cleanUsername)
+        .neq("user_id", userId)
+        .maybeSingle();
+
+      if (existing) {
+        return new Response(
+          JSON.stringify({ error: "Username is already taken" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Get old username for logging
+      const { data: oldData } = await adminClient
+        .from("user_roles")
+        .select("username")
+        .eq("user_id", userId)
+        .single();
+
+      const oldUsername = oldData?.username;
+
+      // Update username
+      const { error: updateError } = await adminClient
+        .from("user_roles")
+        .update({ username: cleanUsername })
+        .eq("user_id", userId);
+
+      if (updateError) {
+        return new Response(
+          JSON.stringify({ error: "Failed to update username" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Log the change
+      await adminClient.from("admin_logs").insert({
+        user_id: user.id,
+        user_email: user.email || "super_owner",
+        action: "update",
+        entity_type: "username",
+        entity_id: userId,
+        entity_name: cleanUsername,
+        old_values: { username: oldUsername },
+        new_values: { username: cleanUsername },
+        details: `Changed username from ${oldUsername} to ${cleanUsername}`
+      });
+
+      return new Response(
+        JSON.stringify({ success: true, oldUsername, newUsername: cleanUsername }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Action: Update user email
     if (action === "update-email") {
+      // Only super owner can update emails
+      if (!isSuperOwner) {
+        return new Response(
+          JSON.stringify({ error: "Only super owner can update user emails" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       const { userId, newEmail } = params as { userId: string; newEmail: string };
 
       if (!userId || !newEmail) {

@@ -12,12 +12,18 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
-import { Plus, Trash2, Shield, Loader2, Search, Pencil, Users as UsersIcon, Mail } from 'lucide-react';
+import { Plus, Trash2, Shield, Loader2, Search, Pencil, Users as UsersIcon, Crown, Wand2, User } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Enums } from '@/integrations/supabase/types';
 
+interface UserData {
+  email: string;
+  username: string | null;
+  is_super_owner: boolean;
+}
+
 export default function Users() {
-  const { role, user } = useAuth();
+  const { role, user, isSuperOwner } = useAuth();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [addDialogOpen, setAddDialogOpen] = useState(false);
@@ -26,12 +32,14 @@ export default function Users() {
     id: string; 
     userId: string; 
     currentRole: Enums<'app_role'>; 
-    currentEmail: string;
+    currentUsername: string;
+    isSuperOwner: boolean;
   } | null>(null);
   const [newRole, setNewRole] = useState<Enums<'app_role'>>('cashier');
-  const [newEmail, setNewEmail] = useState('');
-  const [emailMap, setEmailMap] = useState<Record<string, string>>({});
-  const [emailsLoading, setEmailsLoading] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [userDataMap, setUserDataMap] = useState<Record<string, UserData>>({});
+  const [dataLoading, setDataLoading] = useState(false);
+  const [callerIsSuperOwner, setCallerIsSuperOwner] = useState(false);
 
   const roleColors: Record<Enums<'app_role'>, string> = {
     owner: 'bg-purple-500/20 text-purple-700 border-purple-500/30',
@@ -54,52 +62,67 @@ export default function Users() {
     enabled: role === 'owner',
   });
 
-  // Fetch emails when userRoles changes
+  // Fetch user data when userRoles changes
   useEffect(() => {
-    const fetchEmails = async () => {
+    const fetchUserData = async () => {
       if (userRoles.length === 0 || role !== 'owner') return;
       
-      setEmailsLoading(true);
+      setDataLoading(true);
       try {
         const userIds = userRoles.map(ur => ur.user_id);
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        if (!session) return;
-
         const response = await supabase.functions.invoke('admin-user-management', {
-          body: { action: 'get-emails', userIds }
+          body: { action: 'get-user-data', userIds }
         });
 
         if (response.error) {
-          console.error('Error fetching emails:', response.error);
+          console.error('Error fetching user data:', response.error);
           return;
         }
 
-        if (response.data?.emails) {
-          setEmailMap(response.data.emails);
+        if (response.data?.users) {
+          setUserDataMap(response.data.users);
+        }
+        if (response.data?.callerIsSuperOwner !== undefined) {
+          setCallerIsSuperOwner(response.data.callerIsSuperOwner);
         }
       } catch (error) {
-        console.error('Failed to fetch emails:', error);
+        console.error('Failed to fetch user data:', error);
       } finally {
-        setEmailsLoading(false);
+        setDataLoading(false);
       }
     };
 
-    fetchEmails();
+    fetchUserData();
   }, [userRoles, role]);
+
+  // Generate usernames mutation
+  const generateUsernamesMutation = useMutation({
+    mutationFn: async () => {
+      const response = await supabase.functions.invoke('admin-user-management', {
+        body: { action: 'generate-usernames' }
+      });
+      if (response.error) throw new Error(response.error.message);
+      if (response.data?.error) throw new Error(response.data.error);
+      return response.data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['user-roles'] });
+      toast.success(`Generated ${data.generated?.length || 0} usernames`);
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to generate usernames');
+    },
+  });
 
   // Add user role mutation
   const addRoleMutation = useMutation({
     mutationFn: async ({ email, userRole }: { email: string; userRole: Enums<'app_role'> }) => {
-      // First, look up user ID by email using secure RPC function
       const { data: userId, error: lookupError } = await supabase.rpc('get_user_id_by_email', {
         p_email: email,
       });
-
       if (lookupError) throw lookupError;
       if (!userId) throw new Error('User not found');
 
-      // Check if role already exists
       const { data: existing } = await supabase
         .from('user_roles')
         .select('id')
@@ -120,7 +143,6 @@ export default function Users() {
         if (error) throw error;
       }
 
-      // Log the action
       await logAdminAction({
         action: 'create',
         entityType: 'user',
@@ -140,14 +162,38 @@ export default function Users() {
     onError: (error: any) => {
       const message = error.message || 'Failed to add user role';
       if (message.includes('No user found')) {
-        toast.error('No account found with that email. Make sure they signed up first.');
+        toast.error('No account found with that email.');
       } else {
         toast.error(message);
       }
     },
   });
 
-  // Update user role mutation
+  // Update username mutation
+  const updateUsernameMutation = useMutation({
+    mutationFn: async ({ userId, newUsername }: { userId: string; newUsername: string }) => {
+      const response = await supabase.functions.invoke('admin-user-management', {
+        body: { action: 'update-username', userId, newUsername }
+      });
+      if (response.error) throw new Error(response.error.message);
+      if (response.data?.error) throw new Error(response.data.error);
+      return response.data;
+    },
+    onSuccess: (data) => {
+      if (editingUser) {
+        setUserDataMap(prev => ({
+          ...prev,
+          [editingUser.userId]: { ...prev[editingUser.userId], username: data.newUsername }
+        }));
+      }
+      toast.success(`Username updated to ${data.newUsername}`);
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to update username');
+    },
+  });
+
+  // Update role mutation
   const updateRoleMutation = useMutation({
     mutationFn: async ({ id, userId, newRole, oldRole }: { id: string; userId: string; newRole: Enums<'app_role'>; oldRole: Enums<'app_role'> }) => {
       const { error } = await supabase
@@ -156,7 +202,6 @@ export default function Users() {
         .eq('id', id);
       if (error) throw error;
 
-      // Log the action
       await logAdminAction({
         action: 'update',
         entityType: 'user',
@@ -177,42 +222,11 @@ export default function Users() {
     },
   });
 
-  // Update user email mutation
-  const updateEmailMutation = useMutation({
-    mutationFn: async ({ userId, newEmail }: { userId: string; newEmail: string }) => {
-      const response = await supabase.functions.invoke('admin-user-management', {
-        body: { action: 'update-email', userId, newEmail }
-      });
-
-      if (response.error) {
-        throw new Error(response.error.message || 'Failed to update email');
-      }
-
-      if (response.data?.error) {
-        throw new Error(response.data.error);
-      }
-
-      return response.data;
-    },
-    onSuccess: (data) => {
-      // Update local email map
-      if (editingUser) {
-        setEmailMap(prev => ({ ...prev, [editingUser.userId]: data.newEmail }));
-      }
-      toast.success(`Email updated to ${data.newEmail}`);
-    },
-    onError: (error: any) => {
-      toast.error(error.message || 'Failed to update email');
-    },
-  });
-
-  // Delete user role mutation
+  // Delete mutation
   const deleteRoleMutation = useMutation({
     mutationFn: async ({ id, userId, role: deletedRole }: { id: string; userId: string; role: Enums<'app_role'> }) => {
       const { error } = await supabase.from('user_roles').delete().eq('id', id);
       if (error) throw error;
-
-      // Log the action
       await logAdminAction({
         action: 'delete',
         entityType: 'user',
@@ -244,15 +258,13 @@ export default function Users() {
     
     const promises: Promise<any>[] = [];
     
-    // Update email if changed
-    if (newEmail !== editingUser.currentEmail) {
-      promises.push(updateEmailMutation.mutateAsync({ 
+    if (newUsername !== editingUser.currentUsername) {
+      promises.push(updateUsernameMutation.mutateAsync({ 
         userId: editingUser.userId, 
-        newEmail 
+        newUsername 
       }));
     }
     
-    // Update role if changed
     if (newRole !== editingUser.currentRole) {
       promises.push(updateRoleMutation.mutateAsync({
         id: editingUser.id,
@@ -272,29 +284,37 @@ export default function Users() {
       setEditDialogOpen(false);
       setEditingUser(null);
     } catch {
-      // Errors are handled by individual mutations
+      // Errors handled by mutations
     }
   };
 
   const openEditDialog = (id: string, userId: string, currentRole: Enums<'app_role'>) => {
-    const currentEmail = emailMap[userId] || '';
-    setEditingUser({ id, userId, currentRole, currentEmail });
+    const userData = userDataMap[userId];
+    setEditingUser({ 
+      id, 
+      userId, 
+      currentRole, 
+      currentUsername: userData?.username || '',
+      isSuperOwner: userData?.is_super_owner || false,
+    });
     setNewRole(currentRole);
-    setNewEmail(currentEmail);
+    setNewUsername(userData?.username || '');
     setEditDialogOpen(true);
   };
 
   const filteredRoles = userRoles.filter((ur) => {
-    const email = emailMap[ur.user_id] || '';
+    const userData = userDataMap[ur.user_id];
     const searchLower = search.toLowerCase();
     return (
       ur.user_id.toLowerCase().includes(searchLower) ||
-      email.toLowerCase().includes(searchLower)
+      (userData?.username || '').toLowerCase().includes(searchLower) ||
+      (userData?.email || '').toLowerCase().includes(searchLower)
     );
   });
 
-  const isSaving = updateEmailMutation.isPending || updateRoleMutation.isPending;
-  const hasChanges = editingUser && (newEmail !== editingUser.currentEmail || newRole !== editingUser.currentRole);
+  const usersWithoutUsernames = userRoles.filter(ur => !userDataMap[ur.user_id]?.username).length;
+  const isSaving = updateUsernameMutation.isPending || updateRoleMutation.isPending;
+  const hasChanges = editingUser && (newUsername !== editingUser.currentUsername || newRole !== editingUser.currentRole);
 
   if (role !== 'owner') {
     return (
@@ -306,7 +326,7 @@ export default function Users() {
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground">
             <Shield className="h-12 w-12 mx-auto mb-4 opacity-50" />
-            <p>Only owners can manage users.</p>
+            <p>Only owners can view users.</p>
           </CardContent>
         </Card>
       </div>
@@ -322,83 +342,76 @@ export default function Users() {
             Manage admin panel access ({userRoles.length} users)
           </p>
         </div>
-        <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Add User
+        <div className="flex gap-2">
+          {callerIsSuperOwner && usersWithoutUsernames > 0 && (
+            <Button 
+              variant="outline" 
+              onClick={() => generateUsernamesMutation.mutate()}
+              disabled={generateUsernamesMutation.isPending}
+            >
+              <Wand2 className="h-4 w-4 mr-2" />
+              {generateUsernamesMutation.isPending ? 'Generating...' : `Generate ${usersWithoutUsernames} Usernames`}
             </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add Admin User</DialogTitle>
-              <DialogDescription>
-                Grant admin panel access to a user by their email address.
-              </DialogDescription>
-            </DialogHeader>
-            <form onSubmit={handleAddSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email Address *</Label>
-                <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  placeholder="user@example.com"
-                  required
-                />
-                <p className="text-xs text-muted-foreground">
-                  Enter the email they used to sign up
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="role">Role *</Label>
-                <Select name="role" defaultValue="cashier">
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="owner">Owner</SelectItem>
-                    <SelectItem value="manager">Manager</SelectItem>
-                    <SelectItem value="cashier">Cashier</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Drivers are managed separately in the Drivers page
-                </p>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setAddDialogOpen(false)}
-                >
-                  Cancel
+          )}
+          {callerIsSuperOwner && (
+            <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add User
                 </Button>
-                <Button type="submit" disabled={addRoleMutation.isPending}>
-                  {addRoleMutation.isPending ? 'Adding...' : 'Add User'}
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Add Admin User</DialogTitle>
+                  <DialogDescription>
+                    Grant admin panel access to a user by their email address.
+                  </DialogDescription>
+                </DialogHeader>
+                <form onSubmit={handleAddSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email Address *</Label>
+                    <Input id="email" name="email" type="email" placeholder="user@example.com" required />
+                    <p className="text-xs text-muted-foreground">Enter the email they used to sign up</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="role">Role *</Label>
+                    <Select name="role" defaultValue="cashier">
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="owner">Owner</SelectItem>
+                        <SelectItem value="manager">Manager</SelectItem>
+                        <SelectItem value="cashier">Cashier</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="outline" onClick={() => setAddDialogOpen(false)}>Cancel</Button>
+                    <Button type="submit" disabled={addRoleMutation.isPending}>
+                      {addRoleMutation.isPending ? 'Adding...' : 'Add User'}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          )}
+        </div>
       </div>
 
       <Card>
         <CardHeader>
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by email..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-10"
-              />
-            </div>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by username..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-10"
+            />
           </div>
         </CardHeader>
         <CardContent>
-          {isLoading || emailsLoading ? (
+          {isLoading || dataLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
@@ -406,55 +419,50 @@ export default function Users() {
             <div className="text-center py-8 text-muted-foreground">
               <UsersIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>No admin users configured yet.</p>
-              <p className="text-sm mt-1">
-                Add your first user to grant them admin access.
-              </p>
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Email</TableHead>
+                  <TableHead>Username</TableHead>
                   <TableHead>Role</TableHead>
                   <TableHead>Added</TableHead>
-                  <TableHead className="w-[120px]">Actions</TableHead>
+                  <TableHead className="w-[100px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredRoles.map((ur) => (
-                  <TableRow key={ur.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Mail className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-medium">
-                          {emailMap[ur.user_id] || (
-                            <span className="text-muted-foreground italic">Loading...</span>
+                {filteredRoles.map((ur) => {
+                  const userData = userDataMap[ur.user_id];
+                  return (
+                    <TableRow key={ur.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <User className="h-4 w-4 text-muted-foreground" />
+                          <span className="font-mono text-sm">
+                            {userData?.username || <span className="text-muted-foreground italic">No username</span>}
+                          </span>
+                          {userData?.is_super_owner && (
+                            <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/30">
+                              <Crown className="h-3 w-3 mr-1" /> Super
+                            </Badge>
                           )}
-                        </span>
-                        {ur.user_id === user?.id && (
-                          <Badge variant="outline" className="text-xs">
-                            You
-                          </Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={roleColors[ur.role]}>
-                        {ur.role.charAt(0).toUpperCase() + ur.role.slice(1)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {ur.created_at && format(new Date(ur.created_at), 'MMM d, yyyy')}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-1">
-                        {ur.user_id !== user?.id && (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => openEditDialog(ur.id, ur.user_id, ur.role)}
-                            >
+                          {ur.user_id === user?.id && (
+                            <Badge variant="outline" className="text-xs">You</Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={roleColors[ur.role]}>
+                          {ur.role.charAt(0).toUpperCase() + ur.role.slice(1)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {ur.created_at && format(new Date(ur.created_at), 'MMM d, yyyy')}
+                      </TableCell>
+                      <TableCell>
+                        {callerIsSuperOwner && ur.user_id !== user?.id && !userData?.is_super_owner && (
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="icon" onClick={() => openEditDialog(ur.id, ur.user_id, ur.role)}>
                               <Pencil className="h-4 w-4" />
                             </Button>
                             <Button
@@ -462,57 +470,45 @@ export default function Users() {
                               size="icon"
                               onClick={() => {
                                 if (confirm('Remove this user from admin access?')) {
-                                  deleteRoleMutation.mutate({ 
-                                    id: ur.id, 
-                                    userId: ur.user_id, 
-                                    role: ur.role 
-                                  });
+                                  deleteRoleMutation.mutate({ id: ur.id, userId: ur.user_id, role: ur.role });
                                 }
                               }}
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
-                          </>
+                          </div>
                         )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}
         </CardContent>
       </Card>
 
-      {/* Edit User Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit User</DialogTitle>
-            <DialogDescription>
-              Update email address and role for this user.
-            </DialogDescription>
+            <DialogDescription>Update username and role for this user.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="edit-email">Email Address</Label>
+              <Label htmlFor="edit-username">Username</Label>
               <Input
-                id="edit-email"
-                type="email"
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
-                placeholder="user@example.com"
+                id="edit-username"
+                value={newUsername}
+                onChange={(e) => setNewUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                placeholder="owner_swift_123"
               />
-              <p className="text-xs text-muted-foreground">
-                User can login with the new email using their same password
-              </p>
+              <p className="text-xs text-muted-foreground">Lowercase, letters, numbers, and underscores only</p>
             </div>
             <div className="space-y-2">
               <Label>Role</Label>
               <Select value={newRole} onValueChange={(v) => setNewRole(v as Enums<'app_role'>)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="owner">Owner</SelectItem>
                   <SelectItem value="manager">Manager</SelectItem>
@@ -521,16 +517,8 @@ export default function Users() {
               </Select>
             </div>
             <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setEditDialogOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button 
-                onClick={handleEditSubmit} 
-                disabled={isSaving || !hasChanges}
-              >
+              <Button variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+              <Button onClick={handleEditSubmit} disabled={isSaving || !hasChanges}>
                 {isSaving ? 'Saving...' : 'Save Changes'}
               </Button>
             </div>
@@ -538,30 +526,29 @@ export default function Users() {
         </DialogContent>
       </Dialog>
 
-      {/* Role Descriptions */}
       <Card>
         <CardHeader>
           <CardTitle>Role Permissions</CardTitle>
           <CardDescription>Understanding what each role can do</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent>
           <div className="grid gap-4 md:grid-cols-3">
             <div className="p-4 border rounded-lg">
               <Badge variant="outline" className={roleColors.owner}>Owner</Badge>
               <p className="text-sm text-muted-foreground mt-2">
-                Full access to all features including user management, settings, and reports.
+                Full access. Only Super Owner can manage users.
               </p>
             </div>
             <div className="p-4 border rounded-lg">
               <Badge variant="outline" className={roleColors.manager}>Manager</Badge>
               <p className="text-sm text-muted-foreground mt-2">
-                Can manage orders, products, drivers, and payouts. Cannot modify settings or users.
+                Can manage orders, products, drivers, and payouts.
               </p>
             </div>
             <div className="p-4 border rounded-lg">
               <Badge variant="outline" className={roleColors.cashier}>Cashier</Badge>
               <p className="text-sm text-muted-foreground mt-2">
-                Can view and manage orders, products, and customers. Read-only for drivers and reports.
+                Can view and manage orders, products, and customers.
               </p>
             </div>
           </div>

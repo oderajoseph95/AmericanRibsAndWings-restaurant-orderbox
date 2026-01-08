@@ -14,6 +14,7 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -34,6 +35,7 @@ import {
   FileText,
   UserCog,
   Mail,
+  Crown,
 } from 'lucide-react';
 
 const navItems = [
@@ -58,7 +60,7 @@ const navItems = [
 export function AdminSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { role, signOut, user } = useAuth();
+  const { role, signOut, username, isSuperOwner } = useAuth();
   const { state, toggleSidebar } = useSidebar();
   const collapsed = state === 'collapsed';
 
@@ -124,14 +126,26 @@ export function AdminSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="p-4 space-y-3">
-        {!collapsed && user && (
+        {!collapsed && (
           <div className="px-2 py-2 rounded-lg bg-sidebar-accent">
-            <p className="text-xs text-sidebar-accent-foreground/60 truncate">
-              {user.email}
-            </p>
-            <p className="text-xs font-medium text-sidebar-accent-foreground capitalize">
-              {role}
-            </p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-xs text-sidebar-accent-foreground truncate font-mono">
+                {username || 'No username'}
+              </p>
+              {isSuperOwner && (
+                <Crown className="w-3 h-3 text-amber-500 flex-shrink-0" />
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <p className="text-xs font-medium text-sidebar-accent-foreground capitalize">
+                {role}
+              </p>
+              {isSuperOwner && (
+                <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 bg-amber-500/10 text-amber-600 border-amber-500/30">
+                  Super
+                </Badge>
+              )}
+            </div>
           </div>
         )}
         <div className="flex gap-2">
