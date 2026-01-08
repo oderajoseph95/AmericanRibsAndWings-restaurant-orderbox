@@ -17,6 +17,8 @@ import { Plus, Truck, Phone, Mail, Loader2, Search, Edit, Circle, Eye, DollarSig
 import { format } from 'date-fns';
 import { z } from 'zod';
 import type { Tables } from '@/integrations/supabase/types';
+import { logAdminAction } from '@/lib/adminLogger';
+import { createAdminNotification } from '@/hooks/useAdminNotifications';
 
 const driverSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -195,13 +197,31 @@ export default function Drivers() {
         throw new Error(response.data.error);
       }
 
-      return response.data;
+      return { ...response.data, driverName: data.name, driverPhone: data.phone };
     },
-    onSuccess: () => {
+    onSuccess: async (data) => {
       queryClient.invalidateQueries({ queryKey: ['admin-drivers'] });
       toast.success('Driver created successfully');
       setDialogOpen(false);
       resetForm();
+      
+      // Log the action
+      await logAdminAction({
+        action: 'create',
+        entityType: 'driver',
+        entityName: data.driverName,
+        newValues: { name: data.driverName, phone: data.driverPhone },
+        details: `Added new driver: ${data.driverName}`,
+      });
+      
+      // Create notification
+      await createAdminNotification({
+        title: "👨‍✈️ New Driver Added",
+        message: `${data.driverName} has been added as a driver`,
+        type: "driver",
+        metadata: { driver_name: data.driverName, driver_phone: data.driverPhone },
+        action_url: "/admin/drivers",
+      });
     },
     onError: (error: any) => {
       console.error('Create driver error:', error);
@@ -216,6 +236,7 @@ export default function Drivers() {
   // Update driver mutation
   const updateDriverMutation = useMutation({
     mutationFn: async (data: { id: string; name: string; email: string; phone: string }) => {
+      const oldDriver = drivers.find(d => d.id === data.id);
       const { error } = await supabase
         .from('drivers')
         .update({
@@ -225,12 +246,24 @@ export default function Drivers() {
         })
         .eq('id', data.id);
       if (error) throw error;
+      return { oldDriver, newData: data };
     },
-    onSuccess: () => {
+    onSuccess: async ({ oldDriver, newData }) => {
       queryClient.invalidateQueries({ queryKey: ['admin-drivers'] });
       toast.success('Driver updated');
       setDialogOpen(false);
       resetForm();
+      
+      // Log the action
+      await logAdminAction({
+        action: 'update',
+        entityType: 'driver',
+        entityId: newData.id,
+        entityName: newData.name,
+        oldValues: { name: oldDriver?.name, phone: oldDriver?.phone },
+        newValues: { name: newData.name, phone: newData.phone },
+        details: `Updated driver: ${newData.name}`,
+      });
     },
     onError: (error: any) => {
       toast.error(error.message || 'Failed to update driver');
@@ -240,15 +273,37 @@ export default function Drivers() {
   // Toggle active status mutation
   const toggleActiveMutation = useMutation({
     mutationFn: async ({ id, isActive }: { id: string; isActive: boolean }) => {
+      const driver = drivers.find(d => d.id === id);
       const { error } = await supabase
         .from('drivers')
         .update({ is_active: isActive })
         .eq('id', id);
       if (error) throw error;
+      return { driver, isActive };
     },
-    onSuccess: () => {
+    onSuccess: async ({ driver, isActive }) => {
       queryClient.invalidateQueries({ queryKey: ['admin-drivers'] });
       toast.success('Driver status updated');
+      
+      // Log the action
+      await logAdminAction({
+        action: 'status_change',
+        entityType: 'driver',
+        entityId: driver?.id,
+        entityName: driver?.name || 'Unknown',
+        oldValues: { is_active: !isActive },
+        newValues: { is_active: isActive },
+        details: `${isActive ? 'Activated' : 'Deactivated'} driver account: ${driver?.name}`,
+      });
+      
+      // Create notification
+      await createAdminNotification({
+        title: isActive ? "✅ Driver Activated" : "❌ Driver Deactivated",
+        message: `${driver?.name}'s account has been ${isActive ? 'activated' : 'deactivated'}`,
+        type: "driver",
+        metadata: { driver_name: driver?.name, event: 'account_status_change' },
+        action_url: "/admin/drivers",
+      });
     },
     onError: (error: any) => {
       toast.error(error.message || 'Failed to update status');

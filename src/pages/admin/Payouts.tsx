@@ -298,6 +298,19 @@ export default function Payouts() {
           metadata: { payout_amount: payout.amount },
           actionUrl: "/driver/earnings",
         });
+        
+        // Also notify admin
+        await createAdminNotification({
+          title: "❌ Payout Rejected",
+          message: `Payout of ₱${payout.amount.toFixed(2)} for ${payout.drivers?.name} was rejected`,
+          type: "driver",
+          metadata: { 
+            driver_name: payout.drivers?.name,
+            payout_amount: payout.amount,
+            payment_method: payout.payment_method
+          },
+          action_url: "/admin/payouts",
+        });
       }
 
       // Notify driver about completed payout
@@ -309,6 +322,19 @@ export default function Payouts() {
           type: "payout",
           metadata: { payout_amount: payout.amount },
           actionUrl: "/driver/earnings",
+        });
+        
+        // Also notify admin
+        await createAdminNotification({
+          title: "💰 Payout Completed",
+          message: `Payout of ₱${payout.amount.toFixed(2)} for ${payout.drivers?.name} has been completed`,
+          type: "driver",
+          metadata: { 
+            driver_name: payout.drivers?.name,
+            payout_amount: payout.amount,
+            payment_method: payout.payment_method
+          },
+          action_url: "/admin/payouts",
         });
       }
     },
