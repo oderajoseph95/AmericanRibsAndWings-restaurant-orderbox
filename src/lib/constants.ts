@@ -1,11 +1,8 @@
-// Admin email for notifications
-export const ADMIN_EMAIL = "arwfloridablancapampanga@gmail.com";
+// General notification email - receives ALL admin notifications
+export const GENERAL_NOTIFICATION_EMAIL = "arwfloridablancapampanga@gmail.com";
 
-// Owner emails - CC'd on all customer/driver emails
-export const OWNER_EMAILS = [
-  "arwfloridablancapampanga@gmail.com",
-  // Add additional owner emails here
-];
+// Alias for backwards compatibility
+export const ADMIN_EMAIL = GENERAL_NOTIFICATION_EMAIL;
 
 // Business info
 export const BUSINESS_NAME = "ARW Food Products";

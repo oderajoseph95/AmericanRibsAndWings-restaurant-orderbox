@@ -40,7 +40,7 @@ import { sendPushNotification } from '@/hooks/usePushNotifications';
 import { createAdminNotification } from '@/hooks/useAdminNotifications';
 import { createDriverNotification } from '@/hooks/useDriverNotifications';
 import { sendEmailNotification, EmailType } from '@/hooks/useEmailNotifications';
-import { ADMIN_EMAIL, OWNER_EMAILS } from '@/lib/constants';
+import { ADMIN_EMAIL } from '@/lib/constants';
 import { format } from 'date-fns';
 import type { Tables, Enums } from '@/integrations/supabase/types';
 
@@ -405,38 +405,22 @@ export default function Orders() {
         
         const emailType = statusToEmailType[status];
         
-        // Email customer for all status changes (if they have email)
-        if (customerEmail && emailType) {
+        // Send email notification - edge function handles admin emails automatically
+        if (emailType) {
           await sendEmailNotification({
             type: emailType,
-            recipientEmail: customerEmail,
-            ccEmails: OWNER_EMAILS, // CC all owners
+            recipientEmail: customerEmail || undefined, // Customer email if available
             orderId: id,
             orderNumber: orderNum,
             customerName: order?.customers?.name || '',
+            customerPhone: order?.customers?.phone || '',
             totalAmount: order?.total_amount || 0,
             orderType: order?.order_type || '',
             deliveryAddress: order?.delivery_address || undefined,
             driverName: driver?.name,
             driverPhone: driver?.phone,
           });
-          console.log(`Email sent to ${customerEmail} for status ${status}`);
-        } else if (!customerEmail && emailType) {
-          // No customer email - just send to owners
-          await sendEmailNotification({
-            type: emailType,
-            recipientEmail: ADMIN_EMAIL,
-            ccEmails: OWNER_EMAILS.filter(e => e !== ADMIN_EMAIL),
-            orderId: id,
-            orderNumber: orderNum,
-            customerName: order?.customers?.name || '',
-            totalAmount: order?.total_amount || 0,
-            orderType: order?.order_type || '',
-            deliveryAddress: order?.delivery_address || undefined,
-            driverName: driver?.name,
-            driverPhone: driver?.phone,
-          });
-          console.log(`Email sent to owners for status ${status} (no customer email)`);
+          console.log(`Email notification sent for status ${status}`);
         }
       } catch (e) {
         console.error("Failed to send email notification:", e);
@@ -754,10 +738,10 @@ export default function Orders() {
       const result = await sendEmailNotification({
         type: emailType,
         recipientEmail: customerEmail,
-        ccEmails: OWNER_EMAILS, // CC all owners
         orderId: selectedOrder.id,
         orderNumber: selectedOrder.order_number || '',
         customerName: selectedOrder.customers?.name || '',
+        customerPhone: selectedOrder.customers?.phone || '',
         totalAmount: selectedOrder.total_amount || 0,
         orderType: selectedOrder.order_type || '',
         deliveryAddress: selectedOrder.delivery_address || undefined,

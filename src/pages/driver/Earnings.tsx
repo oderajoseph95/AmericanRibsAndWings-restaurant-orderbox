@@ -26,7 +26,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { createAdminNotification } from '@/hooks/useAdminNotifications';
 import { logAdminAction } from '@/lib/adminLogger';
 import { sendEmailNotification } from '@/hooks/useEmailNotifications';
-import { OWNER_EMAILS, ADMIN_EMAIL } from '@/lib/constants';
+// Email notification now handles admin recipients automatically in edge function
 
 type PaymentInfo = {
   id: string;
@@ -206,11 +206,9 @@ export default function DriverEarnings() {
         action_url: "/admin/payouts",
       });
 
-      // Send email to admin/owners
+      // Send email notification - admin recipients handled automatically
       await sendEmailNotification({
         type: "payout_requested",
-        recipientEmail: ADMIN_EMAIL,
-        ccEmails: OWNER_EMAILS,
         payoutAmount: totalAmount,
         driverName: driver.name,
         driverPhone: driver.phone,
