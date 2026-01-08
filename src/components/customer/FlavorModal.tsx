@@ -60,6 +60,9 @@ export function FlavorModal({
   const maxFlavors = flavorRule?.max_flavors || Math.ceil(totalUnits / unitsPerFlavor);
   const minFlavors = flavorRule?.min_flavors || 1;
 
+  // Single-select mode for ribs (1 unit products)
+  const isSingleSelect = totalUnits === 1 && unitsPerFlavor === 1;
+
   // Calculate current selection
   const selectedCount = useMemo(() => {
     return Object.values(selectedFlavors).reduce((sum, qty) => sum + qty, 0);
@@ -84,10 +87,15 @@ export function FlavorModal({
     }, 0);
   }, [selectedFlavors, flavors]);
 
-  // Filter to only wing flavors for Ala Carte products (include unavailable ones for display)
+  // Filter to wing flavors - used for both wings and ribs products (shared sauces)
   const availableFlavors = useMemo(() => {
     return flavors.filter((f) => f.is_active && (f as any).flavor_category === 'wings');
   }, [flavors]);
+
+  // Handle single-select (radio button behavior for ribs)
+  const handleSingleSelect = (flavorId: string) => {
+    setSelectedFlavors({ [flavorId]: 1 });
+  };
 
   const handleFlavorChange = (flavorId: string, delta: number) => {
     setSelectedFlavors((prev) => {
@@ -142,7 +150,9 @@ export function FlavorModal({
         <DialogHeader>
           <DialogTitle className="text-xl">{product.name}</DialogTitle>
           <p className="text-sm text-muted-foreground">
-            Select your flavors ({selectedCount}/{totalUnits} pcs)
+            {isSingleSelect 
+              ? "Select your sauce" 
+              : `Select your flavors (${selectedCount}/${totalUnits} pcs)`}
           </p>
         </DialogHeader>
 
@@ -170,10 +180,19 @@ export function FlavorModal({
                       : isSelected
                       ? "border-primary bg-primary/5"
                       : "border-border hover:border-primary/50"
-                  }`}
+                  } ${isSingleSelect && !isOutOfStock ? "cursor-pointer" : ""}`}
+                  onClick={isSingleSelect && !isOutOfStock ? () => handleSingleSelect(flavor.id) : undefined}
                 >
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
+                      {/* Radio button for single-select mode */}
+                      {isSingleSelect && (
+                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                          isSelected ? "border-primary bg-primary" : "border-muted-foreground"
+                        }`}>
+                          {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-primary-foreground" />}
+                        </div>
+                      )}
                       <span className={`font-medium ${isOutOfStock ? "text-muted-foreground" : ""}`}>
                         {flavor.name}
                       </span>
@@ -190,11 +209,11 @@ export function FlavorModal({
                     </div>
                     {!isOutOfStock && (
                       flavor.surcharge && flavor.surcharge > 0 ? (
-                        <p className="text-xs text-accent">
-                          +₱{flavor.surcharge.toFixed(2)} per special flavor
+                        <p className={`text-xs text-accent ${isSingleSelect ? "ml-6" : ""}`}>
+                          +₱{flavor.surcharge.toFixed(2)}
                         </p>
                       ) : (
-                        <p className="text-xs flex items-center gap-1">
+                        <p className={`text-xs flex items-center gap-1 ${isSingleSelect ? "ml-6" : ""}`}>
                           <span className="line-through text-muted-foreground">₱0.00</span>
                           <Badge variant="secondary" className="text-[10px] px-1 py-0">FREE</Badge>
                         </p>
@@ -202,31 +221,34 @@ export function FlavorModal({
                     )}
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    {isSelected && (
-                      <span className="text-sm font-medium text-primary">
-                        {qty}pcs
-                      </span>
-                    )}
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => handleFlavorChange(flavor.id, -1)}
-                      disabled={qty === 0 || isOutOfStock}
-                    >
-                      <Minus className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => handleFlavorChange(flavor.id, 1)}
-                      disabled={selectedCount >= totalUnits || isOutOfStock}
-                    >
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  </div>
+                  {/* Only show +/- buttons for multi-select mode (wings) */}
+                  {!isSingleSelect && (
+                    <div className="flex items-center gap-2">
+                      {isSelected && (
+                        <span className="text-sm font-medium text-primary">
+                          {qty}pcs
+                        </span>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => handleFlavorChange(flavor.id, -1)}
+                        disabled={qty === 0 || isOutOfStock}
+                      >
+                        <Minus className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => handleFlavorChange(flavor.id, 1)}
+                        disabled={selectedCount >= totalUnits || isOutOfStock}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
                 </div>
               );
             })}

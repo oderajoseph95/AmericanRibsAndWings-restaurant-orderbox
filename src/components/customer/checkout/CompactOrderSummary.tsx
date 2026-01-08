@@ -68,16 +68,20 @@ export function CompactOrderSummary({
                 {/* Flavor/combo selections - indented below */}
                 {item.flavors && item.flavors.length > 0 && (
                   <div className="ml-4 space-y-0.5">
-                    {item.flavors.map((flavor, idx) => (
-                      <div key={idx} className="flex justify-between text-xs text-muted-foreground">
-                        <span>
-                          • {flavor.name} ({flavor.quantity} pcs)
-                        </span>
-                        {flavor.surcharge > 0 && (
-                          <span className="text-primary">+₱{flavor.surcharge.toFixed(2)}</span>
-                        )}
-                      </div>
-                    ))}
+                    {item.flavors.map((flavor, idx) => {
+                      // For single-unit items like ribs, hide the "(X pcs)" notation
+                      const isSingleUnit = item.flavors?.length === 1 && flavor.quantity === 1;
+                      return (
+                        <div key={idx} className="flex justify-between text-xs text-muted-foreground">
+                          <span>
+                            • {flavor.name}{!isSingleUnit ? ` (${flavor.quantity} pcs)` : (flavor.surcharge > 0 ? " (Special)" : "")}
+                          </span>
+                          {flavor.surcharge > 0 && (
+                            <span className="text-primary">+₱{flavor.surcharge.toFixed(2)}</span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
