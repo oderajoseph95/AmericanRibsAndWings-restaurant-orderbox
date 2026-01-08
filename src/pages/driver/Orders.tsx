@@ -236,9 +236,8 @@ export default function DriverOrders() {
         details: `Changed status from ${oldStatus} to ${newStatus}`,
       });
 
-      // Send email notifications
-      const emailType: EmailType = photoAction === 'pickup' ? 'order_picked_up' : 'order_delivered';
       // Send email notification - admin recipients handled automatically
+      const emailType: EmailType = photoAction === 'pickup' ? 'order_picked_up' : 'order_delivered';
       await sendEmailNotification({
         type: emailType,
         recipientEmail: order?.customer?.email || undefined,
@@ -247,6 +246,8 @@ export default function DriverOrders() {
         customerName: order?.customer?.name || '',
         customerPhone: order?.customer?.phone || '',
         totalAmount: order?.total_amount || 0,
+        subtotal: order?.subtotal || 0,
+        deliveryFee: order?.delivery_fee || 0,
         orderType: order?.order_type || '',
         deliveryAddress: order?.delivery_address || undefined,
         driverName: driver.name,
@@ -262,7 +263,10 @@ export default function DriverOrders() {
           orderId: uploadingOrderId,
           orderNumber: order?.order_number || '',
           customerName: order?.customer?.name || '',
+          totalAmount: order?.total_amount || 0,
+          deliveryAddress: order?.delivery_address || undefined,
           driverName: driver.name,
+          driverPhone: driver.phone,
         });
       }
 
@@ -311,6 +315,8 @@ export default function DriverOrders() {
         customerName: order?.customer?.name || '',
         customerPhone: order?.customer?.phone || '',
         totalAmount: order?.total_amount || 0,
+        subtotal: order?.subtotal || 0,
+        deliveryFee: order?.delivery_fee || 0,
         deliveryAddress: order?.delivery_address || undefined,
         driverName: driver.name,
         driverPhone: driver.phone,
@@ -324,7 +330,10 @@ export default function DriverOrders() {
           orderId: orderId,
           orderNumber: order?.order_number || '',
           customerName: order?.customer?.name || '',
+          totalAmount: order?.total_amount || 0,
+          deliveryAddress: order?.delivery_address || undefined,
           driverName: driver.name,
+          driverPhone: driver.phone,
         });
       }
     }
