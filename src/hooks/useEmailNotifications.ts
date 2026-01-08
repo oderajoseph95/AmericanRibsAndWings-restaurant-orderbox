@@ -18,7 +18,8 @@ export type EmailType =
   | "driver_assigned"
   | "payout_requested"
   | "payout_approved"
-  | "payout_rejected";
+  | "payout_rejected"
+  | "test_email";
 
 export interface OrderItem {
   name: string;
@@ -53,6 +54,10 @@ export interface EmailNotificationPayload {
   payoutAmount?: number;
   reason?: string;
   orderItems?: OrderItem[];
+  // Test email specific
+  isTest?: boolean;
+  templateType?: string;
+  testRecipientEmail?: string;
 }
 
 export async function sendEmailNotification(payload: EmailNotificationPayload): Promise<{ success: boolean; error?: string }> {
@@ -70,6 +75,32 @@ export async function sendEmailNotification(payload: EmailNotificationPayload): 
     return { success: true };
   } catch (err: any) {
     console.error("Email notification failed:", err);
+    return { success: false, error: err.message };
+  }
+}
+
+export async function sendTestEmail(
+  templateType: string, 
+  recipientEmail: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { data, error } = await supabase.functions.invoke("send-email-notification", {
+      body: {
+        type: "test_email",
+        templateType,
+        testRecipientEmail: recipientEmail,
+      },
+    });
+
+    if (error) {
+      console.error("Test email error:", error);
+      return { success: false, error: error.message };
+    }
+
+    console.log("Test email sent:", data);
+    return { success: true };
+  } catch (err: any) {
+    console.error("Test email failed:", err);
     return { success: false, error: err.message };
   }
 }

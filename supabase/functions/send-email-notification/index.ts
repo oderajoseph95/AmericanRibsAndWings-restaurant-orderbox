@@ -49,6 +49,10 @@ interface EmailPayload {
   payoutAmount?: number;
   reason?: string;
   orderItems?: OrderItem[];
+  // Test email specific
+  isTest?: boolean;
+  templateType?: string;
+  testRecipientEmail?: string;
 }
 
 // Format currency
@@ -72,6 +76,32 @@ function formatPaymentMethod(method: string | undefined): string {
 function formatOrderType(type: string | undefined): string {
   if (!type) return "";
   return type === "delivery" ? "🚗 Delivery" : "🏪 Pickup";
+}
+
+// Get trigger event label for logging
+function getTriggerEventLabel(type: string, orderType?: string): string {
+  const labels: Record<string, string> = {
+    new_order: `New Order${orderType ? ` - ${orderType === 'delivery' ? 'Delivery' : 'Pickup'}` : ''}`,
+    order_pending: 'Order Pending',
+    order_for_verification: 'Payment Verification',
+    order_approved: 'Order Approved',
+    order_rejected: 'Order Rejected',
+    order_cancelled: 'Order Cancelled',
+    order_preparing: 'Order Preparing',
+    order_ready_for_pickup: 'Ready for Pickup',
+    order_waiting_for_rider: 'Waiting for Driver',
+    order_picked_up: 'Order Picked Up',
+    order_in_transit: 'Out for Delivery',
+    order_delivered: 'Order Delivered',
+    order_completed: 'Order Completed',
+    order_returned: 'Order Returned',
+    driver_assigned: 'Driver Assigned',
+    payout_requested: 'Payout Requested',
+    payout_approved: 'Payout Approved',
+    payout_rejected: 'Payout Rejected',
+    test_email: 'Test Email',
+  };
+  return labels[type] || type.replace(/_/g, ' ');
 }
 
 // Generate HTML table for order items
@@ -248,9 +278,35 @@ async function getAdminEmails(supabase: any): Promise<string[]> {
   }
 }
 
-// Log email sent
-async function logEmailSent(supabase: any, payload: EmailPayload, recipients: string[], emailType: string): Promise<void> {
+// Log email sent with enhanced data
+async function logEmailSent(
+  supabase: any, 
+  payload: EmailPayload, 
+  recipients: string[], 
+  recipientType: string,
+  emailSubject: string,
+  isTest: boolean = false
+): Promise<void> {
   try {
+    const triggerEvent = getTriggerEventLabel(payload.type, payload.orderType);
+    
+    // Insert into email_logs for each recipient
+    for (const recipientEmail of recipients) {
+      await supabase.from('email_logs').insert({
+        recipient_email: recipientEmail,
+        email_type: payload.type,
+        status: 'sent',
+        order_id: payload.orderId || null,
+        customer_name: payload.customerName || null,
+        order_number: payload.orderNumber || null,
+        email_subject: emailSubject,
+        trigger_event: triggerEvent,
+        recipient_type: recipientType,
+        is_test: isTest,
+      });
+    }
+
+    // Also log to admin_logs
     await supabase.from('admin_logs').insert({
       user_id: '00000000-0000-0000-0000-000000000000',
       user_email: 'system@arwfloridablanca.shop',
@@ -258,13 +314,14 @@ async function logEmailSent(supabase: any, payload: EmailPayload, recipients: st
       entity_type: 'email',
       entity_id: payload.orderId || null,
       entity_name: `${payload.type} - ${payload.orderNumber || 'N/A'}`,
-      details: `${emailType} email sent to ${recipients.join(', ')}`,
+      details: `${isTest ? '[TEST] ' : ''}${recipientType} email sent to ${recipients.join(', ')}`,
       new_values: {
         type: payload.type,
-        email_type: emailType,
+        email_type: recipientType,
         recipients: recipients,
         order_number: payload.orderNumber,
         customer_name: payload.customerName,
+        is_test: isTest,
       },
     });
   } catch (error) {
@@ -380,6 +437,7 @@ const baseStyles = `
     .driver-box { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 20px; margin: 20px 0; }
     .cta-button { display: inline-block; background: #ea580c; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; margin: 20px 0; }
     .footer { background: #f9fafb; padding: 20px; text-align: center; color: #6b7280; font-size: 14px; }
+    .test-banner { background: #fef3c7; border: 2px dashed #f59e0b; color: #92400e; padding: 12px; text-align: center; font-weight: bold; }
   </style>
 `;
 
@@ -765,7 +823,7 @@ function getDefaultTemplate(payload: EmailPayload): string {
 }
 
 // Wrap custom template content
-function wrapWithEmailLayout(content: string): string {
+function wrapWithEmailLayout(content: string, isTest: boolean = false): string {
   return `
     <!DOCTYPE html>
     <html>
@@ -776,6 +834,7 @@ function wrapWithEmailLayout(content: string): string {
     </head>
     <body>
       <div class="container">
+        ${isTest ? '<div class="test-banner">🧪 TEST EMAIL - This is a test, not a real notification</div>' : ''}
         <div class="header"><h1>${BUSINESS_NAME}</h1></div>
         <div class="content">${content}</div>
         <div class="footer">
@@ -832,6 +891,7 @@ function getAdminNotificationTemplate(type: string, payload: EmailPayload): stri
       table { width: 100%; border-collapse: collapse; }
       td { padding: 6px 0; }
       .label { color: #6b7280; width: 120px; }
+      .test-banner { background: #fef3c7; border: 2px dashed #f59e0b; color: #92400e; padding: 12px; text-align: center; font-weight: bold; }
     </style>
   `;
 
@@ -979,6 +1039,54 @@ function getAdminNotificationTemplate(type: string, payload: EmailPayload): stri
   `;
 }
 
+// Generate test data payload
+function getTestDataPayload(): EmailPayload {
+  return {
+    type: 'new_order',
+    orderNumber: 'ORD-20260108-TEST123',
+    customerName: 'Juan Dela Cruz',
+    customerPhone: '09171234567',
+    customerEmail: 'juan.delacruz@email.com',
+    totalAmount: 1625.00,
+    subtotal: 1550.00,
+    deliveryFee: 75.00,
+    deliveryDistance: 5.2,
+    deliveryAddress: '123 Sample Street, Brgy. San Jose, Floridablanca, Pampanga',
+    orderType: 'delivery',
+    paymentMethod: 'gcash',
+    landmark: 'Near the church',
+    notes: 'Extra sauce please, make it extra crispy!',
+    driverName: 'Pedro Santos',
+    driverPhone: '09181234567',
+    payoutAmount: 500.00,
+    reason: 'Customer was not reachable after multiple attempts',
+    orderItems: [
+      {
+        name: 'BBQ Ribs Full Rack',
+        quantity: 1,
+        unitPrice: 850.00,
+        lineTotal: 850.00,
+        sku: 'RIB-FULL-001',
+        flavors: [
+          { name: 'Original', quantity: 2 },
+          { name: 'Spicy', quantity: 2 }
+        ]
+      },
+      {
+        name: 'Chicken Wings (12 pcs)',
+        quantity: 2,
+        unitPrice: 350.00,
+        lineTotal: 700.00,
+        sku: 'WING-12-001',
+        flavors: [
+          { name: 'Buffalo', quantity: 6 },
+          { name: 'Garlic Parmesan', quantity: 6 }
+        ]
+      }
+    ]
+  };
+}
+
 // MAIN HANDLER
 const handler = async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
@@ -989,11 +1097,105 @@ const handler = async (req: Request): Promise<Response> => {
     const payload: EmailPayload = await req.json();
     console.log("Email notification request:", JSON.stringify(payload));
 
-    const { type, recipientEmail, orderNumber } = payload;
+    const { type, recipientEmail, orderNumber, isTest, templateType, testRecipientEmail } = payload;
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // ===== HANDLE TEST EMAIL =====
+    if (type === 'test_email' && templateType && testRecipientEmail) {
+      console.log(`Sending test email for template: ${templateType} to ${testRecipientEmail}`);
+      
+      // Generate test data
+      const testPayload = getTestDataPayload();
+      testPayload.type = templateType.replace(/_customer$/, '').replace(/_admin$/, '');
+      
+      // Determine if customer or admin template
+      const isCustomerTemplate = templateType.endsWith('_customer');
+      const isAdminTemplate = templateType.endsWith('_admin');
+      
+      let subject: string;
+      let html: string;
+
+      try {
+        const { data: template, error } = await supabase
+          .from('email_templates')
+          .select('subject, content, is_active')
+          .eq('type', templateType)
+          .single();
+
+        if (!error && template) {
+          console.log(`Using database template for ${templateType}`);
+          subject = `[TEST] ${replaceVariables(template.subject, testPayload)}`;
+          html = wrapWithEmailLayout(replaceVariables(template.content, testPayload), true);
+        } else {
+          console.log(`Using default template for test`);
+          if (isAdminTemplate) {
+            subject = `[TEST] ${getAdminNotificationSubject(testPayload.type, testPayload.orderNumber, testPayload)}`;
+            html = getAdminNotificationTemplate(testPayload.type, testPayload);
+            // Add test banner to admin template
+            html = html.replace(
+              '<div class="header">',
+              '<div class="test-banner">🧪 TEST EMAIL - This is a test, not a real notification</div><div class="header">'
+            );
+          } else {
+            subject = `[TEST] ${getDefaultSubject(testPayload.type, testPayload.orderNumber)}`;
+            html = getDefaultTemplate(testPayload);
+            // Add test banner
+            html = html.replace(
+              '<div class="header">',
+              '<div class="test-banner">🧪 TEST EMAIL - This is a test, not a real notification</div><div class="header">'
+            );
+          }
+        }
+      } catch (dbError) {
+        console.error("Template fetch error:", dbError);
+        subject = `[TEST] Test Email from ${BUSINESS_NAME}`;
+        html = wrapWithEmailLayout(`
+          <h2>Test Email</h2>
+          <p>This is a test email from ${BUSINESS_NAME}.</p>
+          <p>Template: ${templateType}</p>
+        `, true);
+      }
+
+      try {
+        await resend.emails.send({
+          from: FROM_EMAIL,
+          to: [testRecipientEmail],
+          subject,
+          html,
+        });
+        console.log(`Test email sent to ${testRecipientEmail}`);
+        
+        // Log the test email
+        await logEmailSent(
+          supabase, 
+          { ...testPayload, type: templateType }, 
+          [testRecipientEmail], 
+          isAdminTemplate ? 'admin' : 'customer',
+          subject,
+          true
+        );
+
+        return new Response(JSON.stringify({ 
+          success: true, 
+          message: `Test email sent to ${testRecipientEmail}`
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        });
+      } catch (emailError: any) {
+        console.error("Test email failed:", emailError);
+        return new Response(JSON.stringify({ 
+          success: false, 
+          error: emailError.message 
+        }), {
+          status: 500,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        });
+      }
+    }
 
     // ===== STEP 1: ALWAYS SEND ADMIN EMAILS =====
     const adminEmails = await getAdminEmails(supabase);
@@ -1047,7 +1249,7 @@ const handler = async (req: Request): Promise<Response> => {
       }
     }
 
-    await logEmailSent(supabase, payload, [...allAdminRecipients], 'admin');
+    await logEmailSent(supabase, payload, [...allAdminRecipients], 'admin', adminSubject, false);
     await createEmailNotification(supabase, payload, 'admin');
 
     // ===== STEP 2: SEND CUSTOMER EMAIL =====
@@ -1093,7 +1295,7 @@ const handler = async (req: Request): Promise<Response> => {
           });
           console.log(`Customer email sent to ${recipientEmail}`);
           customerEmailSent = true;
-          await logEmailSent(supabase, payload, [recipientEmail], 'customer');
+          await logEmailSent(supabase, payload, [recipientEmail], 'customer', subject, false);
         } catch (customerError) {
           console.error("Customer email failed:", customerError);
         }
