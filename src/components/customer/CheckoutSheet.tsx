@@ -818,10 +818,10 @@ export function CheckoutSheet({
   return (
     <Sheet open={open} onOpenChange={handleSheetOpenChange}>
       <SheetContent side="right" className="w-full sm:max-w-lg p-0">
-        <SheetHeader className="p-4 border-b">
-          <div className="flex items-center justify-between">
-            <SheetTitle>Checkout</SheetTitle>
-            {(customerName || customerPhone) && (
+        <SheetHeader className="p-4 border-b pr-12">
+          <SheetTitle>Checkout</SheetTitle>
+          {(customerName || customerPhone) && (
+            <div className="flex justify-end pt-2">
               <Button
                 type="button"
                 variant="outline"
@@ -830,10 +830,10 @@ export function CheckoutSheet({
                 className="text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30"
               >
                 <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
-                Clear Form
+                Clear & Start Fresh
               </Button>
-            )}
-          </div>
+            </div>
+          )}
         </SheetHeader>
 
           <ScrollArea className="h-[calc(100vh-80px)]">

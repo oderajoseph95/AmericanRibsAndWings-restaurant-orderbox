@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Loader2, ShoppingCart, RefreshCw, Mail, MessageSquare, Clock, CheckCircle, XCircle, AlertCircle, Eye, ExternalLink } from "lucide-react";
+import { Loader2, ShoppingCart, RefreshCw, Mail, MessageSquare, Clock, CheckCircle, XCircle, AlertCircle, Eye, ExternalLink, Trash2 } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { format, formatDistanceToNow } from "date-fns";
 
@@ -147,6 +148,26 @@ export default function AbandonedCheckouts() {
     },
     onError: (error: any) => {
       toast.error(error.message || 'Failed to start recovery');
+    },
+  });
+
+  // Delete mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (checkoutId: string) => {
+      // First delete related records (events and reminders)
+      await supabase.from('abandoned_checkout_events').delete().eq('abandoned_checkout_id', checkoutId);
+      await supabase.from('abandoned_checkout_reminders').delete().eq('abandoned_checkout_id', checkoutId);
+      
+      // Then delete the checkout itself
+      const { error } = await supabase.from('abandoned_checkouts').delete().eq('id', checkoutId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success('Abandoned checkout deleted');
+      queryClient.invalidateQueries({ queryKey: ['abandoned-checkouts'] });
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to delete');
     },
   });
 
@@ -485,6 +506,41 @@ export default function AbandonedCheckouts() {
                             )}
                           </Button>
                         )}
+
+                        {/* Delete button with confirmation */}
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                              disabled={deleteMutation.isPending}
+                            >
+                              {deleteMutation.isPending ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete Abandoned Checkout?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This will permanently delete this checkout record and cancel any scheduled reminders. This action cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction 
+                                onClick={() => deleteMutation.mutate(checkout.id)}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </div>
                     </TableCell>
                   </TableRow>

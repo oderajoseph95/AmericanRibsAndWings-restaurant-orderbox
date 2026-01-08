@@ -54,8 +54,9 @@ export default function Settings() {
     },
   });
 
-  // Helper to get sales pop config value
+  // Helper to get sales pop config value - with type guard to prevent .find() on non-array
   const getSalesPopConfig = (key: string): any => {
+    if (!Array.isArray(salesPopConfig)) return undefined;
     const config = salesPopConfig.find((c) => c.key === key);
     return config?.value;
   };
@@ -63,6 +64,7 @@ export default function Settings() {
   // Save sales pop config mutation
   const saveSalesPopConfigMutation = useMutation({
     mutationFn: async ({ key, value }: { key: string; value: Json }) => {
+      if (!Array.isArray(salesPopConfig)) return; // Guard against non-array
       const existing = salesPopConfig.find((c) => c.key === key);
       
       if (existing) {
