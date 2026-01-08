@@ -48,6 +48,7 @@ import {
   Truck,
   Users,
 } from "lucide-react";
+import { MenuDisplayTab } from "@/components/admin/MenuDisplayTab";
 import { toast } from "sonner";
 import {
   Select,
@@ -521,8 +522,9 @@ export default function Website() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="sections">Sections</TabsTrigger>
+          <TabsTrigger value="menu">Menu Display</TabsTrigger>
           <TabsTrigger value="gallery">Gallery</TabsTrigger>
           <TabsTrigger value="videos">Videos</TabsTrigger>
           <TabsTrigger value="seo">SEO</TabsTrigger>
@@ -584,6 +586,11 @@ export default function Website() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Menu Display Tab */}
+        <TabsContent value="menu" className="space-y-4">
+          <MenuDisplayTab />
         </TabsContent>
 
         {/* Gallery Tab */}

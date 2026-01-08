@@ -8,7 +8,8 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, ShoppingCart, Filter } from "lucide-react";
+import { ArrowLeft, ShoppingCart, Filter, Search, X } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { ProductCard } from "@/components/customer/ProductCard";
 import { ProductDetailModal } from "@/components/customer/ProductDetailModal";
@@ -52,6 +53,7 @@ const Order = () => {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [processedAddToCart, setProcessedAddToCart] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   
   // Product detail modal state (for /product/:slug route)
   const [detailProduct, setDetailProduct] = useState<(Tables<"products"> & { categories: { name: string } | null; slug?: string | null; seo_title?: string | null; seo_description?: string | null }) | null>(null);
@@ -127,20 +129,34 @@ const Order = () => {
     }
   }, [slug, products, navigate]);
 
-  // Filter products by category (exclude combo components from customer menu)
+  // Filter products by category and search (exclude combo components from customer menu)
   const filteredProducts = useMemo(() => {
     if (!products) return [];
     
     // Exclude combo component products (internal bundle items with ₱0 price)
-    const visibleProducts = products.filter(
+    let visibleProducts = products.filter(
       (p) => !(p.name.toLowerCase().startsWith("combo ") && p.price === 0)
     );
     
-    if (activeCategory === "all") return visibleProducts;
-    return visibleProducts.filter(
-      (p) => p.categories?.name.toLowerCase() === activeCategory.toLowerCase()
-    );
-  }, [products, activeCategory]);
+    // Apply category filter
+    if (activeCategory !== "all") {
+      visibleProducts = visibleProducts.filter(
+        (p) => p.categories?.name.toLowerCase() === activeCategory.toLowerCase()
+      );
+    }
+    
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      visibleProducts = visibleProducts.filter((p) =>
+        p.name.toLowerCase().includes(query) ||
+        p.description?.toLowerCase().includes(query) ||
+        p.categories?.name.toLowerCase().includes(query)
+      );
+    }
+    
+    return visibleProducts;
+  }, [products, activeCategory, searchQuery]);
 
   // Cart calculations
   const cartTotal = useMemo(() => {
@@ -354,6 +370,26 @@ const Order = () => {
 
         {/* Category selector - Mobile dropdown */}
         <div className="sm:hidden border-t border-border px-4 py-3">
+          {/* Search bar - Mobile */}
+          <div className="relative mb-3">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="text"
+              placeholder="Search products..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 pr-10 w-full"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2"
+              >
+                <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+              </button>
+            )}
+          </div>
+          
           <div className="flex items-center gap-2 mb-2">
             <Filter className="h-4 w-4 text-primary" />
             <label className="text-sm font-bold text-foreground">
@@ -380,33 +416,55 @@ const Order = () => {
 
         {/* Category tabs - Desktop */}
         <div className="hidden sm:block border-t border-border">
-          <ScrollArea className="w-full">
-            <div className="container px-4">
-              <Tabs
-                value={activeCategory}
-                onValueChange={(v) => setSearchParams({ category: v })}
-                className="w-full"
-              >
-                <TabsList className="h-12 bg-transparent gap-2 justify-start w-max">
-                  <TabsTrigger
-                    value="all"
-                    className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground rounded-full"
+          <div className="container px-4 py-2">
+            <div className="flex items-center gap-4">
+              {/* Search bar - Desktop */}
+              <div className="relative w-64 shrink-0">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Search menu..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10 pr-10 h-10"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2"
                   >
-                    All
-                  </TabsTrigger>
-                  {categories?.map((cat) => (
+                    <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                  </button>
+                )}
+              </div>
+              
+              <ScrollArea className="flex-1">
+                <Tabs
+                  value={activeCategory}
+                  onValueChange={(v) => setSearchParams({ category: v })}
+                  className="w-full"
+                >
+                  <TabsList className="h-10 bg-transparent gap-2 justify-start w-max">
                     <TabsTrigger
-                      key={cat.id}
-                      value={cat.name.toLowerCase()}
-                      className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground rounded-full whitespace-nowrap"
+                      value="all"
+                      className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground rounded-full"
                     >
-                      {cat.name}
+                      All
                     </TabsTrigger>
-                  ))}
-                </TabsList>
-              </Tabs>
+                    {categories?.map((cat) => (
+                      <TabsTrigger
+                        key={cat.id}
+                        value={cat.name.toLowerCase()}
+                        className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground rounded-full whitespace-nowrap"
+                      >
+                        {cat.name}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
+              </ScrollArea>
             </div>
-          </ScrollArea>
+          </div>
         </div>
       </header>
 
@@ -427,8 +485,15 @@ const Order = () => {
             ) : filteredProducts.length === 0 ? (
               <div className="text-center py-12">
                 <p className="text-muted-foreground">
-                  No products found in this category.
+                  {searchQuery 
+                    ? `No products found for "${searchQuery}"`
+                    : "No products found in this category."}
                 </p>
+                {searchQuery && (
+                  <Button variant="link" onClick={() => setSearchQuery("")}>
+                    Clear search
+                  </Button>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
