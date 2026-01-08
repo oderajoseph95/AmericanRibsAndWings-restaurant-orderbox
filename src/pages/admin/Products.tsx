@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
 import { Plus, Pencil, Archive, ArchiveRestore, Search, Loader2, Upload, ImageIcon, Trash2, RefreshCw } from 'lucide-react';
 import type { Tables, Enums } from '@/integrations/supabase/types';
+import { generateSlug } from '@/lib/productUtils';
 
 type Product = Tables<'products'> & {
   categories: Tables<'categories'> | null;
@@ -297,9 +298,16 @@ export default function Products() {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     const productType = form.get('product_type') as Enums<'product_type'>;
+    const name = form.get('name') as string;
+    
+    // Generate slug if not provided
+    let slug = form.get('slug') as string;
+    if (!slug) {
+      slug = generateSlug(name);
+    }
     
     saveMutation.mutate({
-      name: form.get('name') as string,
+      name,
       sku: form.get('sku') as string,
       description: form.get('description') as string,
       price: parseFloat(form.get('price') as string) || 0,
@@ -308,7 +316,10 @@ export default function Products() {
       is_active: form.get('is_active') === 'on',
       stock_enabled: productType !== 'unlimited' && form.get('stock_enabled') === 'on',
       image_url: imageUrl || editingProduct?.image_url || null,
-    });
+      slug: slug || null,
+      seo_title: form.get('seo_title') as string || null,
+      seo_description: form.get('seo_description') as string || null,
+    } as any);
   };
 
   const openEditDialog = (product: Product) => {
@@ -500,6 +511,51 @@ export default function Products() {
                         defaultChecked={editingProduct?.stock_enabled ?? false}
                       />
                       <Label htmlFor="stock_enabled">Track Stock</Label>
+                    </div>
+                  </div>
+
+                  {/* SEO Settings */}
+                  <div className="space-y-4 border-t pt-4 mt-4">
+                    <h4 className="font-medium text-foreground">SEO Settings</h4>
+                    <p className="text-xs text-muted-foreground">
+                      These settings control how the product appears in search engines and when shared on social media.
+                    </p>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="slug">URL Slug</Label>
+                      <Input
+                        id="slug"
+                        name="slug"
+                        placeholder="chicken-wings-6pcs"
+                        defaultValue={(editingProduct as any)?.slug || ''}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Leave empty to auto-generate. URL: /product/{'{slug}'}
+                      </p>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="seo_title">SEO Title</Label>
+                      <Input
+                        id="seo_title"
+                        name="seo_title"
+                        placeholder="Chicken Wings 6pcs | American Ribs & Wings"
+                        maxLength={60}
+                        defaultValue={(editingProduct as any)?.seo_title || ''}
+                      />
+                      <p className="text-xs text-muted-foreground">Max 60 characters</p>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="seo_description">SEO Description</Label>
+                      <Textarea
+                        id="seo_description"
+                        name="seo_description"
+                        placeholder="Crispy fried chicken wings with your choice of signature sauce..."
+                        maxLength={160}
+                        defaultValue={(editingProduct as any)?.seo_description || ''}
+                      />
+                      <p className="text-xs text-muted-foreground">Max 160 characters</p>
                     </div>
                   </div>
                 </div>

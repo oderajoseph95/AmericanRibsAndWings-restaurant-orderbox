@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { Link, useSearchParams, useNavigate } from "react-router-dom";
+import { Link, useSearchParams, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowLeft, ShoppingCart, Filter } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProductCard } from "@/components/customer/ProductCard";
+import { ProductDetailModal } from "@/components/customer/ProductDetailModal";
 import { Cart } from "@/components/customer/Cart";
 import { FlavorModal } from "@/components/customer/FlavorModal";
 import { BundleWizard } from "@/components/customer/BundleWizard";
@@ -39,7 +40,9 @@ const Order = () => {
   useEffect(() => {
     trackAnalyticsEvent("page_view", { page: "order" }, "/order");
   }, []);
+  
   const [searchParams, setSearchParams] = useSearchParams();
+  const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const { setIsCheckoutOpen: setSalesPopCheckoutOpen } = useSalesPopContext();
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -49,6 +52,10 @@ const Order = () => {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [processedAddToCart, setProcessedAddToCart] = useState<string | null>(null);
+  
+  // Product detail modal state (for /product/:slug route)
+  const [detailProduct, setDetailProduct] = useState<(Tables<"products"> & { categories: { name: string } | null; slug?: string | null; seo_title?: string | null; seo_description?: string | null }) | null>(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
 
   // Sync checkout state with sales pop context
   useEffect(() => {
@@ -102,6 +109,23 @@ const Order = () => {
       return data;
     },
   });
+
+  // Handle /product/:slug route - open product detail modal
+  useEffect(() => {
+    if (slug && products) {
+      // Find product by slug or id
+      const product = products.find(
+        (p) => (p as any).slug === slug || p.id === slug
+      );
+      if (product) {
+        setDetailProduct(product as any);
+        setIsDetailModalOpen(true);
+      } else {
+        // Product not found, redirect to order page
+        navigate("/order", { replace: true });
+      }
+    }
+  }, [slug, products, navigate]);
 
   // Filter products by category (exclude combo components from customer menu)
   const filteredProducts = useMemo(() => {
@@ -267,6 +291,13 @@ const Order = () => {
     clearCart();
     // Navigate to the order tracking page
     navigate(`/order/${orderId}`);
+  };
+
+  // Handle add from detail modal
+  const handleAddFromDetailModal = () => {
+    if (detailProduct) {
+      handleAddToCart(detailProduct);
+    }
   };
 
   return (
@@ -447,6 +478,15 @@ const Order = () => {
           </Button>
         </div>
       )}
+
+      {/* Product Detail Modal (for /product/:slug route) */}
+      <ProductDetailModal
+        product={detailProduct}
+        open={isDetailModalOpen}
+        onOpenChange={setIsDetailModalOpen}
+        onAdd={handleAddFromDetailModal}
+        returnPath="/order"
+      />
 
       {/* Flavor selection modal for flavored products */}
       {selectedProduct && flavors && selectedProduct.product_type === "flavored" && (

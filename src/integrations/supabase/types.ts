@@ -1055,7 +1055,10 @@ export type Database = {
           name: string
           price: number
           product_type: Database["public"]["Enums"]["product_type"] | null
+          seo_description: string | null
+          seo_title: string | null
           sku: string | null
+          slug: string | null
           stock_enabled: boolean | null
           updated_at: string | null
         }
@@ -1070,7 +1073,10 @@ export type Database = {
           name: string
           price?: number
           product_type?: Database["public"]["Enums"]["product_type"] | null
+          seo_description?: string | null
+          seo_title?: string | null
           sku?: string | null
+          slug?: string | null
           stock_enabled?: boolean | null
           updated_at?: string | null
         }
@@ -1085,7 +1091,10 @@ export type Database = {
           name?: string
           price?: number
           product_type?: Database["public"]["Enums"]["product_type"] | null
+          seo_description?: string | null
+          seo_title?: string | null
           sku?: string | null
+          slug?: string | null
           stock_enabled?: boolean | null
           updated_at?: string | null
         }
