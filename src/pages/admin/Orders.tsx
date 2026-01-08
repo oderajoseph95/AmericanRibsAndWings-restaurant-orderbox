@@ -383,10 +383,29 @@ export default function Orders() {
         console.error("Failed to send status notification:", e);
       }
 
-      // Send email notifications based on status change
+      // Send email and SMS notifications for all status changes
       try {
         const customerEmail = order?.customers?.email;
         const driver = order?.drivers;
+        
+        // Fetch order items with flavors for complete notification data
+        const { data: items } = await supabase
+          .from('order_items')
+          .select('*, order_item_flavors(*)')
+          .eq('order_id', id);
+        
+        const orderItemsForNotification = items?.map(item => ({
+          name: item.product_name,
+          quantity: item.quantity,
+          unitPrice: item.unit_price,
+          lineTotal: item.line_total || (item.quantity * item.unit_price),
+          sku: item.product_sku || undefined,
+          flavors: item.order_item_flavors?.map((f: any) => ({
+            name: f.flavor_name,
+            quantity: f.quantity || 1,
+            surcharge: f.surcharge_applied || 0
+          }))
+        })) || [];
         
         // Map all statuses to email types
         const statusToEmailType: Record<string, EmailType> = {
@@ -410,30 +429,37 @@ export default function Orders() {
         if (emailType) {
           await sendEmailNotification({
             type: emailType,
-            recipientEmail: customerEmail || undefined, // Customer email if available
+            recipientEmail: customerEmail || undefined,
             orderId: id,
             orderNumber: orderNum,
             customerName: order?.customers?.name || '',
             customerPhone: order?.customers?.phone || '',
+            customerEmail: customerEmail || undefined,
             totalAmount: order?.total_amount || 0,
+            subtotal: order?.subtotal || 0,
+            deliveryFee: order?.delivery_fee || 0,
+            deliveryDistance: order?.delivery_distance_km || undefined,
             orderType: order?.order_type || '',
             deliveryAddress: order?.delivery_address || undefined,
+            paymentMethod: order?.payment_method || undefined,
             driverName: driver?.name,
             driverPhone: driver?.phone,
+            orderItems: orderItemsForNotification,
           });
           console.log(`Email notification sent for status ${status}`);
         }
-      } catch (e) {
-        console.error("Failed to send email notification:", e);
-      }
-
-      // Send SMS notifications for key status changes
-      try {
+        
+        // Map all statuses to SMS types - SMS for all customer-facing events
         const statusToSmsType: Record<string, SmsType> = {
           approved: 'payment_verified',
+          rejected: 'order_rejected',
+          cancelled: 'order_cancelled',
+          preparing: 'order_preparing',
+          ready_for_pickup: 'order_ready_for_pickup',
           picked_up: 'order_out_for_delivery',
           in_transit: 'order_out_for_delivery',
           delivered: 'order_delivered',
+          completed: 'order_completed',
         };
         
         const smsType = statusToSmsType[status];
@@ -444,12 +470,15 @@ export default function Orders() {
             orderId: id,
             orderNumber: orderNum,
             customerName: order?.customers?.name || '',
+            totalAmount: order?.total_amount || 0,
+            deliveryAddress: order?.delivery_address || undefined,
             driverName: order?.drivers?.name,
+            driverPhone: order?.drivers?.phone,
           });
           console.log(`SMS notification sent for status ${status}`);
         }
       } catch (e) {
-        console.error("Failed to send SMS notification:", e);
+        console.error("Failed to send notifications:", e);
       }
 
       return { id, status };

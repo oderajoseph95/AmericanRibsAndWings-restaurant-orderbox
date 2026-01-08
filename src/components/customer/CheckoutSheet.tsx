@@ -24,7 +24,7 @@ import { createAdminNotification } from "@/hooks/useAdminNotifications";
 import { trackAnalyticsEvent } from "@/hooks/useAnalytics";
 import { sendEmailNotification } from "@/hooks/useEmailNotifications";
 import { sendSmsNotification } from "@/hooks/useSmsNotifications";
-import { ADMIN_EMAIL } from "@/lib/constants";
+// ADMIN_EMAIL no longer needed - edge function handles admin recipients
 import { cn } from "@/lib/utils";
 import { DeliveryMapPicker } from "./DeliveryMapPicker";
 import { AccordionSection } from "./checkout/AccordionSection";
@@ -542,6 +542,23 @@ export function CheckoutSheet({
         order_type: data.orderType,
       }, "/order");
 
+      // Build order items array for email/SMS
+      const orderItemsForNotification = cart.map(item => {
+        const lineTotal = item.quantity * item.product.price + (item.flavors?.reduce((sum, f) => sum + (f.surcharge || 0), 0) || 0);
+        return {
+          name: item.product.name,
+          quantity: item.quantity,
+          unitPrice: item.product.price,
+          lineTotal,
+          sku: item.product.sku || undefined,
+          flavors: item.flavors?.map(f => ({
+            name: f.name,
+            quantity: f.quantity,
+            surcharge: f.surcharge || 0
+          }))
+        };
+      });
+
       // Show success and redirect immediately (don't wait for notifications)
       toast.success("Order placed successfully!");
       window.location.href = `/thank-you/${order.id}`;
@@ -578,29 +595,28 @@ export function CheckoutSheet({
           action_url: `/admin/orders?search=${order.order_number}`,
         }).catch(e => console.error("Admin notification failed:", e)),
         
+        // Single email call - edge function handles both customer and admin emails
         sendEmailNotification({
           type: "new_order",
-          recipientEmail: ADMIN_EMAIL,
+          recipientEmail: data.email || undefined,
           orderId: order.id,
           orderNumber: order.order_number,
           customerName: data.name,
           customerPhone: data.phone,
           customerEmail: data.email || undefined,
           totalAmount: grandTotal,
+          subtotal: total,
+          deliveryFee: deliveryFee || 0,
+          deliveryDistance: deliveryDistance || undefined,
           orderType: data.orderType,
           deliveryAddress: data.orderType === "delivery" ? `${data.streetAddress}, ${barangay}, ${data.city}` : undefined,
-        }).catch(e => console.error("Admin email failed:", e)),
-        
-        data.email ? sendEmailNotification({
-          type: "new_order",
-          recipientEmail: data.email,
-          orderId: order.id,
-          orderNumber: order.order_number,
-          customerName: data.name,
-          totalAmount: grandTotal,
-          orderType: data.orderType,
-          deliveryAddress: data.orderType === "delivery" ? `${data.streetAddress}, ${barangay}, ${data.city}` : undefined,
-        }).catch(e => console.error("Customer email failed:", e)) : Promise.resolve(),
+          landmark: data.landmark || undefined,
+          paymentMethod: data.paymentMethod,
+          pickupDate: data.orderType === "pickup" && data.pickupDate ? format(data.pickupDate, "MMMM d, yyyy") : undefined,
+          pickupTime: data.orderType === "pickup" && data.pickupTime ? data.pickupTime : undefined,
+          notes: data.notes || undefined,
+          orderItems: orderItemsForNotification,
+        }).catch(e => console.error("Email notification failed:", e)),
         
         // SMS Notification - always sent to customer + admin backups
         sendSmsNotification({
@@ -609,6 +625,8 @@ export function CheckoutSheet({
           orderId: order.id,
           orderNumber: order.order_number,
           customerName: data.name,
+          totalAmount: grandTotal,
+          deliveryAddress: data.orderType === "delivery" ? `${data.streetAddress}, ${barangay}, ${data.city}` : undefined,
         }).catch(e => console.error("SMS notification failed:", e)),
       ]);
 

@@ -58,7 +58,11 @@ type SmsLog = {
 const smsVariables = [
   { variable: '{{order_number}}', description: 'Order number (e.g., ORD-20260108-1234)' },
   { variable: '{{customer_name}}', description: 'Customer\'s name' },
+  { variable: '{{total_amount}}', description: 'Order total (e.g., 1,250.00)' },
   { variable: '{{driver_name}}', description: 'Assigned driver\'s name' },
+  { variable: '{{driver_phone}}', description: 'Driver\'s phone number' },
+  { variable: '{{delivery_address}}', description: 'Delivery address' },
+  { variable: '{{reason}}', description: 'Rejection/cancellation reason' },
 ];
 
 const SMS_CHAR_LIMIT = 160;
@@ -197,9 +201,14 @@ export default function Sms() {
     const labels: Record<string, { label: string; color: string }> = {
       order_received: { label: 'Order Received', color: 'bg-blue-500/20 text-blue-700' },
       payment_verified: { label: 'Payment Verified', color: 'bg-green-500/20 text-green-700' },
+      order_rejected: { label: 'Rejected', color: 'bg-red-500/20 text-red-700' },
+      order_cancelled: { label: 'Cancelled', color: 'bg-gray-500/20 text-gray-700' },
+      order_preparing: { label: 'Preparing', color: 'bg-orange-500/20 text-orange-700' },
+      order_ready_for_pickup: { label: 'Ready for Pickup', color: 'bg-emerald-500/20 text-emerald-700' },
       driver_assigned: { label: 'Driver Assigned', color: 'bg-purple-500/20 text-purple-700' },
-      order_out_for_delivery: { label: 'Out for Delivery', color: 'bg-orange-500/20 text-orange-700' },
-      order_delivered: { label: 'Delivered', color: 'bg-emerald-500/20 text-emerald-700' },
+      order_out_for_delivery: { label: 'Out for Delivery', color: 'bg-indigo-500/20 text-indigo-700' },
+      order_delivered: { label: 'Delivered', color: 'bg-green-500/20 text-green-700' },
+      order_completed: { label: 'Completed', color: 'bg-emerald-500/20 text-emerald-700' },
       test: { label: 'Test', color: 'bg-gray-500/20 text-gray-700' },
     };
     return labels[type] || { label: type, color: 'bg-muted' };
