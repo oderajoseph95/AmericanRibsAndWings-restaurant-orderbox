@@ -327,8 +327,14 @@ export function CheckoutSheet({
   useEffect(() => {
     if (deliveryFee !== null && deliveryFee >= 0) {
       setCompletedSections(prev => new Set([...prev, "delivery-address"]));
+      // Track checkout stage
+      trackAnalyticsEvent("checkout_stage", { 
+        stage: "delivery-address", 
+        barangay: barangay || undefined,
+        city: city || undefined 
+      }, "/order");
     }
-  }, [deliveryFee]);
+  }, [deliveryFee, barangay, city]);
 
   // Auto-advance when pickup schedule is complete
   useEffect(() => {
@@ -341,6 +347,8 @@ export function CheckoutSheet({
   useEffect(() => {
     if (customerName && customerName.length >= 2 && customerPhone && customerPhone.length >= 10) {
       setCompletedSections(prev => new Set([...prev, "customer-info"]));
+      // Track checkout stage
+      trackAnalyticsEvent("checkout_stage", { stage: "customer-info" }, "/order");
     }
   }, [customerName, customerPhone]);
 
@@ -363,6 +371,8 @@ export function CheckoutSheet({
     const isPaymentComplete = paymentMethod === "cash" || paymentProof !== null;
     if (isPaymentComplete) {
       setCompletedSections(prev => new Set([...prev, "payment"]));
+      // Track checkout stage
+      trackAnalyticsEvent("checkout_stage", { stage: "payment", method: paymentMethod }, "/order");
     } else {
       setCompletedSections(prev => {
         const newSet = new Set(prev);
