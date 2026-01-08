@@ -37,6 +37,7 @@ import {
   Mail,
   Crown,
   MessageSquare,
+  ShoppingBasket,
 } from 'lucide-react';
 
 const navItems = [
@@ -48,6 +49,7 @@ const navItems = [
   { title: 'Bundles & Rules', url: '/admin/bundles', icon: Layers, roles: ['owner', 'manager', 'cashier'] },
   { title: 'Stock', url: '/admin/stock', icon: BoxesIcon, roles: ['owner', 'manager', 'cashier'] },
   { title: 'Customers', url: '/admin/customers', icon: Users, roles: ['owner', 'manager', 'cashier'] },
+  { title: 'Abandoned Carts', url: '/admin/abandoned-checkouts', icon: ShoppingBasket, roles: ['owner', 'manager'] },
   { title: 'Drivers', url: '/admin/drivers', icon: Truck, roles: ['owner', 'manager'] },
   { title: 'Payouts', url: '/admin/payouts', icon: Wallet, roles: ['owner', 'manager'] },
   { title: 'Reports', url: '/admin/reports', icon: BarChart3, roles: ['owner', 'manager'] },
