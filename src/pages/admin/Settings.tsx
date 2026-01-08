@@ -308,6 +308,79 @@ export default function Settings() {
 
       <Separator />
 
+      {/* Business Information */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Business Information</CardTitle>
+          <CardDescription>Legal and contact details (used in email footers)</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="legal_business_name">Legal Business Name</Label>
+              <Input
+                id="legal_business_name"
+                defaultValue={getSetting('legal_business_name') || ''}
+                placeholder="American Ribs & Wings Inc."
+                onBlur={(e) =>
+                  saveSettingMutation.mutate({
+                    key: 'legal_business_name',
+                    value: e.target.value,
+                  })
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="tin_id">TIN ID</Label>
+              <Input
+                id="tin_id"
+                defaultValue={getSetting('tin_id') || ''}
+                placeholder="XXX-XXX-XXX-XXX"
+                onBlur={(e) =>
+                  saveSettingMutation.mutate({
+                    key: 'tin_id',
+                    value: e.target.value,
+                  })
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="business_phone">Business Phone</Label>
+              <Input
+                id="business_phone"
+                defaultValue={getSetting('business_phone') || ''}
+                placeholder="+63 921 408 0286"
+                onBlur={(e) =>
+                  saveSettingMutation.mutate({
+                    key: 'business_phone',
+                    value: e.target.value,
+                  })
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="business_address">Business Address</Label>
+              <Input
+                id="business_address"
+                defaultValue={getSetting('business_address') || ''}
+                placeholder="Floridablanca, Pampanga"
+                onBlur={(e) =>
+                  saveSettingMutation.mutate({
+                    key: 'business_address',
+                    value: e.target.value,
+                  })
+                }
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            These details will automatically appear in the footer of all email notifications sent to customers.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Separator />
+
       {/* Payment Settings */}
       <Card>
         <CardHeader>

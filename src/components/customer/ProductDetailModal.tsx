@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import {
   Dialog,
   DialogContent,
@@ -42,13 +44,30 @@ export function ProductDetailModal({
 }: ProductDetailModalProps) {
   const navigate = useNavigate();
 
+  // Fetch store name from settings for SEO title
+  const { data: storeName } = useQuery({
+    queryKey: ['store-name-setting'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('settings')
+        .select('value')
+        .eq('key', 'store_name')
+        .maybeSingle();
+      if (error) throw error;
+      return (data?.value as string) || 'American Ribs & Wings';
+    },
+    staleTime: 1000 * 60 * 60, // Cache for 1 hour
+  });
+
   // Update SEO meta tags when product modal opens
   useEffect(() => {
     if (open && product) {
-      const title = product.seo_title || `${product.name} | American Ribs & Wings`;
+      const productTitle = product.seo_title || product.name;
+      const title = `${productTitle} | ${storeName || 'American Ribs & Wings'}`;
       const description = product.seo_description || product.description || '';
       const slug = product.slug || product.id;
       const canonicalUrl = `${window.location.origin}/product/${slug}`;
+      const imageUrl = product.image_url || `${window.location.origin}/images/og-image.jpg`;
 
       // Update document title
       document.title = title;
@@ -64,9 +83,9 @@ export function ProductDetailModal({
 
       // Update OG tags
       const ogTags = {
-        'og:title': product.name,
+        'og:title': productTitle,
         'og:description': description,
-        'og:image': product.image_url || '',
+        'og:image': imageUrl,
         'og:url': canonicalUrl,
         'og:type': 'product',
       };
@@ -76,6 +95,24 @@ export function ProductDetailModal({
         if (!tag) {
           tag = document.createElement('meta');
           tag.setAttribute('property', property);
+          document.head.appendChild(tag);
+        }
+        tag.setAttribute('content', content);
+      });
+
+      // Add Twitter/X tags
+      const twitterTags = {
+        'twitter:card': 'summary_large_image',
+        'twitter:title': productTitle,
+        'twitter:description': description,
+        'twitter:image': imageUrl,
+      };
+
+      Object.entries(twitterTags).forEach(([name, content]) => {
+        let tag = document.querySelector(`meta[name="${name}"]`);
+        if (!tag) {
+          tag = document.createElement('meta');
+          tag.setAttribute('name', name);
           document.head.appendChild(tag);
         }
         tag.setAttribute('content', content);
@@ -108,7 +145,7 @@ export function ProductDetailModal({
         console.log('Meta Pixel ViewContent:', product.name, product.id);
       }
     }
-  }, [open, product]);
+  }, [open, product, storeName]);
 
   const handleClose = () => {
     onOpenChange(false);
