@@ -16,7 +16,7 @@ import { Separator } from "@/components/ui/separator";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Upload, X, Check, Package, Truck, CalendarIcon, MapPin, User, CreditCard, ClipboardList, AlertTriangle, ShoppingBag } from "lucide-react";
+import { Loader2, Upload, X, Check, Package, Truck, CalendarIcon, MapPin, User, CreditCard, ClipboardList, AlertTriangle, ShoppingBag, RotateCcw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { sendPushNotification } from "@/hooks/usePushNotifications";
@@ -412,8 +412,9 @@ export function CheckoutSheet({
       if (savedData.activeSection) setActiveSection(savedData.activeSection as SectionId);
       
       toast.success("Your checkout progress has been restored", {
-        description: "Use 'Clear Form' in the form to start fresh.",
+        description: "Use 'Clear Form' to start fresh.",
         duration: 4000,
+        position: window.innerWidth < 768 ? "top-center" : "bottom-right",
       });
     }
   }, [savedData, open, hasRestoredData, form]);
@@ -823,12 +824,12 @@ export function CheckoutSheet({
             {(customerName || customerPhone) && (
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 onClick={handleClearForm}
-                className="text-xs text-muted-foreground hover:text-foreground"
+                className="text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30"
               >
-                <X className="h-3 w-3 mr-1" />
+                <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
                 Clear Form
               </Button>
             )}

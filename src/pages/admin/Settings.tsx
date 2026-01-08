@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
   DialogContent,
@@ -18,7 +20,7 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
-import { Shield, Loader2, Upload, CreditCard, X, Trash2, AlertTriangle } from 'lucide-react';
+import { Shield, Loader2, Upload, CreditCard, X, Trash2, AlertTriangle, ShoppingBag, FileText } from 'lucide-react';
 import type { Json } from '@/integrations/supabase/types';
 import type { Enums } from '@/integrations/supabase/types';
 
@@ -29,6 +31,7 @@ export default function Settings() {
   const [wipeDialogOpen, setWipeDialogOpen] = useState(false);
   const [masterPassword, setMasterPassword] = useState('');
   const [isWiping, setIsWiping] = useState(false);
+  const namesFileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
   // Fetch settings
@@ -40,6 +43,94 @@ export default function Settings() {
       return data;
     },
   });
+
+  // Fetch sales pop config
+  const { data: salesPopConfig = [] } = useQuery({
+    queryKey: ['sales-pop-config'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('sales_pop_config').select('*');
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  // Helper to get sales pop config value
+  const getSalesPopConfig = (key: string): any => {
+    const config = salesPopConfig.find((c) => c.key === key);
+    return config?.value;
+  };
+
+  // Save sales pop config mutation
+  const saveSalesPopConfigMutation = useMutation({
+    mutationFn: async ({ key, value }: { key: string; value: Json }) => {
+      const existing = salesPopConfig.find((c) => c.key === key);
+      
+      if (existing) {
+        const { error } = await supabase
+          .from('sales_pop_config')
+          .update({ value })
+          .eq('id', existing.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('sales_pop_config').insert({ key, value });
+        if (error) throw error;
+      }
+
+      await logAdminAction({
+        action: 'update',
+        entityType: 'sales_pop_config',
+        entityName: key,
+        newValues: { [key]: value },
+        details: `Updated sales pop ${key}`,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sales-pop-config'] });
+      toast.success('Sales pop setting saved');
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to save setting');
+    },
+  });
+
+  // Handle names file upload
+  const handleNamesFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.txt')) {
+      toast.error('Please upload a .txt file');
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      const names = text.split('\n')
+        .map(name => name.trim())
+        .filter(name => name.length > 0);
+
+      if (names.length === 0) {
+        toast.error('No valid names found in file');
+        return;
+      }
+
+      await saveSalesPopConfigMutation.mutateAsync({ key: 'custom_names', value: names });
+      toast.success(`Loaded ${names.length} custom names`);
+    } catch (error) {
+      toast.error('Failed to read file');
+    }
+
+    // Reset file input
+    if (namesFileInputRef.current) {
+      namesFileInputRef.current.value = '';
+    }
+  };
+
+  // Clear custom names
+  const clearCustomNames = async () => {
+    await saveSalesPopConfigMutation.mutateAsync({ key: 'custom_names', value: [] });
+    toast.success('Cleared custom names, using defaults');
+  };
 
   // Save setting mutation with logging
   const saveSettingMutation = useMutation({
@@ -373,7 +464,223 @@ export default function Settings() {
 
       <Separator />
 
-      {/* Business Information */}
+      {/* Sales Pop Configuration */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ShoppingBag className="h-5 w-5" />
+            Sales Pop Notifications
+          </CardTitle>
+          <CardDescription>
+            Configure the "Someone just ordered" popup notifications that appear on the homepage
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Enable/Disable Toggle */}
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>Enable Sales Pop</Label>
+              <p className="text-xs text-muted-foreground">Show purchase notifications to visitors</p>
+            </div>
+            <Switch
+              checked={getSalesPopConfig('enabled') === true || getSalesPopConfig('enabled') === 'true'}
+              onCheckedChange={(checked) => 
+                saveSalesPopConfigMutation.mutate({ key: 'enabled', value: checked })
+              }
+            />
+          </div>
+
+          <Separator />
+
+          {/* Timing Settings */}
+          <div>
+            <Label className="text-base font-medium mb-3 block">Timing Settings</Label>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="initial_delay">Initial Delay (seconds)</Label>
+                <Input
+                  id="initial_delay"
+                  type="number"
+                  min="1"
+                  max="120"
+                  defaultValue={getSalesPopConfig('initial_delay_seconds') || 10}
+                  onBlur={(e) =>
+                    saveSalesPopConfigMutation.mutate({
+                      key: 'initial_delay_seconds',
+                      value: parseInt(e.target.value, 10) || 10,
+                    })
+                  }
+                />
+                <p className="text-xs text-muted-foreground">Time before first pop shows</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="display_duration">Display Duration (seconds)</Label>
+                <Input
+                  id="display_duration"
+                  type="number"
+                  min="2"
+                  max="30"
+                  defaultValue={getSalesPopConfig('display_duration_seconds') || 6}
+                  onBlur={(e) =>
+                    saveSalesPopConfigMutation.mutate({
+                      key: 'display_duration_seconds',
+                      value: parseInt(e.target.value, 10) || 6,
+                    })
+                  }
+                />
+                <p className="text-xs text-muted-foreground">How long toast stays visible</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="interval">Interval (seconds)</Label>
+                <Input
+                  id="interval"
+                  type="number"
+                  min="10"
+                  max="300"
+                  defaultValue={getSalesPopConfig('interval_seconds') || 30}
+                  onBlur={(e) =>
+                    saveSalesPopConfigMutation.mutate({
+                      key: 'interval_seconds',
+                      value: parseInt(e.target.value, 10) || 30,
+                    })
+                  }
+                />
+                <p className="text-xs text-muted-foreground">Time between each pop</p>
+              </div>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Minutes Ago Range */}
+          <div>
+            <Label className="text-base font-medium mb-3 block">"Minutes Ago" Display Range</Label>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="min_minutes">Minimum Minutes</Label>
+                <Input
+                  id="min_minutes"
+                  type="number"
+                  min="1"
+                  max="60"
+                  defaultValue={getSalesPopConfig('min_minutes_ago') || 10}
+                  onBlur={(e) =>
+                    saveSalesPopConfigMutation.mutate({
+                      key: 'min_minutes_ago',
+                      value: parseInt(e.target.value, 10) || 10,
+                    })
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="max_minutes">Maximum Minutes</Label>
+                <Input
+                  id="max_minutes"
+                  type="number"
+                  min="5"
+                  max="120"
+                  defaultValue={getSalesPopConfig('max_minutes_ago') || 30}
+                  onBlur={(e) =>
+                    saveSalesPopConfigMutation.mutate({
+                      key: 'max_minutes_ago',
+                      value: parseInt(e.target.value, 10) || 30,
+                    })
+                  }
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              Random "X minutes ago" will be shown between these values
+            </p>
+          </div>
+
+          <Separator />
+
+          {/* Custom Names Upload */}
+          <div>
+            <Label className="text-base font-medium mb-3 block">Custom Names</Label>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <input
+                  type="file"
+                  accept=".txt"
+                  ref={namesFileInputRef}
+                  onChange={handleNamesFileUpload}
+                  className="hidden"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => namesFileInputRef.current?.click()}
+                >
+                  <FileText className="h-4 w-4 mr-2" />
+                  Upload .txt File
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  One name per line
+                </span>
+              </div>
+
+              {(() => {
+                const customNames = getSalesPopConfig('custom_names') as string[] | undefined;
+                if (customNames && customNames.length > 0) {
+                  return (
+                    <div className="p-3 bg-muted rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-sm font-medium">
+                          {customNames.length} custom names loaded
+                        </p>
+                        <Button variant="ghost" size="sm" onClick={clearCustomNames}>
+                          <X className="h-3 w-3 mr-1" />
+                          Clear
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">
+                        Preview: {customNames.slice(0, 10).join(", ")}{customNames.length > 10 ? "..." : ""}
+                      </p>
+                    </div>
+                  );
+                }
+                return (
+                  <p className="text-sm text-muted-foreground">
+                    No custom names uploaded. Using default Filipino names.
+                  </p>
+                );
+              })()}
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Locations */}
+          <div>
+            <Label className="text-base font-medium mb-3 block">Locations</Label>
+            <Textarea
+              placeholder="Enter locations, one per line"
+              defaultValue={(() => {
+                const locations = getSalesPopConfig('locations') as string[] | undefined;
+                return locations?.join('\n') || '';
+              })()}
+              onBlur={(e) => {
+                const locations = e.target.value
+                  .split('\n')
+                  .map(loc => loc.trim())
+                  .filter(loc => loc.length > 0);
+                saveSalesPopConfigMutation.mutate({
+                  key: 'locations',
+                  value: locations,
+                });
+              }}
+              rows={5}
+            />
+            <p className="text-xs text-muted-foreground mt-2">
+              One location per line. These will appear randomly in the popup.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Separator />
       <Card>
         <CardHeader>
           <CardTitle>Business Information</CardTitle>

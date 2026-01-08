@@ -16,20 +16,23 @@ export function SalesPopProvider({ children }: SalesPopProviderProps) {
   const lastMessageRef = useRef<string | null>(null);
   const { isCheckoutOpen } = useSalesPopContext();
 
-  // Only show on homepage and order page
-  const allowedPaths = ["/", "/order"];
-  const isAllowedPath = allowedPaths.includes(location.pathname);
-
   // Pause when checkout is open
   const isPaused = isCheckoutOpen;
 
-  const { currentMessage, clearMessage } = useSalesPop({
-    enabled: isAllowedPath,
+  const { currentMessage, clearMessage, config } = useSalesPop({
+    enabled: true,
     paused: isPaused,
   });
 
+  // Check if current path is allowed based on config
+  const allowedPaths = config?.pages || ["/", "/order"];
+  const isAllowedPath = allowedPaths.includes(location.pathname);
+
+  // Get display duration from config
+  const displayDuration = (config?.displayDurationSeconds || 6) * 1000;
+
   useEffect(() => {
-    if (!currentMessage) return;
+    if (!currentMessage || !isAllowedPath) return;
 
     // Prevent duplicate toasts
     const messageKey = `${currentMessage.name}-${currentMessage.productName}-${currentMessage.minutesAgo}`;
@@ -37,7 +40,7 @@ export function SalesPopProvider({ children }: SalesPopProviderProps) {
     lastMessageRef.current = messageKey;
 
     // Dismiss any existing sales pop toasts first
-    toast.dismiss();
+    toast.dismiss("sales-pop");
 
     // Show the toast with custom styling
     toast.custom(
@@ -67,14 +70,14 @@ export function SalesPopProvider({ children }: SalesPopProviderProps) {
         </div>
       ),
       {
-        duration: 6000,
+        duration: displayDuration,
         position: isMobile ? "top-center" : "bottom-left",
         id: "sales-pop",
         onDismiss: clearMessage,
         onAutoClose: clearMessage,
       }
     );
-  }, [currentMessage, clearMessage, isMobile]);
+  }, [currentMessage, clearMessage, isMobile, isAllowedPath, displayDuration]);
 
   return <>{children}</>;
 }
