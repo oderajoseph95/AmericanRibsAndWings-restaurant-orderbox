@@ -168,6 +168,7 @@ function getDefaultMessage(type: string, orderNumber?: string): string {
     driver_assigned: `American Ribs & Wings Floridablanca: Your order #${orderNumber} has been assigned to a rider. ETA will be shared shortly.`,
     order_out_for_delivery: `American Ribs & Wings Floridablanca: Your order #${orderNumber} is out for delivery. Please prepare to receive your order.`,
     order_delivered: `American Ribs & Wings Floridablanca: Your order #${orderNumber} has been delivered. Thank you for ordering!`,
+    test: `American Ribs & Wings: This is a test SMS. If you received this, SMS notifications are working!`,
   };
   
   return defaults[type] || `American Ribs & Wings: Update for order #${orderNumber}`;
