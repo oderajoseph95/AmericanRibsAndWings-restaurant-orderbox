@@ -579,14 +579,20 @@ export default function DriverOrders() {
                   {/* Action Buttons */}
                   <div className="pt-2 border-t space-y-2">
                     {order.status === 'waiting_for_rider' && (
-                      <Button 
-                        onClick={() => handlePickup(order.id)} 
-                        className="w-full"
-                        disabled={uploadingOrderId === order.id}
-                      >
-                        <Camera className="h-4 w-4 mr-2" />
-                        {uploadingOrderId === order.id ? 'Uploading...' : 'Take Pickup Photo'}
-                      </Button>
+                      <div className="space-y-2">
+                        <Button 
+                          onClick={() => handlePickup(order.id)} 
+                          className="w-full"
+                          disabled={uploadingOrderId === order.id}
+                        >
+                          <Camera className="h-4 w-4 mr-2" />
+                          {uploadingOrderId === order.id ? 'Uploading...' : 'Take Pickup Photo'}
+                        </Button>
+                        <p className="text-xs text-center text-muted-foreground flex items-center justify-center gap-1">
+                          <Camera className="h-3 w-3" />
+                          Photo required to confirm pickup
+                        </p>
+                      </div>
                     )}
 
                     {order.status === 'picked_up' && (
@@ -610,6 +616,10 @@ export default function DriverOrders() {
                           <Camera className="h-4 w-4 mr-2" />
                           {uploadingOrderId === order.id ? 'Uploading...' : 'Take Delivery Photo'}
                         </Button>
+                        <p className="text-xs text-center text-muted-foreground flex items-center justify-center gap-1">
+                          <Camera className="h-3 w-3" />
+                          Photo required as proof of delivery
+                        </p>
                         <Button 
                           onClick={() => handleOpenReturnDialog(order)} 
                           variant="outline"

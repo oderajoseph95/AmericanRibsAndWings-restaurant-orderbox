@@ -749,7 +749,7 @@ export default function ThankYou() {
         )}
 
         {/* Order Photos - Show pickup and delivery proof photos for ALL order types */}
-        {deliveryPhotos.length > 0 && (
+        {(deliveryPhotos.length > 0 || (isDelivery && ['picked_up', 'in_transit', 'delivered', 'completed'].includes(currentStatus))) && (
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
@@ -759,7 +759,76 @@ export default function ThankYou() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {deliveryPhotos.map((photo) => (
+                {/* Pickup Photo Section */}
+                {isDelivery && ['picked_up', 'in_transit', 'delivered', 'completed'].includes(currentStatus) && (
+                  <>
+                    {deliveryPhotos.some(p => p.photo_type === 'pickup') ? (
+                      deliveryPhotos.filter(p => p.photo_type === 'pickup').map((photo) => (
+                        <div key={photo.id} className="space-y-2">
+                          <div className="relative aspect-video rounded-lg overflow-hidden border bg-muted">
+                            <img
+                              src={photo.image_url}
+                              alt="Pickup Photo"
+                              className="w-full h-full object-cover"
+                            />
+                            <Badge className="absolute top-2 left-2 bg-blue-500/90 text-white">
+                              Picked Up
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground text-center">
+                            {photo.taken_at ? format(new Date(photo.taken_at), 'PPp') : 
+                             photo.created_at ? format(new Date(photo.created_at), 'PPp') : ''}
+                          </p>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="aspect-video rounded-lg border-2 border-dashed border-muted-foreground/30 bg-muted/50 flex flex-col items-center justify-center text-muted-foreground">
+                          <Camera className="h-8 w-8 mb-2 opacity-50" />
+                          <p className="text-sm font-medium">Awaiting Pickup Photo</p>
+                          <p className="text-xs">Driver will upload when picking up</p>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Delivery Photo Section */}
+                {isDelivery && ['delivered', 'completed'].includes(currentStatus) && (
+                  <>
+                    {deliveryPhotos.some(p => p.photo_type === 'delivery') ? (
+                      deliveryPhotos.filter(p => p.photo_type === 'delivery').map((photo) => (
+                        <div key={photo.id} className="space-y-2">
+                          <div className="relative aspect-video rounded-lg overflow-hidden border bg-muted">
+                            <img
+                              src={photo.image_url}
+                              alt="Delivery Photo"
+                              className="w-full h-full object-cover"
+                            />
+                            <Badge className="absolute top-2 left-2 bg-green-500/90 text-white">
+                              Delivered
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground text-center">
+                            {photo.taken_at ? format(new Date(photo.taken_at), 'PPp') : 
+                             photo.created_at ? format(new Date(photo.created_at), 'PPp') : ''}
+                          </p>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="aspect-video rounded-lg border-2 border-dashed border-muted-foreground/30 bg-muted/50 flex flex-col items-center justify-center text-muted-foreground">
+                          <Camera className="h-8 w-8 mb-2 opacity-50" />
+                          <p className="text-sm font-medium">Awaiting Delivery Photo</p>
+                          <p className="text-xs">Proof of delivery pending</p>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Non-delivery order photos (pickup orders) */}
+                {!isDelivery && deliveryPhotos.map((photo) => (
                   <div key={photo.id} className="space-y-2">
                     <div className="relative aspect-video rounded-lg overflow-hidden border bg-muted">
                       <img
@@ -775,9 +844,7 @@ export default function ThankYou() {
                             : "bg-green-500/90 text-white"
                         )}
                       >
-                        {photo.photo_type === 'pickup' 
-                          ? (isDelivery ? 'Picked Up' : 'Ready') 
-                          : 'Delivered'}
+                        {photo.photo_type === 'pickup' ? 'Ready' : 'Completed'}
                       </Badge>
                     </div>
                     <p className="text-xs text-muted-foreground text-center">
