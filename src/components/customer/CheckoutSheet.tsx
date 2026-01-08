@@ -561,7 +561,7 @@ export function CheckoutSheet({
 
       // Show success and redirect immediately (don't wait for notifications)
       toast.success("Order placed successfully!");
-      window.location.href = `/thank-you/${order.id}`;
+      window.location.href = `/thank-you/${order.id}?source=checkout`;
 
       // Fire notifications in background (don't block redirect)
       Promise.all([

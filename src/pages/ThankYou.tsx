@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -256,17 +256,23 @@ export default function ThankYou() {
     }
   }, [orderData]);
 
-  // Fire Meta Pixel Purchase event ONLY ONCE per order
+  // Get search params for checkout source detection
+  const [searchParams] = useSearchParams();
+
+  // Fire Meta Pixel Purchase ONLY once per order AND only from checkout redirect
   useEffect(() => {
     if (trackingData?.order && trackingData.order.total_amount && typeof window !== 'undefined') {
-      const orderId = trackingData.order.id;
-      const storageKey = 'meta_pixel_purchases';
+      const orderIdForPixel = trackingData.order.id;
+      const source = searchParams.get('source');
+      const pixelKey = `purchase_fired_${orderIdForPixel}`;
       
-      // Get list of already-tracked order IDs from localStorage
-      const trackedOrders: string[] = JSON.parse(localStorage.getItem(storageKey) || '[]');
+      // STRICT CONDITIONS - must meet BOTH:
+      // 1. Must have ?source=checkout in URL (proves this is a checkout redirect)
+      // 2. Must not have fired already for this order (localStorage backup)
+      const isFromCheckout = source === 'checkout';
+      const alreadyFired = localStorage.getItem(pixelKey) === 'true';
       
-      // Only fire if this order hasn't been tracked yet
-      if (!trackedOrders.includes(orderId)) {
+      if (isFromCheckout && !alreadyFired) {
         const fbq = (window as any).fbq;
         if (typeof fbq === 'function') {
           fbq('track', 'Purchase', {
@@ -276,20 +282,24 @@ export default function ThankYou() {
             content_ids: trackingData.items?.map(item => item.id) || [],
             num_items: trackingData.items?.reduce((sum, item) => sum + item.quantity, 0) || 1,
           });
-          console.log('Meta Pixel Purchase event fired (first time):', {
-            orderId,
-            value: trackingData.order.total_amount
-          });
+          console.log('Meta Pixel Purchase fired:', { orderId: orderIdForPixel, value: trackingData.order.total_amount });
           
-          // Mark this order as tracked
-          trackedOrders.push(orderId);
-          localStorage.setItem(storageKey, JSON.stringify(trackedOrders));
+          // Mark as fired in localStorage
+          localStorage.setItem(pixelKey, 'true');
         }
+        
+        // Clean up URL immediately - remove ?source=checkout
+        window.history.replaceState({}, document.title, `/thank-you/${orderIdForPixel}`);
       } else {
-        console.log('Meta Pixel Purchase event skipped (already tracked):', orderId);
+        console.log('Meta Pixel Purchase skipped:', { isFromCheckout, alreadyFired, orderId: orderIdForPixel });
+        
+        // Also clean URL if source param exists but was blocked
+        if (source) {
+          window.history.replaceState({}, document.title, `/thank-you/${orderIdForPixel}`);
+        }
       }
     }
-  }, [trackingData]);
+  }, [trackingData, searchParams]);
 
   // Subscribe to realtime updates with LIVE indicator
   useEffect(() => {
