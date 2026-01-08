@@ -17,7 +17,7 @@ import { format } from 'date-fns';
 import type { Enums } from '@/integrations/supabase/types';
 
 interface UserData {
-  email: string;
+  email: string | null;
   username: string | null;
   is_super_owner: boolean;
 }
@@ -425,6 +425,7 @@ export default function Users() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Username</TableHead>
+                  {callerIsSuperOwner && <TableHead>Email</TableHead>}
                   <TableHead>Role</TableHead>
                   <TableHead>Added</TableHead>
                   <TableHead className="w-[100px]">Actions</TableHead>
@@ -451,6 +452,11 @@ export default function Users() {
                           )}
                         </div>
                       </TableCell>
+                      {callerIsSuperOwner && (
+                        <TableCell className="text-muted-foreground text-sm">
+                          {userData?.email || "—"}
+                        </TableCell>
+                      )}
                       <TableCell>
                         <Badge variant="outline" className={roleColors[ur.role]}>
                           {ur.role.charAt(0).toUpperCase() + ur.role.slice(1)}
