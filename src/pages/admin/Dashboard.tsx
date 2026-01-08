@@ -331,41 +331,39 @@ export default function Dashboard() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header with live indicator */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
-            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-              </span>
-              <span className="text-xs font-medium text-green-600 dark:text-green-400">Live</span>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              className="h-8 w-8"
-            >
-              <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
-            </Button>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Dashboard</h1>
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+            </span>
+            <span className="text-xs font-medium text-green-600 dark:text-green-400">Live</span>
           </div>
-          <p className="text-muted-foreground mt-1">
-            Last updated: {format(lastUpdate, 'h:mm:ss a')}
-          </p>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="h-8 w-8"
+          >
+            <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
+          </Button>
         </div>
+        <p className="text-sm text-muted-foreground">
+          Last updated: {format(lastUpdate, 'h:mm:ss a')}
+        </p>
 
-        {/* Date filter buttons */}
-        <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-lg">
+        {/* Date filter buttons - scrollable on mobile */}
+        <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-lg overflow-x-auto w-fit max-w-full">
           {(['today', 'yesterday', 'week', 'month'] as DateFilter[]).map((filter) => (
             <Button
               key={filter}
               variant={dateFilter === filter ? 'default' : 'ghost'}
               size="sm"
               onClick={() => setDateFilter(filter)}
-              className="capitalize"
+              className="capitalize whitespace-nowrap text-xs sm:text-sm"
             >
               {filter === 'week' ? 'This Week' : filter === 'month' ? 'This Month' : filter}
             </Button>
@@ -385,7 +383,7 @@ export default function Dashboard() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">{dateRange.label}'s Sales</CardTitle>

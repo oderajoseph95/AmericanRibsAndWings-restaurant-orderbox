@@ -19,6 +19,8 @@ import { logAdminAction } from '@/lib/adminLogger';
 import { Plus, Pencil, Archive, ArchiveRestore, Search, Loader2, Upload, ImageIcon, Trash2, RefreshCw } from 'lucide-react';
 import type { Tables, Enums } from '@/integrations/supabase/types';
 import { generateSlug } from '@/lib/productUtils';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { MobileCard } from '@/components/admin/MobileCard';
 
 type Product = Tables<'products'> & {
   categories: Tables<'categories'> | null;
@@ -40,6 +42,7 @@ const productTypeBadgeColors: Record<Enums<'product_type'>, string> = {
 
 export default function Products() {
   const { role } = useAuth();
+  const isMobile = useIsMobile();
   const canEdit = role === 'owner' || role === 'manager';
   const isOwner = role === 'owner';
   const [search, setSearch] = useState('');
@@ -337,12 +340,12 @@ export default function Products() {
   const currentImageUrl = imageUrl || editingProduct?.image_url;
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 sm:space-y-6 animate-fade-in">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div>
-            <h1 className="text-3xl font-bold text-foreground">Products</h1>
-            <p className="text-muted-foreground mt-1">
+            <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Products</h1>
+            <p className="text-sm text-muted-foreground mt-1">
               {products.length} products {showArchived ? '(archived)' : ''}
             </p>
           </div>
@@ -365,12 +368,12 @@ export default function Products() {
             }
           }}>
             <DialogTrigger asChild>
-              <Button onClick={openNewDialog}>
+              <Button size={isMobile ? "sm" : "default"} onClick={openNewDialog}>
                 <Plus className="h-4 w-4 mr-2" />
                 Add Product
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-[95vw] sm:max-w-lg max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>
                   {editingProduct ? 'Edit Product' : 'New Product'}
@@ -638,6 +641,38 @@ export default function Products() {
           ) : filteredProducts.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               No products found
+            </div>
+          ) : isMobile ? (
+            // Mobile: Card layout
+            <div className="space-y-3">
+              {paginatedProducts.map((product) => (
+                <MobileCard key={product.id} onClick={() => canEdit && openEditDialog(product)}>
+                  <div className="flex gap-3">
+                    <div className="w-16 h-16 rounded bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
+                      {product.image_url ? (
+                        <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <ImageIcon className="h-6 w-6 text-muted-foreground" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-medium truncate">{product.name}</p>
+                        <Badge variant={product.is_active ? 'default' : 'secondary'} className="flex-shrink-0">
+                          {product.is_active ? 'Active' : 'Inactive'}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground">{product.categories?.name || 'No category'}</p>
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="font-semibold">₱{product.price.toFixed(2)}</span>
+                        <Badge variant="outline" className={productTypeBadgeColors[product.product_type || 'simple']}>
+                          {productTypeLabels[product.product_type || 'simple']}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                </MobileCard>
+              ))}
             </div>
           ) : (
             <>
