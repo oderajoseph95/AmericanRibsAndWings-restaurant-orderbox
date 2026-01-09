@@ -50,14 +50,7 @@ export function useAdminNotifications(activeTab: NotificationCategory = "all") {
   const [allNotifications, setAllNotifications] = useState<AdminNotification[]>([]);
   const [hasMore, setHasMore] = useState(true);
 
-  // Reset when tab changes
-  useEffect(() => {
-    setPage(0);
-    setAllNotifications([]);
-    setHasMore(true);
-  }, [activeTab]);
-
-  // Fetch notifications with pagination
+  // Fetch notifications with pagination - refetches when tab changes
   const { data: pageData, isLoading, isFetching } = useQuery({
     queryKey: ["admin-notifications", user?.id, activeTab, page],
     queryFn: async () => {
@@ -87,15 +80,29 @@ export function useAdminNotifications(activeTab: NotificationCategory = "all") {
       };
     },
     enabled: !!user?.id,
+    staleTime: 0, // Always refetch when dependencies change
   });
 
-  // Accumulate notifications when page changes
+  // Reset page when tab changes, and update notifications when data arrives
   useEffect(() => {
-    if (pageData?.notifications) {
+    // When tab changes, reset to page 0
+    setPage(0);
+  }, [activeTab]);
+
+  // Handle page data updates - separate from tab change reset
+  useEffect(() => {
+    if (pageData?.notifications !== undefined) {
       if (page === 0) {
+        // First page: replace all notifications
         setAllNotifications(pageData.notifications);
       } else {
-        setAllNotifications(prev => [...prev, ...pageData.notifications]);
+        // Subsequent pages: append
+        setAllNotifications(prev => {
+          // Prevent duplicates
+          const existingIds = new Set(prev.map(n => n.id));
+          const newNotifications = pageData.notifications.filter(n => !existingIds.has(n.id));
+          return [...prev, ...newNotifications];
+        });
       }
       setHasMore(pageData.notifications.length === PAGE_SIZE);
     }
