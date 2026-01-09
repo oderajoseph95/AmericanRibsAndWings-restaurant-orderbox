@@ -127,6 +127,22 @@ export function ProductDetailModal({
       }
       canonical.setAttribute('href', canonicalUrl);
 
+      // Fire Google Analytics 4 view_item event
+      if (typeof gtag === 'function') {
+        gtag('event', 'view_item', {
+          currency: 'PHP',
+          value: product.price,
+          items: [{
+            item_id: product.id,
+            item_name: product.name,
+            item_category: product.categories?.name || 'Uncategorized',
+            price: product.price,
+            quantity: 1,
+          }]
+        });
+        console.log('GA4 view_item event fired:', product.name);
+      }
+
       // Fire Meta Pixel ViewContent event
       if (typeof (window as any).fbq === 'function') {
         (window as any).fbq('track', 'ViewContent', {

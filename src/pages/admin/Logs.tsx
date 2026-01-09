@@ -38,6 +38,8 @@ type AdminLog = {
   id: string;
   user_id: string;
   user_email: string;
+  username: string | null;
+  display_name: string | null;
   action: string;
   entity_type: string;
   entity_id: string | null;
@@ -437,20 +439,27 @@ export default function Logs() {
                         {format(new Date(log.created_at), 'MMM d, h:mm a')}
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-2">
-                          {log.user_email.startsWith('driver:') && (
-                            <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/30 text-xs">
-                              Driver
-                            </Badge>
+                        <div className="flex flex-col gap-0.5">
+                          <div className="flex items-center gap-2">
+                            {log.user_email.startsWith('driver:') && (
+                              <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/30 text-xs">
+                                Driver
+                              </Badge>
+                            )}
+                            {event.isAdminOverride && (
+                              <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-xs">
+                                Override
+                              </Badge>
+                            )}
+                            <span className="text-sm font-medium truncate max-w-[180px] block">
+                              {log.display_name || log.username || log.user_email.replace('driver:', '')}
+                            </span>
+                          </div>
+                          {(log.display_name || log.username) && (
+                            <span className="text-xs text-muted-foreground truncate max-w-[180px] block">
+                              {log.user_email.replace('driver:', '')}
+                            </span>
                           )}
-                          {event.isAdminOverride && (
-                            <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-xs">
-                              Override
-                            </Badge>
-                          )}
-                          <span className="text-sm truncate max-w-[180px] block">
-                            {log.user_email.replace('driver:', '')}
-                          </span>
                         </div>
                       </TableCell>
                       <TableCell>

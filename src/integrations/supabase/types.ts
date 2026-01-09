@@ -181,6 +181,7 @@ export type Database = {
           action: string
           created_at: string | null
           details: string | null
+          display_name: string | null
           entity_id: string | null
           entity_name: string | null
           entity_type: string
@@ -189,11 +190,13 @@ export type Database = {
           old_values: Json | null
           user_email: string
           user_id: string
+          username: string | null
         }
         Insert: {
           action: string
           created_at?: string | null
           details?: string | null
+          display_name?: string | null
           entity_id?: string | null
           entity_name?: string | null
           entity_type: string
@@ -202,11 +205,13 @@ export type Database = {
           old_values?: Json | null
           user_email: string
           user_id: string
+          username?: string | null
         }
         Update: {
           action?: string
           created_at?: string | null
           details?: string | null
+          display_name?: string | null
           entity_id?: string | null
           entity_name?: string | null
           entity_type?: string
@@ -215,6 +220,7 @@ export type Database = {
           old_values?: Json | null
           user_email?: string
           user_id?: string
+          username?: string | null
         }
         Relationships: []
       }

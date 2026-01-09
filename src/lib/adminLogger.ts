@@ -27,9 +27,18 @@ export async function logAdminAction({
       return;
     }
 
+    // Fetch username and display_name from user_roles
+    const { data: userRole } = await supabase
+      .from('user_roles')
+      .select('username, display_name')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
     const { error } = await supabase.from('admin_logs').insert({
       user_id: user.id,
       user_email: user.email || 'unknown',
+      username: userRole?.username || null,
+      display_name: userRole?.display_name || null,
       action,
       entity_type: entityType,
       entity_id: entityId,
