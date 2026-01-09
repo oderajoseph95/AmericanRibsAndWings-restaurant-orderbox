@@ -9,6 +9,9 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { logDriverAction } from '@/lib/driverLogger';
+import { sendEmailNotification, EmailType } from '@/hooks/useEmailNotifications';
+import { sendSmsNotification, SmsType } from '@/hooks/useSmsNotifications';
+import { createAdminNotification } from '@/hooks/useAdminNotifications';
 import { 
   Package, 
   MapPin, 
@@ -263,6 +266,51 @@ export default function DriverDashboard() {
         details: `Changed status from ${selectedOrder.status} to ${newStatus}`,
       });
 
+      // Send email notification
+      const emailType: EmailType = photoType === 'pickup' ? 'order_picked_up' : 'order_delivered';
+      await sendEmailNotification({
+        type: emailType,
+        recipientEmail: selectedOrder.customers?.email || undefined,
+        orderId: selectedOrder.id,
+        orderNumber: selectedOrder.order_number || '',
+        customerName: selectedOrder.customers?.name || '',
+        customerPhone: selectedOrder.customers?.phone || '',
+        totalAmount: selectedOrder.total_amount || 0,
+        deliveryAddress: selectedOrder.delivery_address || undefined,
+        driverName: driver.name,
+        driverPhone: driver.phone,
+      });
+
+      // Send SMS notification
+      const smsType: SmsType = photoType === 'pickup' ? 'order_out_for_delivery' : 'order_delivered';
+      if (selectedOrder.customers?.phone) {
+        await sendSmsNotification({
+          type: smsType,
+          recipientPhone: selectedOrder.customers.phone,
+          orderId: selectedOrder.id,
+          orderNumber: selectedOrder.order_number || '',
+          customerName: selectedOrder.customers?.name || '',
+          totalAmount: selectedOrder.total_amount || 0,
+          deliveryAddress: selectedOrder.delivery_address || undefined,
+          driverName: driver.name,
+          driverPhone: driver.phone,
+        });
+      }
+
+      // Create admin notification
+      await createAdminNotification({
+        title: photoType === 'pickup' ? "📦 Order Picked Up" : "✅ Order Delivered",
+        message: `Driver ${driver.name} ${photoType === 'pickup' ? 'picked up' : 'delivered'} Order #${selectedOrder.order_number}`,
+        type: "order",
+        order_id: selectedOrder.id,
+        metadata: { 
+          order_number: selectedOrder.order_number,
+          driver_name: driver.name,
+          event: photoType === 'pickup' ? 'picked_up' : 'delivered'
+        },
+        action_url: `/admin/orders?orderId=${selectedOrder.id}`,
+      });
+
       setPhotoDialogOpen(false);
       setSelectedOrder(null);
       toast.success(`${photoType === 'pickup' ? 'Pickup' : 'Delivery'} photo uploaded!`);
@@ -296,6 +344,49 @@ export default function DriverDashboard() {
         oldValues: { status: oldStatus },
         newValues: { status: 'in_transit' },
         details: `Started delivery - changed status from ${oldStatus} to in_transit`,
+      });
+
+      // Send email notification
+      await sendEmailNotification({
+        type: 'order_in_transit',
+        recipientEmail: order.customers?.email || undefined,
+        orderId: order.id,
+        orderNumber: order.order_number || '',
+        customerName: order.customers?.name || '',
+        customerPhone: order.customers?.phone || '',
+        totalAmount: order.total_amount || 0,
+        deliveryAddress: order.delivery_address || undefined,
+        driverName: driver.name,
+        driverPhone: driver.phone,
+      });
+
+      // Send SMS notification
+      if (order.customers?.phone) {
+        await sendSmsNotification({
+          type: 'order_out_for_delivery',
+          recipientPhone: order.customers.phone,
+          orderId: order.id,
+          orderNumber: order.order_number || '',
+          customerName: order.customers?.name || '',
+          totalAmount: order.total_amount || 0,
+          deliveryAddress: order.delivery_address || undefined,
+          driverName: driver.name,
+          driverPhone: driver.phone,
+        });
+      }
+
+      // Create admin notification
+      await createAdminNotification({
+        title: "🚗 Delivery Started",
+        message: `Driver ${driver.name} started delivery for Order #${order.order_number}`,
+        type: "order",
+        order_id: order.id,
+        metadata: { 
+          order_number: order.order_number,
+          driver_name: driver.name,
+          event: 'in_transit'
+        },
+        action_url: `/admin/orders?orderId=${order.id}`,
       });
     }
 
