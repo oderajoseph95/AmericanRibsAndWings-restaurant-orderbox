@@ -497,6 +497,19 @@ const baseStyles = `
   </style>
 `;
 
+// Generate tracking button for order emails
+function generateTrackingButton(orderId?: string, label = "Track Your Order"): string {
+  if (!orderId) return '';
+  const trackingUrl = `https://arwfloridablanca.shop/thank-you/${orderId}`;
+  return `
+    <div style="text-align: center; margin: 25px 0;">
+      <a href="${trackingUrl}" class="cta-button" style="background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block; box-shadow: 0 4px 6px rgba(234, 88, 12, 0.3);">
+        📍 ${label}
+      </a>
+    </div>
+  `;
+}
+
 function getDefaultSubject(type: string, orderNumber?: string): string {
   const subjects: Record<string, string> = {
     new_order: `🔔 Order Confirmation - #${orderNumber}`,
@@ -510,6 +523,7 @@ function getDefaultSubject(type: string, orderNumber?: string): string {
     order_waiting_for_rider: `🚗 Order #${orderNumber} Waiting for Driver`,
     order_picked_up: `📦 Order #${orderNumber} Picked Up`,
     order_in_transit: `🚗 Order #${orderNumber} is On the Way!`,
+    order_out_for_delivery: `🚗 Order #${orderNumber} is On the Way!`,
     order_delivered: `🎉 Order #${orderNumber} Delivered!`,
     order_completed: `✨ Order #${orderNumber} Completed`,
     order_returned: `↩️ Order #${orderNumber} Returned`,
@@ -551,6 +565,8 @@ function getDefaultTemplate(payload: EmailPayload): string {
             <span class="status-badge status-warning">Order Received</span>
           </div>
 
+          ${generateTrackingButton(payload.orderId, "Track Your Order")}
+
           ${generateCustomerInfoHtml(payload)}
           
           <h3 style="margin-top: 25px; border-bottom: 2px solid #fed7aa; padding-bottom: 10px;">📦 Order Details</h3>
@@ -575,6 +591,8 @@ function getDefaultTemplate(payload: EmailPayload): string {
             <div class="order-number">Order #${orderNumber}</div>
             <span class="status-badge status-approved">Approved & Preparing</span>
           </div>
+
+          ${generateTrackingButton(payload.orderId, "Track Your Order")}
 
           <h3 style="margin-top: 25px; border-bottom: 2px solid #fed7aa; padding-bottom: 10px;">📦 Your Order</h3>
           ${generateOrderItemsHtml(payload.orderItems)}
@@ -640,6 +658,8 @@ function getDefaultTemplate(payload: EmailPayload): string {
             <span class="status-badge status-info">Preparing</span>
           </div>
 
+          ${generateTrackingButton(payload.orderId, "Track Preparation Status")}
+
           <h3>📦 What We're Making</h3>
           ${generateOrderItemsHtml(payload.orderItems)}
           ${generateOrderSummaryHtml(payload)}
@@ -660,6 +680,8 @@ function getDefaultTemplate(payload: EmailPayload): string {
             <div class="order-number">Order #${orderNumber}</div>
             <span class="status-badge status-approved">Ready for Pickup</span>
           </div>
+
+          ${generateTrackingButton(payload.orderId, "View Order Details")}
 
           <h3>📦 Your Order</h3>
           ${generateOrderItemsHtml(payload.orderItems)}
@@ -685,6 +707,8 @@ function getDefaultTemplate(payload: EmailPayload): string {
             <div class="order-number">Order #${orderNumber}</div>
           </div>
 
+          ${generateTrackingButton(payload.orderId, "Track Your Delivery")}
+
           ${driverName ? `
           <div class="driver-box">
             <h3 style="margin-top: 0;">👤 Your Driver</h3>
@@ -702,6 +726,8 @@ function getDefaultTemplate(payload: EmailPayload): string {
       break;
 
     case 'order_in_transit':
+    case 'order_out_for_delivery':
+    case 'order_picked_up':
       content = `
         <div class="content">
           <h2>Your order is on the way! 🚗</h2>
@@ -712,6 +738,8 @@ function getDefaultTemplate(payload: EmailPayload): string {
             <div class="order-number">Order #${orderNumber}</div>
             <span class="status-badge status-info">Out for Delivery</span>
           </div>
+
+          ${generateTrackingButton(payload.orderId, "🔴 Track Your Driver Live")}
 
           ${driverName ? `
           <div class="driver-box">
@@ -743,9 +771,18 @@ function getDefaultTemplate(payload: EmailPayload): string {
             <span class="status-badge status-approved">Delivered</span>
           </div>
 
+          ${generateTrackingButton(payload.orderId, "View Order Details")}
+
           <h3>📦 What You Got</h3>
           ${generateOrderItemsHtml(payload.orderItems)}
           ${generateOrderSummaryHtml(payload)}
+          
+          <div style="text-align: center; margin: 30px 0; padding: 25px; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border-radius: 12px;">
+            <p style="font-size: 18px; font-weight: bold; color: #92400e; margin: 0 0 10px;">We'd love your feedback!</p>
+            <a href="https://g.page/r/CX7_36IAlM8XEBM/review" style="display: inline-block; background: #ea580c; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 600;">
+              ⭐ Review Us on Google
+            </a>
+          </div>
           
           <p style="text-align: center; margin-top: 20px; padding: 20px; background: #fef3c7; border-radius: 8px;">
             <strong>Thank you for ordering from ${BUSINESS_NAME}!</strong><br>

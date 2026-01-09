@@ -12,6 +12,7 @@ export type EmailType =
   | "order_waiting_for_rider"
   | "order_picked_up"
   | "order_in_transit"
+  | "order_out_for_delivery"
   | "order_delivered"
   | "order_completed"
   | "order_returned"
