@@ -75,22 +75,32 @@ export function Cart({ items, onUpdateQuantity, onRemove, onClearCart, onCheckou
                 {item.flavors && item.flavors.length > 0 && (
                   <div className="mt-1 space-y-0.5">
                     {item.flavors.map((flavor, idx) => {
-                      // For single-unit items like ribs, hide the "(X pcs)" notation
+                      // Determine display label based on flavor category
+                      const category = (flavor as any).category || 'wings';
                       const isSingleUnit = item.flavors?.length === 1 && flavor.quantity === 1;
+                      
+                      // Build descriptive label based on category
+                      const getFlavorLabel = () => {
+                        if (category === 'drinks') {
+                          return ''; // Drinks don't need extra label
+                        }
+                        if (category === 'fries') {
+                          return ''; // Fries flavors don't need extra label
+                        }
+                        // Wings/ribs category - show quantity if multiple
+                        if (isSingleUnit) {
+                          return flavor.surcharge > 0 ? '(Special)' : '';
+                        }
+                        return `(${flavor.quantity} pcs)`;
+                      };
+                      
                       return (
                         <div key={idx} className="flex justify-between text-xs text-muted-foreground">
                           <span className="flex items-center gap-1">
                             <span className="text-muted-foreground/70">•</span>
                             <span>{flavor.name}</span>
-                            {!isSingleUnit && (
-                              <span className="text-muted-foreground/60">
-                                {flavor.surcharge > 0 
-                                  ? `(Special flavor for ${flavor.quantity} pcs)` 
-                                  : `(Free flavor for ${flavor.quantity} pcs)`}
-                              </span>
-                            )}
-                            {isSingleUnit && flavor.surcharge > 0 && (
-                              <span className="text-muted-foreground/60">(Special)</span>
+                            {getFlavorLabel() && (
+                              <span className="text-muted-foreground/60">{getFlavorLabel()}</span>
                             )}
                           </span>
                           {flavor.surcharge > 0 && (

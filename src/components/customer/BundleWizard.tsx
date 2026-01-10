@@ -196,6 +196,7 @@ export function BundleWizard({
           name: flavor.name,
           quantity: component?.total_units || 1,
           surcharge: flavor.surcharge || 0,
+          category: (flavor as any).flavor_category || 'drinks', // Pass category for display
         }];
       } else {
         // Multi-slot selection (wings) - charge ONCE per distinct special flavor
@@ -208,6 +209,7 @@ export function BundleWizard({
               name: flavor.name,
               quantity: qty,
               surcharge: flavor.surcharge || 0, // one-time per distinct flavor
+              category: (flavor as any).flavor_category || 'wings', // Pass category for display
             };
           });
       }

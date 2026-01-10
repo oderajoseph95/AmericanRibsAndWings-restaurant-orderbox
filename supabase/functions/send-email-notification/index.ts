@@ -73,7 +73,7 @@ interface OrderItem {
   unitPrice: number;
   lineTotal: number;
   sku?: string;
-  flavors?: Array<{ name: string; quantity: number; surcharge?: number }>;
+  flavors?: Array<{ name: string; quantity: number; surcharge?: number; category?: string }>;
 }
 
 interface EmailPayload {
@@ -100,6 +100,9 @@ interface EmailPayload {
   payoutAmount?: number;
   reason?: string;
   orderItems?: OrderItem[];
+  // Photos from delivery_photos table (fetched automatically)
+  pickupPhotoUrl?: string;
+  deliveryPhotoUrl?: string;
   // Test email specific
   isTest?: boolean;
   templateType?: string;
@@ -155,7 +158,7 @@ function getTriggerEventLabel(type: string, orderType?: string): string {
   return labels[type] || type.replace(/_/g, ' ');
 }
 
-// Generate HTML table for order items
+// Generate HTML table for order items with category-aware flavor display
 function generateOrderItemsHtml(items: OrderItem[] | undefined): string {
   if (!items || items.length === 0) {
     return '<p style="color: #6b7280; font-style: italic;">Order items not available</p>';
@@ -175,9 +178,28 @@ function generateOrderItemsHtml(items: OrderItem[] | undefined): string {
   `;
 
   for (const item of items) {
-    const flavorsText = item.flavors && item.flavors.length > 0
-      ? `<br><span style="font-size: 11px; color: #6b7280;">Flavors: ${item.flavors.map(f => `${f.name} (${f.quantity})`).join(', ')}</span>`
-      : '';
+    // Build flavor text with category-aware labels
+    let flavorsText = '';
+    if (item.flavors && item.flavors.length > 0) {
+      const flavorLines = item.flavors.map(f => {
+        const category = f.category || 'wings';
+        let label = f.name;
+        
+        // Add quantity for wings/ribs, skip for drinks/fries
+        if (category === 'wings' && f.quantity > 1) {
+          label += ` (${f.quantity} pcs)`;
+        }
+        
+        // Add surcharge if applicable
+        if (f.surcharge && f.surcharge > 0) {
+          label += ` <span style="color: #ea580c;">+₱${f.surcharge.toFixed(2)}</span>`;
+        }
+        
+        return `• ${label}`;
+      }).join('<br>');
+      
+      flavorsText = `<br><span style="font-size: 11px; color: #6b7280;">${flavorLines}</span>`;
+    }
     
     html += `
       <tr style="border-bottom: 1px solid #e5e7eb;">
@@ -510,6 +532,55 @@ function generateTrackingButton(orderId?: string, label = "Track Your Order"): s
   `;
 }
 
+// Generate admin view button for admin emails
+function generateAdminViewButton(orderId?: string, label = "View Order in Admin"): string {
+  if (!orderId) return '';
+  const adminUrl = `https://arwfloridablanca.shop/admin/orders?orderId=${orderId}`;
+  return `
+    <div style="text-align: center; margin: 25px 0;">
+      <a href="${adminUrl}" class="cta-button" style="background: #1f2937; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
+        🔍 ${label}
+      </a>
+    </div>
+  `;
+}
+
+// Generate order photos section for emails
+function generateOrderPhotosHtml(pickupPhotoUrl?: string, deliveryPhotoUrl?: string): string {
+  if (!pickupPhotoUrl && !deliveryPhotoUrl) return '';
+  
+  let html = `
+    <div style="margin: 20px 0; padding: 15px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;">
+      <h3 style="margin: 0 0 15px; font-size: 14px; color: #166534; text-transform: uppercase; letter-spacing: 0.5px;">📸 Order Photos</h3>
+      <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+  `;
+  
+  if (pickupPhotoUrl) {
+    html += `
+      <div style="flex: 1; min-width: 200px;">
+        <p style="margin: 0 0 8px; font-weight: 600; font-size: 13px; color: #374151;">Pickup Photo:</p>
+        <img src="${pickupPhotoUrl}" alt="Pickup photo" style="max-width: 100%; border-radius: 8px; border: 1px solid #e5e7eb;" />
+      </div>
+    `;
+  }
+  
+  if (deliveryPhotoUrl) {
+    html += `
+      <div style="flex: 1; min-width: 200px;">
+        <p style="margin: 0 0 8px; font-weight: 600; font-size: 13px; color: #374151;">Delivery Photo:</p>
+        <img src="${deliveryPhotoUrl}" alt="Delivery photo" style="max-width: 100%; border-radius: 8px; border: 1px solid #e5e7eb;" />
+      </div>
+    `;
+  }
+  
+  html += `
+      </div>
+    </div>
+  `;
+  
+  return html;
+}
+
 function getDefaultSubject(type: string, orderNumber?: string): string {
   const subjects: Record<string, string> = {
     new_order: `🔔 Order Confirmation - #${orderNumber}`,
@@ -617,6 +688,8 @@ function getDefaultTemplate(payload: EmailPayload): string {
             ${reason ? `<p style="margin-top: 15px;"><strong>Reason:</strong> ${reason}</p>` : ''}
           </div>
 
+          ${generateTrackingButton(payload.orderId, "View Order Details")}
+
           ${generateOrderItemsHtml(payload.orderItems)}
           ${generateOrderSummaryHtml(payload)}
           
@@ -638,6 +711,8 @@ function getDefaultTemplate(payload: EmailPayload): string {
             <span class="status-badge status-rejected">Cancelled</span>
             ${reason ? `<p style="margin-top: 15px;"><strong>Reason:</strong> ${reason}</p>` : ''}
           </div>
+
+          ${generateTrackingButton(payload.orderId, "View Order Details")}
 
           ${generateOrderItemsHtml(payload.orderItems)}
           
@@ -749,6 +824,8 @@ function getDefaultTemplate(payload: EmailPayload): string {
           </div>
           ` : ''}
 
+          ${generateOrderPhotosHtml(payload.pickupPhotoUrl, undefined)}
+
           <h3>📦 What's Coming</h3>
           ${generateOrderItemsHtml(payload.orderItems)}
           ${generateOrderSummaryHtml(payload)}
@@ -772,6 +849,8 @@ function getDefaultTemplate(payload: EmailPayload): string {
           </div>
 
           ${generateTrackingButton(payload.orderId, "View Order Details")}
+
+          ${generateOrderPhotosHtml(payload.pickupPhotoUrl, payload.deliveryPhotoUrl)}
 
           <h3>📦 What You Got</h3>
           ${generateOrderItemsHtml(payload.orderItems)}
@@ -804,9 +883,20 @@ function getDefaultTemplate(payload: EmailPayload): string {
             <span class="status-badge status-approved">Completed</span>
           </div>
 
+          ${generateTrackingButton(payload.orderId, "View Order Details")}
+
+          ${generateOrderPhotosHtml(payload.pickupPhotoUrl, payload.deliveryPhotoUrl)}
+
           <h3>📦 Order Summary</h3>
           ${generateOrderItemsHtml(payload.orderItems)}
           ${generateOrderSummaryHtml(payload)}
+          
+          <div style="text-align: center; margin: 30px 0; padding: 25px; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border-radius: 12px;">
+            <p style="font-size: 18px; font-weight: bold; color: #92400e; margin: 0 0 10px;">We'd love your feedback!</p>
+            <a href="https://g.page/r/CX7_36IAlM8XEBM/review" style="display: inline-block; background: #ea580c; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 600;">
+              ⭐ Review Us on Google
+            </a>
+          </div>
           
           <p style="text-align: center; margin-top: 20px;">
             Thank you for choosing ${BUSINESS_NAME}! 🙏<br>
@@ -828,6 +918,10 @@ function getDefaultTemplate(payload: EmailPayload): string {
             <span class="status-badge status-rejected">Returned</span>
             ${reason ? `<p style="margin-top: 15px;"><strong>Reason:</strong> ${reason}</p>` : ''}
           </div>
+
+          ${generateTrackingButton(payload.orderId, "View Order Details")}
+
+          ${generateOrderPhotosHtml(payload.pickupPhotoUrl, payload.deliveryPhotoUrl)}
 
           ${generateOrderItemsHtml(payload.orderItems)}
           ${generateOrderSummaryHtml(payload)}
@@ -921,6 +1015,7 @@ function getDefaultTemplate(payload: EmailPayload): string {
           <div class="order-box">
             <div class="order-number">Order #${orderNumber}</div>
           </div>
+          ${generateTrackingButton(payload.orderId, "View Order Details")}
           ${generateOrderItemsHtml(payload.orderItems)}
           ${generateOrderSummaryHtml(payload)}
           <p>Please check your order status for more details.</p>
@@ -1140,7 +1235,14 @@ function getAdminNotificationTemplate(type: string, payload: EmailPayload): stri
         </div>
         ` : ''}
 
-        <a href="${orderLink}" class="cta">View Order Details →</a>
+        ${payload.pickupPhotoUrl || payload.deliveryPhotoUrl ? `
+        <div class="section">
+          <p class="section-title">📸 Order Photos</p>
+          ${generateOrderPhotosHtml(payload.pickupPhotoUrl, payload.deliveryPhotoUrl)}
+        </div>
+        ` : ''}
+
+        <a href="${orderLink}?orderId=${payload.orderId}" class="cta">View Order Details →</a>
       </div>
     `;
   }
@@ -1233,7 +1335,30 @@ const handler = async (req: Request): Promise<Response> => {
     BUSINESS_PHONE = businessSettings.businessPhone;
     console.log("Business settings loaded:", businessSettings);
 
-    const { type, recipientEmail, orderNumber, isTest, templateType, testRecipientEmail } = payload;
+    const { type, recipientEmail, orderNumber, isTest, templateType, testRecipientEmail, orderId } = payload;
+
+    // Fetch delivery photos if orderId exists
+    if (orderId && !payload.pickupPhotoUrl && !payload.deliveryPhotoUrl) {
+      try {
+        const { data: photos } = await supabase
+          .from('delivery_photos')
+          .select('image_url, photo_type')
+          .eq('order_id', orderId);
+        
+        if (photos && photos.length > 0) {
+          for (const photo of photos) {
+            if (photo.photo_type === 'pickup' && !payload.pickupPhotoUrl) {
+              payload.pickupPhotoUrl = photo.image_url;
+            } else if (photo.photo_type === 'delivery' && !payload.deliveryPhotoUrl) {
+              payload.deliveryPhotoUrl = photo.image_url;
+            }
+          }
+          console.log('Loaded delivery photos:', { pickup: !!payload.pickupPhotoUrl, delivery: !!payload.deliveryPhotoUrl });
+        }
+      } catch (photoError) {
+        console.error('Error fetching delivery photos:', photoError);
+      }
+    }
 
     // ===== HANDLE TEST EMAIL =====
     if (type === 'test_email' && templateType && testRecipientEmail) {

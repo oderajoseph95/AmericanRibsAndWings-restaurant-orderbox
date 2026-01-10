@@ -29,7 +29,7 @@ export interface OrderItem {
   unitPrice: number;
   lineTotal: number;
   sku?: string;
-  flavors?: Array<{ name: string; quantity: number; surcharge?: number }>;
+  flavors?: Array<{ name: string; quantity: number; surcharge?: number; category?: string }>;
 }
 
 export interface EmailNotificationPayload {
