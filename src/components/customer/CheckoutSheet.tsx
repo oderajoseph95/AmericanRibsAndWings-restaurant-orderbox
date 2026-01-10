@@ -730,7 +730,7 @@ export function CheckoutSheet({
         order_type: data.orderType,
       }, "/order");
 
-      // Build order items array for email/SMS
+      // Build order items array for email/SMS with category info for proper display
       const orderItemsForNotification = cart.map(item => {
         const lineTotal = item.quantity * item.product.price + (item.flavors?.reduce((sum, f) => sum + (f.surcharge || 0), 0) || 0);
         return {
@@ -742,7 +742,8 @@ export function CheckoutSheet({
           flavors: item.flavors?.map(f => ({
             name: f.name,
             quantity: f.quantity,
-            surcharge: f.surcharge || 0
+            surcharge: f.surcharge || 0,
+            category: (f as any).category || 'wings' // Pass category for email display
           }))
         };
       });

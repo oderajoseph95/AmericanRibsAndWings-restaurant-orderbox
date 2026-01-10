@@ -25,11 +25,19 @@ import { usePersistedCart } from "@/hooks/usePersistedCart";
 import { toast } from "sonner";
 import type { Tables } from "@/integrations/supabase/types";
 
+export type CartItemFlavor = {
+  id: string;
+  name: string;
+  quantity: number;
+  surcharge: number;
+  category?: string; // wings, drinks, fries
+};
+
 export type CartItem = {
   id: string;
   product: Tables<"products">;
   quantity: number;
-  flavors?: { id: string; name: string; quantity: number; surcharge: number }[];
+  flavors?: CartItemFlavor[];
   lineTotal: number;
 };
 

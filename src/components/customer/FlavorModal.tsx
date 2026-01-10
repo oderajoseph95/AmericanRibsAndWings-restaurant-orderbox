@@ -132,6 +132,7 @@ export function FlavorModal({
           name: flavor.name,
           quantity: qty, // pieces selected with this flavor
           surcharge: flavor.surcharge || 0, // one-time surcharge per distinct flavor
+          category: (flavor as any).flavor_category || 'wings', // Pass category for display
         };
       });
 
