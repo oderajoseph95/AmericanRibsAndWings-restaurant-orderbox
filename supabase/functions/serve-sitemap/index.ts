@@ -1,26 +1,37 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
 const BASE_URL = "https://arwfloridablanca.shop";
 
 serve(async (req: Request): Promise<Response> => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
-
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
-    const { trigger = "manual", triggeredBy } = await req.json().catch(() => ({}));
+    // Try to get the latest successful sitemap from logs
+    const { data: latestLog, error: logError } = await supabase
+      .from("sitemap_logs")
+      .select("sitemap_content, generated_at")
+      .eq("success", true)
+      .not("sitemap_content", "is", null)
+      .order("generated_at", { ascending: false })
+      .limit(1)
+      .single();
 
-    console.log(`Generating sitemap - Trigger: ${trigger}, By: ${triggeredBy || 'unknown'}`);
+    if (!logError && latestLog?.sitemap_content) {
+      console.log(`Serving cached sitemap from ${latestLog.generated_at}`);
+      return new Response(latestLog.sitemap_content, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/xml",
+          "Cache-Control": "public, max-age=3600", // Cache for 1 hour
+        },
+      });
+    }
+
+    // No cached sitemap found, generate fresh one
+    console.log("No cached sitemap found, generating fresh...");
 
     // Fetch active products with slugs
     const { data: products, error: productsError } = await supabase
@@ -98,61 +109,52 @@ ${urls
   .join("\n")}
 </urlset>`;
 
-    console.log(`Generated sitemap with ${urls.length} URLs (${productUrls.length} products, ${categoryUrls.length} categories)`);
+    console.log(`Generated fresh sitemap with ${urls.length} URLs`);
 
-    // Store the sitemap in the database
-    const { error: logError } = await supabase.from("sitemap_logs").insert({
-      trigger_type: trigger,
-      triggered_by: triggeredBy || null,
+    // Store this generated sitemap for future requests
+    await supabase.from("sitemap_logs").insert({
+      trigger_type: "auto_serve",
       total_urls: urls.length,
       product_urls: productUrls.length,
       category_urls: categoryUrls.length,
-      static_urls: 2, // Homepage + Order page
+      static_urls: 2,
       sitemap_content: xmlContent,
       success: true,
     });
 
-    if (logError) {
-      console.error("Error logging sitemap generation:", logError);
-      // Don't throw here - sitemap was still generated successfully
-    } else {
-      console.log("Sitemap stored in database successfully");
-    }
-
-    // Return the sitemap XML and stats
-    return new Response(
-      JSON.stringify({
-        success: true,
-        totalUrls: urls.length,
-        productUrls: productUrls.length,
-        categoryUrls: categoryUrls.length,
-        staticUrls: 2,
-        sitemap: xmlContent,
-        generatedAt: now,
-      }),
-      { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
+    return new Response(xmlContent, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/xml",
+        "Cache-Control": "public, max-age=3600",
+      },
+    });
   } catch (error) {
-    console.error("Sitemap generation error:", error);
+    console.error("Error serving sitemap:", error);
     
-    // Log the failure
-    try {
-      await supabase.from("sitemap_logs").insert({
-        trigger_type: "manual",
-        total_urls: 0,
-        product_urls: 0,
-        category_urls: 0,
-        static_urls: 0,
-        success: false,
-        error_message: String(error),
-      });
-    } catch (logErr) {
-      console.error("Failed to log error:", logErr);
-    }
-    
-    return new Response(
-      JSON.stringify({ success: false, error: String(error) }),
-      { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
+    // Return a minimal fallback sitemap
+    const fallbackXml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>${BASE_URL}</loc>
+    <lastmod>${new Date().toISOString().split("T")[0]}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>${BASE_URL}/order</loc>
+    <lastmod>${new Date().toISOString().split("T")[0]}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+</urlset>`;
+
+    return new Response(fallbackXml, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/xml",
+        "Cache-Control": "public, max-age=300", // Cache fallback for 5 mins
+      },
+    });
   }
 });

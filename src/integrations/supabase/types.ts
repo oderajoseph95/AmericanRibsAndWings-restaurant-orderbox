@@ -1422,6 +1422,51 @@ export type Database = {
         }
         Relationships: []
       }
+      sitemap_logs: {
+        Row: {
+          category_urls: number
+          created_at: string
+          error_message: string | null
+          generated_at: string
+          id: string
+          product_urls: number
+          sitemap_content: string | null
+          static_urls: number
+          success: boolean
+          total_urls: number
+          trigger_type: string
+          triggered_by: string | null
+        }
+        Insert: {
+          category_urls?: number
+          created_at?: string
+          error_message?: string | null
+          generated_at?: string
+          id?: string
+          product_urls?: number
+          sitemap_content?: string | null
+          static_urls?: number
+          success?: boolean
+          total_urls?: number
+          trigger_type?: string
+          triggered_by?: string | null
+        }
+        Update: {
+          category_urls?: number
+          created_at?: string
+          error_message?: string | null
+          generated_at?: string
+          id?: string
+          product_urls?: number
+          sitemap_content?: string | null
+          static_urls?: number
+          success?: boolean
+          total_urls?: number
+          trigger_type?: string
+          triggered_by?: string | null
+        }
+        Relationships: []
+      }
       sms_logs: {
         Row: {
           cost: number | null

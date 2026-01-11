@@ -18,9 +18,14 @@ import {
   Loader2,
   CheckCircle,
   Clock,
-  History
+  History,
+  Download,
+  Copy,
+  AlertCircle,
+  Eye
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 
 type SitemapLog = {
   id: string;
@@ -31,6 +36,9 @@ type SitemapLog = {
   product_urls: number;
   category_urls: number;
   static_urls: number;
+  sitemap_content: string | null;
+  success: boolean;
+  error_message: string | null;
 };
 
 export default function Sitemap() {
@@ -88,8 +96,13 @@ export default function Sitemap() {
     },
   });
 
-  const lastLog = logs[0];
-  const sitemapUrl = `${window.location.origin}/sitemap.xml`;
+  const lastLog = logs.find(l => l.success);
+  const lastSuccessfulSitemap = lastLog?.sitemap_content;
+  
+  // Dynamic sitemap URL (via edge function)
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const dynamicSitemapUrl = `${supabaseUrl}/functions/v1/serve-sitemap`;
+  const staticSitemapUrl = `${window.location.origin}/sitemap.xml`;
 
   // Generate sitemap mutation
   const generateMutation = useMutation({
@@ -99,11 +112,15 @@ export default function Sitemap() {
       });
       
       if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Generation failed');
       return data;
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['sitemap-logs'] });
-      toast.success(`Sitemap updated with ${data?.totalUrls || 0} URLs`);
+      queryClient.invalidateQueries({ queryKey: ['sitemap-stats'] });
+      toast.success(`Sitemap updated with ${data?.totalUrls || 0} URLs`, {
+        description: `${data?.productUrls || 0} products, ${data?.categoryUrls || 0} categories`,
+      });
     },
     onError: (error) => {
       toast.error('Failed to generate sitemap: ' + (error as Error).message);
@@ -119,6 +136,30 @@ export default function Sitemap() {
     }
   };
 
+  const handleDownloadXml = () => {
+    if (!lastSuccessfulSitemap) {
+      toast.error('No sitemap available. Generate one first.');
+      return;
+    }
+    const blob = new Blob([lastSuccessfulSitemap], { type: 'application/xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'sitemap.xml';
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success('Sitemap downloaded');
+  };
+
+  const handleCopyXml = () => {
+    if (!lastSuccessfulSitemap) {
+      toast.error('No sitemap available. Generate one first.');
+      return;
+    }
+    navigator.clipboard.writeText(lastSuccessfulSitemap);
+    toast.success('Sitemap XML copied to clipboard');
+  };
+
   const getTriggerBadge = (type: string) => {
     switch (type) {
       case 'manual':
@@ -127,9 +168,18 @@ export default function Sitemap() {
         return <Badge variant="outline" className="bg-green-500/10 text-green-700">Product Update</Badge>;
       case 'auto_category':
         return <Badge variant="outline" className="bg-purple-500/10 text-purple-700">Category Update</Badge>;
+      case 'auto_serve':
+        return <Badge variant="outline" className="bg-yellow-500/10 text-yellow-700">Auto-Generated</Badge>;
       default:
         return <Badge variant="outline">{type}</Badge>;
     }
+  };
+
+  const getStatusBadge = (log: SitemapLog) => {
+    if (log.success) {
+      return <Badge variant="outline" className="bg-green-500/10 text-green-700"><CheckCircle className="h-3 w-3 mr-1" />Success</Badge>;
+    }
+    return <Badge variant="destructive"><AlertCircle className="h-3 w-3 mr-1" />Failed</Badge>;
   };
 
   return (
@@ -233,34 +283,96 @@ export default function Sitemap() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            Sitemap URL
+            Sitemap URLs
           </CardTitle>
           <CardDescription>
-            Submit this URL to Google Search Console for indexing
+            Submit either URL to Google Search Console for indexing
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
-            <code className="text-sm flex-1 font-mono">{sitemapUrl}</code>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                navigator.clipboard.writeText(sitemapUrl);
-                toast.success('URL copied to clipboard');
-              }}
-            >
-              Copy
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => window.open(sitemapUrl, '_blank')}
-            >
-              <ExternalLink className="h-4 w-4 mr-2" />
-              View
-            </Button>
+        <CardContent className="space-y-4">
+          {/* Dynamic URL */}
+          <div>
+            <p className="text-sm font-medium mb-2 flex items-center gap-2">
+              <Badge variant="default" className="text-xs">Recommended</Badge>
+              Dynamic Sitemap (always up-to-date)
+            </p>
+            <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
+              <code className="text-xs flex-1 font-mono break-all">{dynamicSitemapUrl}</code>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  navigator.clipboard.writeText(dynamicSitemapUrl);
+                  toast.success('URL copied to clipboard');
+                }}
+              >
+                <Copy className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.open(dynamicSitemapUrl, '_blank')}
+              >
+                <ExternalLink className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
+
+          {/* Static URL */}
+          <div>
+            <p className="text-sm font-medium mb-2 text-muted-foreground">Static Sitemap (fallback)</p>
+            <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+              <code className="text-xs flex-1 font-mono break-all">{staticSitemapUrl}</code>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  navigator.clipboard.writeText(staticSitemapUrl);
+                  toast.success('URL copied to clipboard');
+                }}
+              >
+                <Copy className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.open(staticSitemapUrl, '_blank')}
+              >
+                <ExternalLink className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-2 pt-2">
+            <Button variant="outline" size="sm" onClick={handleDownloadXml} disabled={!lastSuccessfulSitemap}>
+              <Download className="h-4 w-4 mr-2" />
+              Download XML
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleCopyXml} disabled={!lastSuccessfulSitemap}>
+              <Copy className="h-4 w-4 mr-2" />
+              Copy XML
+            </Button>
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" disabled={!lastSuccessfulSitemap}>
+                  <Eye className="h-4 w-4 mr-2" />
+                  Preview XML
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-4xl max-h-[80vh]">
+                <DialogHeader>
+                  <DialogTitle>Sitemap XML Preview</DialogTitle>
+                </DialogHeader>
+                <ScrollArea className="h-[60vh]">
+                  <pre className="text-xs font-mono bg-muted p-4 rounded-lg overflow-x-auto whitespace-pre-wrap">
+                    {lastSuccessfulSitemap || 'No sitemap content available'}
+                  </pre>
+                </ScrollArea>
+              </DialogContent>
+            </Dialog>
+          </div>
+
           <div className="mt-4 grid grid-cols-3 gap-4 text-sm">
             <div className="flex items-center gap-2">
               <Home className="h-4 w-4 text-muted-foreground" />
@@ -306,6 +418,7 @@ export default function Sitemap() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Date & Time</TableHead>
+                    <TableHead>Status</TableHead>
                     <TableHead>Trigger</TableHead>
                     <TableHead>Triggered By</TableHead>
                     <TableHead className="text-right">Products</TableHead>
@@ -326,6 +439,7 @@ export default function Sitemap() {
                           </p>
                         </div>
                       </TableCell>
+                      <TableCell>{getStatusBadge(log)}</TableCell>
                       <TableCell>{getTriggerBadge(log.trigger_type)}</TableCell>
                       <TableCell className="text-muted-foreground">
                         {log.triggered_by || 'System'}
