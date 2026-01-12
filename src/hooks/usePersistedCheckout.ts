@@ -16,6 +16,8 @@ export interface PersistedCheckoutData {
   customerLng?: number;
   activeSection?: string;
   geocodedAddress?: string;
+  deliveryDate?: string; // ISO string for date
+  deliveryTime?: string;
   savedAt: number;
 }
 

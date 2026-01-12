@@ -52,6 +52,8 @@ const checkoutSchema = z.object({
   orderType: z.enum(["pickup", "delivery"]),
   pickupDate: z.date().optional(),
   pickupTime: z.string().optional(),
+  deliveryDate: z.date().optional(),
+  deliveryTime: z.string().optional(),
   name: z.string().min(2, "Name must be at least 2 characters").max(100),
   phone: z.string()
     .min(11, "Phone number must be 11 digits")
@@ -67,6 +69,20 @@ const checkoutSchema = z.object({
   paymentMethod: z.enum(["cash", "gcash", "bank"])
 }).superRefine((data, ctx) => {
   if (data.orderType === "delivery") {
+    if (!data.deliveryDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Please select a delivery date",
+        path: ["deliveryDate"]
+      });
+    }
+    if (!data.deliveryTime) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Please select a delivery time",
+        path: ["deliveryTime"]
+      });
+    }
     if (!data.city?.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -108,7 +124,7 @@ const checkoutSchema = z.object({
 });
 
 type CheckoutFormData = z.infer<typeof checkoutSchema>;
-type SectionId = "order-type" | "pickup-schedule" | "delivery-address" | "customer-info" | "payment" | "review";
+type SectionId = "order-type" | "pickup-schedule" | "delivery-schedule" | "delivery-address" | "customer-info" | "payment" | "review";
 
 interface CheckoutSheetProps {
   open: boolean;
@@ -128,6 +144,28 @@ function generateTimeSlots(selectedDate: Date | undefined): string[] {
       if (hour === 20 && minute === 30) continue;
       const slotTime = setMinutes(setHours(new Date(), hour), minute);
       if (isSelectedToday) {
+        const bufferTime = new Date(now.getTime() + 60 * 60 * 1000);
+        if (isBefore(slotTime, bufferTime)) continue;
+      }
+      const timeStr = format(slotTime, "h:mm a");
+      slots.push(timeStr);
+    }
+  }
+  return slots;
+}
+
+// Delivery time slots - same as pickup (12 PM to 8 PM) with 8 PM cutoff
+function generateDeliveryTimeSlots(selectedDate: Date | undefined): string[] {
+  const slots: string[] = [];
+  const now = new Date();
+  const isSelectedToday = selectedDate && isToday(selectedDate);
+  // Delivery hours: 12 PM to 8 PM (8 PM is cutoff - last delivery slot is 8:00 PM)
+  for (let hour = 12; hour <= 20; hour++) {
+    for (const minute of [0, 30]) {
+      if (hour === 20 && minute === 30) continue; // No 8:30 PM slot
+      const slotTime = setMinutes(setHours(new Date(), hour), minute);
+      if (isSelectedToday) {
+        // 1 hour buffer for same-day delivery
         const bufferTime = new Date(now.getTime() + 60 * 60 * 1000);
         if (isBefore(slotTime, bufferTime)) continue;
       }
@@ -214,6 +252,8 @@ export function CheckoutSheet({
   const orderType = form.watch("orderType");
   const pickupDate = form.watch("pickupDate");
   const pickupTime = form.watch("pickupTime");
+  const deliveryDate = form.watch("deliveryDate");
+  const deliveryTime = form.watch("deliveryTime");
   const streetAddress = form.watch("streetAddress");
   const city = form.watch("city");
   const customerName = form.watch("name");
@@ -329,8 +369,8 @@ export function CheckoutSheet({
       setActiveSection("pickup-schedule");
       setCompletedSections(prev => new Set([...prev, "order-type"]));
     } else {
-      // Auto-advance to delivery address
-      setActiveSection("delivery-address");
+      // Auto-advance to delivery schedule (before address)
+      setActiveSection("delivery-schedule");
       setCompletedSections(prev => new Set([...prev, "order-type"]));
     }
   }, [orderType]);
@@ -354,6 +394,13 @@ export function CheckoutSheet({
       setCompletedSections(prev => new Set([...prev, "pickup-schedule"]));
     }
   }, [pickupDate, pickupTime]);
+
+  // Auto-advance when delivery schedule is complete
+  useEffect(() => {
+    if (deliveryDate && deliveryTime) {
+      setCompletedSections(prev => new Set([...prev, "delivery-schedule"]));
+    }
+  }, [deliveryDate, deliveryTime]);
 
   // Auto-advance when customer info is complete
   useEffect(() => {
@@ -411,6 +458,8 @@ export function CheckoutSheet({
       if (savedData.customerLng) form.setValue("customerLng", savedData.customerLng);
       if (savedData.activeSection) setActiveSection(savedData.activeSection as SectionId);
       if (savedData.geocodedAddress) setGeocodedAddress(savedData.geocodedAddress);
+      if (savedData.deliveryDate) form.setValue("deliveryDate", new Date(savedData.deliveryDate));
+      if (savedData.deliveryTime) form.setValue("deliveryTime", savedData.deliveryTime);
       
       toast.success("Your checkout progress has been restored", {
         description: "Use 'Clear' button to start fresh.",
@@ -438,9 +487,11 @@ export function CheckoutSheet({
         customerLng: form.watch("customerLng"),
         activeSection,
         geocodedAddress,
+        deliveryDate: deliveryDate?.toISOString(),
+        deliveryTime,
       });
     }
-  }, [customerName, customerPhone, customerEmail, orderType, streetAddress, city, barangay, activeSection, geocodedAddress, saveCheckoutData, form]);
+  }, [customerName, customerPhone, customerEmail, orderType, streetAddress, city, barangay, activeSection, geocodedAddress, deliveryDate, deliveryTime, saveCheckoutData, form]);
 
   const handleLocationSelect = (data: {
     lat: number;
@@ -495,6 +546,7 @@ export function CheckoutSheet({
   };
 
   const timeSlots = generateTimeSlots(pickupDate);
+  const deliveryTimeSlots = generateDeliveryTimeSlots(deliveryDate);
 
   const getSectionSummary = (sectionId: SectionId): string => {
     switch (sectionId) {
@@ -503,6 +555,10 @@ export function CheckoutSheet({
       case "pickup-schedule":
         return pickupDate && pickupTime 
           ? `${format(pickupDate, "MMM d")} at ${pickupTime}`
+          : "Select date & time";
+      case "delivery-schedule":
+        return deliveryDate && deliveryTime 
+          ? `${format(deliveryDate, "MMM d")} at ${deliveryTime}`
           : "Select date & time";
       case "delivery-address":
         if (deliveryFee !== null && deliveryDistance !== null) {
@@ -547,6 +603,11 @@ export function CheckoutSheet({
           errors.pickupDate?.message,
           errors.pickupTime?.message
         ].filter(Boolean) as string[];
+      case "delivery-schedule":
+        return [
+          errors.deliveryDate?.message,
+          errors.deliveryTime?.message
+        ].filter(Boolean) as string[];
       case "payment":
         return [errors.paymentMethod?.message].filter(Boolean) as string[];
       default:
@@ -559,6 +620,7 @@ export function CheckoutSheet({
     const titles: Record<SectionId, string> = {
       "order-type": "Order Type",
       "pickup-schedule": "Pickup Schedule",
+      "delivery-schedule": "Delivery Schedule",
       "delivery-address": "Delivery Address",
       "customer-info": "Customer Information",
       "payment": "Payment Method",
@@ -571,14 +633,17 @@ export function CheckoutSheet({
   const handleSectionClick = (targetSection: SectionId) => {
     const requiredSections: Record<SectionId, SectionId[]> = {
       "order-type": [],
-      "delivery-address": ["order-type"],
+      "delivery-schedule": ["order-type"],
+      "delivery-address": ["order-type", "delivery-schedule"],
       "pickup-schedule": ["order-type"],
-      "customer-info": orderType === "delivery" ? ["order-type", "delivery-address"] : ["order-type", "pickup-schedule"],
+      "customer-info": orderType === "delivery" 
+        ? ["order-type", "delivery-schedule", "delivery-address"] 
+        : ["order-type", "pickup-schedule"],
       "payment": orderType === "delivery" 
-        ? ["order-type", "delivery-address", "customer-info"] 
+        ? ["order-type", "delivery-schedule", "delivery-address", "customer-info"] 
         : ["order-type", "pickup-schedule", "customer-info"],
       "review": orderType === "delivery"
-        ? ["order-type", "delivery-address", "customer-info", "payment"]
+        ? ["order-type", "delivery-schedule", "delivery-address", "customer-info", "payment"]
         : ["order-type", "pickup-schedule", "customer-info", "payment"],
     };
 
@@ -607,6 +672,11 @@ export function CheckoutSheet({
     if (errors.name || errors.phone || errors.email) {
       errorMessage = errors.phone?.message || errors.name?.message || errors.email?.message;
       targetSection = "customer-info";
+    }
+    // Check delivery schedule
+    else if (errors.deliveryDate || errors.deliveryTime) {
+      errorMessage = errors.deliveryDate?.message || errors.deliveryTime?.message;
+      targetSection = "delivery-schedule";
     }
     // Check delivery address
     else if (errors.streetAddress || errors.city || errors.customerLat || errors.customerLng) {
@@ -1064,7 +1134,113 @@ export function CheckoutSheet({
                 </AccordionSection>
               )}
 
-              {/* Section 2b: Delivery Address & ETA (merged - only for delivery) */}
+              {/* Section 2b: Delivery Schedule (only for delivery - BEFORE address) */}
+              {orderType === "delivery" && (
+                <AccordionSection
+                  id="delivery-schedule"
+                  title="Delivery Schedule"
+                  icon={<CalendarIcon className="h-4 w-4" />}
+                  summary={getSectionSummary("delivery-schedule")}
+                  isActive={activeSection === "delivery-schedule"}
+                  isCompleted={completedSections.has("delivery-schedule")}
+                  isDisabled={!completedSections.has("order-type")}
+                  hasError={getSectionErrors("delivery-schedule").length > 0}
+                  onToggle={() => handleSectionClick("delivery-schedule")}
+                >
+                  {/* 8 PM Cutoff Warning Banner - Glowing */}
+                  <div className="mb-4 p-3 rounded-lg border-2 border-amber-500/50 bg-amber-50 shadow-[0_0_15px_rgba(251,191,36,0.4)] animate-pulse">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-bold text-amber-800">Daily Delivery Cutoff: 8:00 PM</p>
+                        <p className="text-xs text-amber-700 mt-1">
+                          We are open 12:00 PM - 8:00 PM. Orders must be scheduled within operating hours.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Schedule your delivery up to 3 days in advance.
+                  </p>
+
+                  <FormField 
+                    control={form.control} 
+                    name="deliveryDate" 
+                    render={({ field }) => (
+                      <FormItem className="flex flex-col">
+                        <FormLabel>Delivery Date *</FormLabel>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <FormControl>
+                              <Button 
+                                variant="outline" 
+                                className={cn("w-full pl-3 text-left font-normal", !field.value && "text-muted-foreground")}
+                              >
+                                {field.value ? format(field.value, "PPP") : <span>Select delivery date</span>}
+                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                              </Button>
+                            </FormControl>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar 
+                              mode="single" 
+                              selected={field.value} 
+                              onSelect={date => {
+                                field.onChange(date);
+                                form.setValue("deliveryTime", undefined);
+                              }} 
+                              disabled={date => isBefore(date, startOfDay(new Date())) || isBefore(addDays(new Date(), 3), date)} 
+                              initialFocus 
+                              className={cn("p-3 pointer-events-auto")} 
+                            />
+                          </PopoverContent>
+                        </Popover>
+                        <FormMessage />
+                      </FormItem>
+                    )} 
+                  />
+
+                  <FormField 
+                    control={form.control} 
+                    name="deliveryTime" 
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Delivery Time *</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value} disabled={!deliveryDate}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder={deliveryDate ? "Select time" : "Select date first"} />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {deliveryTimeSlots.length > 0 ? deliveryTimeSlots.map(slot => (
+                              <SelectItem key={slot} value={slot}>{slot}</SelectItem>
+                            )) : (
+                              <SelectItem value="none" disabled>No slots available for today</SelectItem>
+                            )}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )} 
+                  />
+
+                  {deliveryDate && deliveryTime && (
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      size="sm" 
+                      className="w-full mt-2"
+                      onClick={() => setActiveSection("delivery-address")}
+                    >
+                      Continue
+                    </Button>
+                  )}
+                </AccordionSection>
+              )}
+
+              {/* Section 2c: Delivery Address & ETA (only for delivery) */}
               {orderType === "delivery" && (
                 <AccordionSection
                   id="delivery-address"
@@ -1073,7 +1249,7 @@ export function CheckoutSheet({
                   summary={getSectionSummary("delivery-address")}
                   isActive={activeSection === "delivery-address"}
                   isCompleted={completedSections.has("delivery-address")}
-                  isDisabled={!completedSections.has("order-type")}
+                  isDisabled={!completedSections.has("delivery-schedule")}
                   hasError={getSectionErrors("delivery-address").length > 0}
                   onToggle={() => handleSectionClick("delivery-address")}
                 >
