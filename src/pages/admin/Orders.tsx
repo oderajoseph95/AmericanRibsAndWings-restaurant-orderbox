@@ -1434,6 +1434,30 @@ export default function Orders() {
                   </div>
                 )}
 
+                {/* Scheduled Delivery Time - Glowing & Bold for Visibility */}
+                {selectedOrder.order_type === 'delivery' && (selectedOrder as any).delivery_date && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium flex items-center gap-2">
+                      <Clock className="h-4 w-4" />
+                      Scheduled Delivery
+                    </h4>
+                    <div className="p-3 rounded-lg border-2 border-primary/50 bg-primary/10 shadow-[0_0_15px_rgba(var(--primary),0.3)]">
+                      <div className="flex items-center gap-2">
+                        <div>
+                          <p className="text-sm font-bold text-primary">
+                            {format(new Date((selectedOrder as any).delivery_date), 'PPPP')}
+                          </p>
+                          {(selectedOrder as any).delivery_time && (
+                            <p className="text-lg font-bold text-primary animate-pulse">
+                              at {(selectedOrder as any).delivery_time}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Assign Driver for Delivery Orders */}
                 {selectedOrder.order_type === 'delivery' && (
                   <div className="space-y-2">

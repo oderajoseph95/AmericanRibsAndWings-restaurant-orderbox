@@ -1050,8 +1050,10 @@ export type Database = {
           created_at: string | null
           customer_id: string | null
           delivery_address: string | null
+          delivery_date: string | null
           delivery_distance_km: number | null
           delivery_fee: number | null
+          delivery_time: string | null
           driver_id: string | null
           id: string
           internal_notes: string | null
@@ -1077,8 +1079,10 @@ export type Database = {
           created_at?: string | null
           customer_id?: string | null
           delivery_address?: string | null
+          delivery_date?: string | null
           delivery_distance_km?: number | null
           delivery_fee?: number | null
+          delivery_time?: string | null
           driver_id?: string | null
           id?: string
           internal_notes?: string | null
@@ -1104,8 +1108,10 @@ export type Database = {
           created_at?: string | null
           customer_id?: string | null
           delivery_address?: string | null
+          delivery_date?: string | null
           delivery_distance_km?: number | null
           delivery_fee?: number | null
+          delivery_time?: string | null
           driver_id?: string | null
           id?: string
           internal_notes?: string | null
@@ -1770,6 +1776,27 @@ export type Database = {
         Returns: string
       }
       create_checkout_order:
+        | {
+            Args: {
+              p_customer_id: string
+              p_delivery_address?: string
+              p_delivery_date?: string
+              p_delivery_distance_km?: number
+              p_delivery_fee?: number
+              p_delivery_time?: string
+              p_internal_notes?: string
+              p_order_type?: string
+              p_payment_method?: string
+              p_pickup_date?: string
+              p_pickup_time?: string
+              p_subtotal?: number
+              p_total_amount?: number
+            }
+            Returns: {
+              id: string
+              order_number: string
+            }[]
+          }
         | {
             Args: {
               p_customer_id: string

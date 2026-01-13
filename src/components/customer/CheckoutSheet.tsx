@@ -194,10 +194,12 @@ export function CheckoutSheet({
   const [barangay, setBarangay] = useState("");
   const [geocodedAddress, setGeocodedAddress] = useState<string>("");
   
-  // Accordion state - start with delivery-address since delivery is default
-  const [activeSection, setActiveSection] = useState<SectionId>("delivery-address");
+  // Accordion state - start with delivery-schedule since delivery is default
+  const [activeSection, setActiveSection] = useState<SectionId>("delivery-schedule");
   const [completedSections, setCompletedSections] = useState<Set<SectionId>>(new Set(["order-type"]));
   const [datePopoverOpen, setDatePopoverOpen] = useState(false);
+  const [deliveryDatePopoverOpen, setDeliveryDatePopoverOpen] = useState(false);
+  const [showDeliveryDatePicker, setShowDeliveryDatePicker] = useState(false);
   const [hasRestoredData, setHasRestoredData] = useState(false);
   const [orderCompleted, setOrderCompleted] = useState(false);
 
@@ -236,6 +238,7 @@ export function CheckoutSheet({
     resolver: zodResolver(checkoutSchema),
     defaultValues: {
       orderType: "delivery",
+      deliveryDate: new Date(), // Default to today for delivery
       name: "",
       phone: "",
       email: "",
@@ -365,11 +368,17 @@ export function CheckoutSheet({
       setDeliveryEta(null);
       setTravelMinutes(null);
       setBarangay("");
+      setShowDeliveryDatePicker(false);
       // Auto-advance to pickup schedule
       setActiveSection("pickup-schedule");
       setCompletedSections(prev => new Set([...prev, "order-type"]));
     } else {
       // Auto-advance to delivery schedule (before address)
+      // Default to today
+      if (!deliveryDate) {
+        form.setValue("deliveryDate", new Date());
+      }
+      setShowDeliveryDatePicker(false);
       setActiveSection("delivery-schedule");
       setCompletedSections(prev => new Set([...prev, "order-type"]));
     }
@@ -742,6 +751,8 @@ export function CheckoutSheet({
         p_delivery_distance_km: deliveryDistance,
         p_pickup_date: data.orderType === "pickup" && data.pickupDate ? format(data.pickupDate, "yyyy-MM-dd") : null,
         p_pickup_time: data.orderType === "pickup" && data.pickupTime ? data.pickupTime : null,
+        p_delivery_date: data.orderType === "delivery" && data.deliveryDate ? format(data.deliveryDate, "yyyy-MM-dd") : null,
+        p_delivery_time: data.orderType === "delivery" && data.deliveryTime ? data.deliveryTime : null,
         p_internal_notes: data.notes || null,
         p_payment_method: data.paymentMethod
       });
@@ -1148,7 +1159,7 @@ export function CheckoutSheet({
                   onToggle={() => handleSectionClick("delivery-schedule")}
                 >
                   {/* 8 PM Cutoff Warning Banner - Glowing */}
-                  <div className="mb-4 p-3 rounded-lg border-2 border-amber-500/50 bg-amber-50 shadow-[0_0_15px_rgba(251,191,36,0.4)] animate-pulse">
+                  <div className="mb-4 p-3 rounded-lg border-2 border-amber-500/50 bg-amber-50 shadow-[0_0_15px_rgba(251,191,36,0.4)]">
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
                       <div>
@@ -1160,82 +1171,124 @@ export function CheckoutSheet({
                     </div>
                   </div>
 
-                  <p className="text-sm text-muted-foreground mb-3">
-                    Schedule your delivery up to 3 days in advance.
-                  </p>
+                  {/* Compact Date Display - when date is set and not editing */}
+                  {deliveryDate && !showDeliveryDatePicker && (
+                    <div className="space-y-3">
+                      <div className="p-3 bg-muted rounded-lg flex items-center justify-between">
+                        <div>
+                          <p className="text-xs text-muted-foreground">Delivery Date</p>
+                          <p className="font-medium">{format(deliveryDate, "EEEE, MMMM d")}</p>
+                        </div>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={() => setShowDeliveryDatePicker(true)}
+                        >
+                          Change
+                        </Button>
+                      </div>
+                      
+                      {/* Glowing "Order for tomorrow?" - only if today is selected */}
+                      {isToday(deliveryDate) && (
+                        <button 
+                          type="button"
+                          onClick={() => {
+                            form.setValue("deliveryDate", addDays(new Date(), 1));
+                            form.setValue("deliveryTime", undefined);
+                          }}
+                          className="w-full p-3 rounded-lg border-2 border-emerald-500/50 bg-emerald-50 
+                                     shadow-[0_0_15px_rgba(16,185,129,0.4)] 
+                                     hover:bg-emerald-100 transition-colors text-left"
+                        >
+                          <p className="text-sm font-medium text-emerald-800">
+                            ✨ Order for tomorrow instead?
+                          </p>
+                          <p className="text-xs text-emerald-700">
+                            Click to switch to {format(addDays(new Date(), 1), "EEEE, MMMM d")}
+                          </p>
+                        </button>
+                      )}
+                      
+                      {/* Time Picker - shown after date is set */}
+                      <FormField 
+                        control={form.control} 
+                        name="deliveryTime" 
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Delivery Time *</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select time" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {deliveryTimeSlots.length > 0 ? deliveryTimeSlots.map(slot => (
+                                  <SelectItem key={slot} value={slot}>{slot}</SelectItem>
+                                )) : (
+                                  <SelectItem value="none" disabled>No slots available for today</SelectItem>
+                                )}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )} 
+                      />
 
-                  <FormField 
-                    control={form.control} 
-                    name="deliveryDate" 
-                    render={({ field }) => (
-                      <FormItem className="flex flex-col">
-                        <FormLabel>Delivery Date *</FormLabel>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <FormControl>
-                              <Button 
-                                variant="outline" 
-                                className={cn("w-full pl-3 text-left font-normal", !field.value && "text-muted-foreground")}
-                              >
-                                {field.value ? format(field.value, "PPP") : <span>Select delivery date</span>}
-                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                              </Button>
-                            </FormControl>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar 
-                              mode="single" 
-                              selected={field.value} 
-                              onSelect={date => {
-                                field.onChange(date);
-                                form.setValue("deliveryTime", undefined);
-                              }} 
-                              disabled={date => isBefore(date, startOfDay(new Date())) || isBefore(addDays(new Date(), 3), date)} 
-                              initialFocus 
-                              className={cn("p-3 pointer-events-auto")} 
-                            />
-                          </PopoverContent>
-                        </Popover>
-                        <FormMessage />
-                      </FormItem>
-                    )} 
-                  />
+                      {deliveryTime && (
+                        <Button 
+                          type="button" 
+                          variant="outline" 
+                          size="sm" 
+                          className="w-full"
+                          onClick={() => setActiveSection("delivery-address")}
+                        >
+                          Continue
+                        </Button>
+                      )}
+                    </div>
+                  )}
 
-                  <FormField 
-                    control={form.control} 
-                    name="deliveryTime" 
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Delivery Time *</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value} disabled={!deliveryDate}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder={deliveryDate ? "Select time" : "Select date first"} />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {deliveryTimeSlots.length > 0 ? deliveryTimeSlots.map(slot => (
-                              <SelectItem key={slot} value={slot}>{slot}</SelectItem>
-                            )) : (
-                              <SelectItem value="none" disabled>No slots available for today</SelectItem>
-                            )}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )} 
-                  />
-
-                  {deliveryDate && deliveryTime && (
-                    <Button 
-                      type="button" 
-                      variant="outline" 
-                      size="sm" 
-                      className="w-full mt-2"
-                      onClick={() => setActiveSection("delivery-address")}
-                    >
-                      Continue
-                    </Button>
+                  {/* Full Date Picker - shown initially or when "Change" is clicked */}
+                  {(!deliveryDate || showDeliveryDatePicker) && (
+                    <FormField 
+                      control={form.control} 
+                      name="deliveryDate" 
+                      render={({ field }) => (
+                        <FormItem className="flex flex-col">
+                          <FormLabel>Delivery Date *</FormLabel>
+                          <Popover open={deliveryDatePopoverOpen} onOpenChange={setDeliveryDatePopoverOpen}>
+                            <PopoverTrigger asChild>
+                              <FormControl>
+                                <Button 
+                                  variant="outline" 
+                                  className={cn("w-full pl-3 text-left font-normal", !field.value && "text-muted-foreground")}
+                                >
+                                  {field.value ? format(field.value, "PPP") : <span>Select delivery date</span>}
+                                  <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                </Button>
+                              </FormControl>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                              <Calendar 
+                                mode="single" 
+                                selected={field.value} 
+                                onSelect={date => {
+                                  field.onChange(date);
+                                  form.setValue("deliveryTime", undefined);
+                                  setDeliveryDatePopoverOpen(false);
+                                  setShowDeliveryDatePicker(false);
+                                }} 
+                                disabled={date => isBefore(date, startOfDay(new Date())) || isBefore(addDays(new Date(), 3), date)} 
+                                initialFocus 
+                                className={cn("p-3 pointer-events-auto")} 
+                              />
+                            </PopoverContent>
+                          </Popover>
+                          <FormMessage />
+                        </FormItem>
+                      )} 
+                    />
                   )}
                 </AccordionSection>
               )}
