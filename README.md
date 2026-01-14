@@ -90,3 +90,57 @@ Estimated delivery time is calculated as:
 - Displayed as a time range to account for real-world conditions
 
 **Example:**
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js (v18 or higher)
+- npm or Bun
+- Supabase account and project
+
+### Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd AmericanRibsAndWings-restaurant-orderbox
+   ```
+
+2. **Install dependencies**
+   ```bash
+   npm install
+   # or
+   bun install
+   ```
+
+3. **Set up environment variables**
+   
+   Create a `.env` file in the root directory:
+   ```env
+   VITE_SUPABASE_URL=your_supabase_project_url
+   VITE_SUPABASE_PUBLISHABLE_KEY=your_supabase_anon_key
+   ```
+   
+   Get these values from your Supabase project dashboard: **Settings → API**
+
+4. **Run the development server**
+   ```bash
+   npm run dev
+   ```
+   
+   The app will be available at http://localhost:8080
+
+### Available Scripts
+
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm run build:dev` - Build for development
+- `npm run preview` - Preview production build
+- `npm run lint` - Run ESLint
+
+For detailed setup instructions, see [SETUP.md](./SETUP.md)
+
+---
