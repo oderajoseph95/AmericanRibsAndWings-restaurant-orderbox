@@ -7,7 +7,7 @@ const corsHeaders = {
 
 const REMINDER_INTERVAL_HOURS = 3;
 const MAX_REMINDERS = 3;
-const PRODUCTION_DOMAIN = 'https://arwfloridablanca.shop';
+const PRODUCTION_DOMAIN = Deno.env.get('PRODUCTION_DOMAIN') || 'https://arwfloridablanca.shop';
 
 interface StoreHours {
   open: string;

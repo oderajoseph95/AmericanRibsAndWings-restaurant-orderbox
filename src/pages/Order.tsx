@@ -513,16 +513,35 @@ const Order = () => {
     pickupDate?: string,
     pickupTime?: string
   ) => {
-    // Track checkout completed event for recovery
+    // Track checkout completed event for recovery and mark as recovered
     if (recoverId) {
       try {
+        // Track the completion event
         await supabase.from("abandoned_checkout_events").insert({
           abandoned_checkout_id: recoverId,
           event_type: "checkout_completed",
           metadata: { order_id: orderId, order_number: orderNumber }
         });
+        
+        // Mark abandoned checkout as recovered
+        await supabase
+          .from("abandoned_checkouts")
+          .update({
+            status: "recovered",
+            recovery_completed_at: new Date().toISOString(),
+            converted_order_id: orderId
+          })
+          .eq("id", recoverId);
+        
+        // Cancel any pending reminders since order is now complete
+        await supabase
+          .from("abandoned_checkout_reminders")
+          .update({ status: "cancelled" })
+          .eq("abandoned_checkout_id", recoverId)
+          .eq("status", "pending");
       } catch (e) {
-        console.error("Failed to track checkout completion:", e);
+        console.error("Failed to mark checkout as recovered:", e);
+        // Don't block navigation if this fails, but log the error
       }
     }
     
