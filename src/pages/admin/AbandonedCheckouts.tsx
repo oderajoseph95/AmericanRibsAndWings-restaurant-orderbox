@@ -9,12 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Loader2, ShoppingCart, RefreshCw, Mail, MessageSquare, Clock, CheckCircle, XCircle, AlertCircle, Eye, ExternalLink, Trash2 } from "lucide-react";
+import { Loader2, ShoppingCart, RefreshCw, Mail, MessageSquare, Clock, CheckCircle, XCircle, AlertCircle, Eye, ExternalLink, Trash2, Send } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { format, formatDistanceToNow } from "date-fns";
 import { logAdminAction } from "@/lib/adminLogger";
 import { createAdminNotification } from "@/hooks/useAdminNotifications";
+import { cn } from "@/lib/utils";
 
 interface AbandonedCheckout {
   id: string;
@@ -52,6 +53,13 @@ interface CheckoutEvent {
   channel: string | null;
   metadata: any;
   created_at: string;
+}
+
+// Helper to get ordinal suffix (1st, 2nd, 3rd, etc.)
+function getOrdinal(n: number): string {
+  const suffixes = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (suffixes[(v - 20) % 10] || suffixes[v] || suffixes[0]);
 }
 
 export default function AbandonedCheckouts() {
@@ -215,6 +223,56 @@ export default function AbandonedCheckouts() {
     },
     onError: (error: any) => {
       toast.error(error.message || 'Failed to delete');
+    },
+  });
+
+  // Manual send email mutation
+  const sendEmailMutation = useMutation({
+    mutationFn: async ({ checkoutId, reminderId }: { checkoutId: string; reminderId?: string }) => {
+      const { data, error } = await supabase.functions.invoke('send-cart-reminder-manual', {
+        body: { 
+          abandoned_checkout_id: checkoutId,
+          channel: 'email',
+          reminder_id: reminderId,
+        },
+      });
+      if (error) throw error;
+      if (!data.success) throw new Error(data.error || 'Failed to send email');
+      return data;
+    },
+    onSuccess: () => {
+      toast.success('Email sent successfully!');
+      queryClient.invalidateQueries({ queryKey: ['abandoned-checkouts'] });
+      queryClient.invalidateQueries({ queryKey: ['checkout-reminders'] });
+      queryClient.invalidateQueries({ queryKey: ['checkout-events'] });
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to send email');
+    },
+  });
+
+  // Manual send SMS mutation
+  const sendSmsMutation = useMutation({
+    mutationFn: async ({ checkoutId, reminderId }: { checkoutId: string; reminderId?: string }) => {
+      const { data, error } = await supabase.functions.invoke('send-cart-reminder-manual', {
+        body: { 
+          abandoned_checkout_id: checkoutId,
+          channel: 'sms',
+          reminder_id: reminderId,
+        },
+      });
+      if (error) throw error;
+      if (!data.success) throw new Error(data.error || 'Failed to send SMS');
+      return data;
+    },
+    onSuccess: () => {
+      toast.success('SMS sent successfully!');
+      queryClient.invalidateQueries({ queryKey: ['abandoned-checkouts'] });
+      queryClient.invalidateQueries({ queryKey: ['checkout-reminders'] });
+      queryClient.invalidateQueries({ queryKey: ['checkout-events'] });
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to send SMS');
     },
   });
 
@@ -402,7 +460,45 @@ export default function AbandonedCheckouts() {
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex items-center justify-end gap-1">
+                        {/* Quick send buttons for recovering checkouts */}
+                        {checkout.status === 'recovering' && (
+                          <>
+                            {checkout.customer_email && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                onClick={() => sendEmailMutation.mutate({ checkoutId: checkout.id })}
+                                disabled={sendEmailMutation.isPending}
+                                title="Send Email"
+                              >
+                                {sendEmailMutation.isPending ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Mail className="h-4 w-4" />
+                                )}
+                              </Button>
+                            )}
+                            {checkout.customer_phone && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                onClick={() => sendSmsMutation.mutate({ checkoutId: checkout.id })}
+                                disabled={sendSmsMutation.isPending}
+                                title="Send SMS"
+                              >
+                                {sendSmsMutation.isPending ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <MessageSquare className="h-4 w-4" />
+                                )}
+                              </Button>
+                            )}
+                          </>
+                        )}
+
                         <Dialog>
                           <DialogTrigger asChild>
                             <Button 
@@ -417,7 +513,7 @@ export default function AbandonedCheckouts() {
                             <DialogHeader>
                               <DialogTitle>Checkout Details</DialogTitle>
                             </DialogHeader>
-                            <ScrollArea className="max-h-[60vh]">
+                            <ScrollArea className="max-h-[70vh]">
                               <div className="space-y-4 pr-4">
                                 {/* Customer Info */}
                                 <div>
@@ -446,35 +542,150 @@ export default function AbandonedCheckouts() {
                                   </div>
                                 </div>
 
+                                {/* Manual Send Actions */}
+                                {checkout.status !== 'recovered' && (
+                                  <div>
+                                    <Separator className="my-3" />
+                                    <h4 className="font-medium mb-3">Send Reminder Manually</h4>
+                                    <div className="flex flex-wrap gap-2">
+                                      {/* Send Email Button */}
+                                      {checkout.customer_email && (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() => sendEmailMutation.mutate({ checkoutId: checkout.id })}
+                                          disabled={sendEmailMutation.isPending}
+                                          className="border-blue-500 text-blue-600 hover:bg-blue-50"
+                                        >
+                                          {sendEmailMutation.isPending ? (
+                                            <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                                          ) : (
+                                            <Mail className="h-4 w-4 mr-1" />
+                                          )}
+                                          {checkout.email_attempts > 0 
+                                            ? `Send ${getOrdinal(checkout.email_attempts + 1)} Email`
+                                            : 'Send Email'}
+                                        </Button>
+                                      )}
+                                      
+                                      {/* Send SMS Button */}
+                                      {checkout.customer_phone && (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() => sendSmsMutation.mutate({ checkoutId: checkout.id })}
+                                          disabled={sendSmsMutation.isPending}
+                                          className="border-green-500 text-green-600 hover:bg-green-50"
+                                        >
+                                          {sendSmsMutation.isPending ? (
+                                            <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                                          ) : (
+                                            <MessageSquare className="h-4 w-4 mr-1" />
+                                          )}
+                                          {checkout.sms_attempts > 0 
+                                            ? `Send ${getOrdinal(checkout.sms_attempts + 1)} SMS`
+                                            : 'Send SMS'}
+                                        </Button>
+                                      )}
+                                      
+                                      {/* Send Both Button */}
+                                      {checkout.customer_email && checkout.customer_phone && (
+                                        <Button
+                                          size="sm"
+                                          onClick={() => {
+                                            sendEmailMutation.mutate({ checkoutId: checkout.id });
+                                            sendSmsMutation.mutate({ checkoutId: checkout.id });
+                                          }}
+                                          disabled={sendEmailMutation.isPending || sendSmsMutation.isPending}
+                                          className="bg-primary"
+                                        >
+                                          {(sendEmailMutation.isPending || sendSmsMutation.isPending) ? (
+                                            <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                                          ) : (
+                                            <Send className="h-4 w-4 mr-1" />
+                                          )}
+                                          Send Both
+                                        </Button>
+                                      )}
+                                    </div>
+                                    
+                                    {/* Attempt Counter */}
+                                    <p className="text-xs text-muted-foreground mt-2">
+                                      Emails sent: {checkout.email_attempts || 0} | SMS sent: {checkout.sms_attempts || 0}
+                                    </p>
+                                  </div>
+                                )}
+
                                 {/* Reminders */}
                                 {reminders.length > 0 && (
                                   <div>
+                                    <Separator className="my-3" />
                                     <h4 className="font-medium mb-2">Scheduled Reminders</h4>
                                     <div className="space-y-2">
-                                      {reminders.map((reminder) => (
-                                        <div key={reminder.id} className="text-sm bg-muted p-3 rounded space-y-2">
-                                          <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-2">
-                                              {reminder.channel === 'sms' ? (
-                                                <MessageSquare className="h-4 w-4" />
-                                              ) : (
-                                                <Mail className="h-4 w-4" />
-                                              )}
-                                              <span className="font-medium capitalize">{reminder.channel}</span>
+                                      {reminders.map((reminder) => {
+                                        const isPastDue = reminder.status === 'pending' && new Date(reminder.scheduled_for) < new Date();
+                                        
+                                        return (
+                                          <div 
+                                            key={reminder.id} 
+                                            className={cn(
+                                              "text-sm p-3 rounded space-y-2",
+                                              isPastDue 
+                                                ? "bg-red-50 dark:bg-red-950/30 border-2 border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.3)]"
+                                                : "bg-muted"
+                                            )}
+                                          >
+                                            {isPastDue && (
+                                              <Badge variant="destructive" className="animate-pulse mb-1">
+                                                ⚠️ OVERDUE - Send Manually!
+                                              </Badge>
+                                            )}
+                                            <div className="flex items-center justify-between">
+                                              <div className="flex items-center gap-2">
+                                                {reminder.channel === 'sms' ? (
+                                                  <MessageSquare className="h-4 w-4" />
+                                                ) : (
+                                                  <Mail className="h-4 w-4" />
+                                                )}
+                                                <span className="font-medium capitalize">{reminder.channel}</span>
+                                              </div>
+                                              <div className="flex items-center gap-2">
+                                                {getReminderStatusBadge(reminder.status)}
+                                                {isPastDue && reminder.status === 'pending' && (
+                                                  <Button
+                                                    size="sm"
+                                                    variant="destructive"
+                                                    className="h-6 text-xs"
+                                                    onClick={() => {
+                                                      if (reminder.channel === 'sms') {
+                                                        sendSmsMutation.mutate({ checkoutId: checkout.id, reminderId: reminder.id });
+                                                      } else {
+                                                        sendEmailMutation.mutate({ checkoutId: checkout.id, reminderId: reminder.id });
+                                                      }
+                                                    }}
+                                                    disabled={sendEmailMutation.isPending || sendSmsMutation.isPending}
+                                                  >
+                                                    {(sendEmailMutation.isPending || sendSmsMutation.isPending) ? (
+                                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                                    ) : (
+                                                      'Send Now'
+                                                    )}
+                                                  </Button>
+                                                )}
+                                              </div>
                                             </div>
-                                            {getReminderStatusBadge(reminder.status)}
-                                          </div>
-                                          <div className="text-xs text-muted-foreground">
-                                            <span>Scheduled: {format(new Date(reminder.scheduled_for), 'MMM d, h:mm a')}</span>
-                                            {reminder.sent_at && (
-                                              <span className="ml-2">• Sent: {format(new Date(reminder.sent_at), 'MMM d, h:mm a')}</span>
+                                            <div className="text-xs text-muted-foreground">
+                                              <span>Scheduled: {format(new Date(reminder.scheduled_for), 'MMM d, h:mm a')}</span>
+                                              {reminder.sent_at && (
+                                                <span className="ml-2">• Sent: {format(new Date(reminder.sent_at), 'MMM d, h:mm a')}</span>
+                                              )}
+                                            </div>
+                                            {reminder.error_message && (
+                                              <p className="text-xs text-destructive">{reminder.error_message}</p>
                                             )}
                                           </div>
-                                          {reminder.error_message && (
-                                            <p className="text-xs text-destructive">{reminder.error_message}</p>
-                                          )}
-                                        </div>
-                                      ))}
+                                        );
+                                      })}
                                     </div>
                                   </div>
                                 )}
@@ -482,6 +693,7 @@ export default function AbandonedCheckouts() {
                                 {/* Activity Timeline */}
                                 {checkoutEvents.length > 0 && (
                                   <div>
+                                    <Separator className="my-3" />
                                     <h4 className="font-medium mb-2">Activity Timeline</h4>
                                     <div className="relative pl-4 border-l-2 border-muted space-y-3">
                                       {checkoutEvents.map((event) => {
