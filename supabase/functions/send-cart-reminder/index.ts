@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { Resend } from "https://esm.sh/resend@2.0.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -6,8 +7,8 @@ const corsHeaders = {
 };
 
 const PRODUCTION_DOMAIN = Deno.env.get('PRODUCTION_DOMAIN') || 'https://arwfloridablanca.shop';
-// Use environment variable for FROM email, fallback to verified domain
-const FROM_EMAIL = Deno.env.get('RESEND_FROM_EMAIL') || 'American Ribs & Wings <team@updates.arwfloridablanca.shop>';
+const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
+const FROM_EMAIL = "American Ribs & Wings <team@updates.arwfloridablanca.shop>";
 
 interface StoreHours {
   open: string;
@@ -215,51 +216,48 @@ Deno.serve(async (req) => {
                 .replace(/\{\{customer_name\}\}/g, checkout.customer_name || 'there')
                 .replace(/\{\{cart_total\}\}/g, `₱${checkout.cart_total?.toLocaleString() || '0'}`);
 
-              const emailResponse = await fetch('https://api.resend.com/emails', {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${resendApiKey}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
+              try {
+                const emailResponse = await resend.emails.send({
                   from: FROM_EMAIL,
                   to: [checkout.customer_email],
                   subject: subject,
                   html: htmlContent,
-                }),
-              });
-
-              if (emailResponse.ok) {
-                sentCount++;
-                await supabase
-                  .from('abandoned_checkout_reminders')
-                  .update({ status: 'sent', sent_at: new Date().toISOString() })
-                  .eq('id', reminder.id);
-                
-                // Update checkout
-                await supabase
-                  .from('abandoned_checkouts')
-                  .update({ 
-                    email_attempts: (checkout.email_attempts || 0) + 1,
-                    last_reminder_sent_at: new Date().toISOString(),
-                  })
-                  .eq('id', checkout.id);
-
-                // Log email
-                await supabase.from('email_logs').insert({
-                  recipient_email: checkout.customer_email,
-                  email_type: 'cart_recovery',
-                  email_subject: subject,
-                  status: 'sent',
-                  trigger_event: 'cart_recovery',
                 });
-              } else {
-                const errorData = await emailResponse.json().catch(() => ({ message: await emailResponse.text() }));
-                const errorMsg = errorData.message || JSON.stringify(errorData);
+
+                if (emailResponse.data) {
+                  sentCount++;
+                  await supabase
+                    .from('abandoned_checkout_reminders')
+                    .update({ status: 'sent', sent_at: new Date().toISOString() })
+                    .eq('id', reminder.id);
+                  
+                  // Update checkout
+                  await supabase
+                    .from('abandoned_checkouts')
+                    .update({ 
+                      email_attempts: (checkout.email_attempts || 0) + 1,
+                      last_reminder_sent_at: new Date().toISOString(),
+                    })
+                    .eq('id', checkout.id);
+
+                  // Log email
+                  await supabase.from('email_logs').insert({
+                    recipient_email: checkout.customer_email,
+                    email_type: 'cart_recovery',
+                    email_subject: subject,
+                    status: 'sent',
+                    trigger_event: 'cart_recovery',
+                  });
+                } else {
+                  const errorMsg = emailResponse.error ? JSON.stringify(emailResponse.error) : 'Unknown error';
+                  throw new Error(`Email send failed: ${errorMsg}`);
+                }
+              } catch (emailError: any) {
+                const errorMsg = emailError.message || JSON.stringify(emailError);
                 
                 // Check if it's a domain verification error
                 if (errorMsg.includes('not verified') || errorMsg.includes('validation_error')) {
-                  throw new Error(`Email send failed: Domain verification error. The email domain is not verified in Resend. Please verify your domain at https://resend.com/domains or set RESEND_FROM_EMAIL environment variable to use a verified email address. Error: ${errorMsg}`);
+                  throw new Error(`Email send failed: Domain verification error. The email domain is not verified in Resend. Please verify your domain at https://resend.com/domains. Error: ${errorMsg}`);
                 } else {
                   throw new Error(`Email send failed: ${errorMsg}`);
                 }
