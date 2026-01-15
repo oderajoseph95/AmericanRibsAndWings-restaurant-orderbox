@@ -6,6 +6,8 @@ const corsHeaders = {
 };
 
 const PRODUCTION_DOMAIN = Deno.env.get('PRODUCTION_DOMAIN') || 'https://arwfloridablanca.shop';
+// Use environment variable for FROM email, fallback to verified domain
+const FROM_EMAIL = Deno.env.get('RESEND_FROM_EMAIL') || 'American Ribs & Wings <team@updates.arwfloridablanca.shop>';
 
 interface ManualReminderRequest {
   abandoned_checkout_id: string;
@@ -193,7 +195,7 @@ Deno.serve(async (req) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          from: 'American Ribs & Wings <noreply@arwfloridablanca.shop>',
+          from: FROM_EMAIL,
           to: [checkout.customer_email],
           subject: subject,
           html: htmlContent,
@@ -229,8 +231,15 @@ Deno.serve(async (req) => {
           metadata: { manual: true, attempt: (checkout.email_attempts || 0) + 1 },
         });
       } else {
-        const errorText = await emailResponse.text();
-        errorMessage = `Email send failed: ${errorText}`;
+        const errorData = await emailResponse.json().catch(() => ({ message: await emailResponse.text() }));
+        const errorMsg = errorData.message || JSON.stringify(errorData);
+        
+        // Check if it's a domain verification error
+        if (errorMsg.includes('not verified') || errorMsg.includes('validation_error')) {
+          errorMessage = `Email send failed: Domain verification error. The email domain is not verified in Resend. Please verify your domain at https://resend.com/domains or set RESEND_FROM_EMAIL environment variable to use a verified email address. Error: ${errorMsg}`;
+        } else {
+          errorMessage = `Email send failed: ${errorMsg}`;
+        }
         console.error(errorMessage);
       }
     }
