@@ -189,13 +189,20 @@ Deno.serve(async (req) => {
         );
       }
 
+      // Debug: Log the exact FROM_EMAIL being used
+      console.log('FROM_EMAIL constant:', FROM_EMAIL);
+      console.log('FROM_EMAIL type:', typeof FROM_EMAIL);
+      
       try {
-        const emailResponse = await resend.emails.send({
+        const emailPayload = {
           from: FROM_EMAIL,
           to: [checkout.customer_email],
           subject: subject,
           html: htmlContent,
-        });
+        };
+        console.log('Email payload being sent:', JSON.stringify(emailPayload, null, 2));
+        
+        const emailResponse = await resend.emails.send(emailPayload);
 
         if (emailResponse.data) {
           success = true;
