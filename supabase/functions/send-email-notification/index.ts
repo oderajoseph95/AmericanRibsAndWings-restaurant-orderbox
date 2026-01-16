@@ -1453,14 +1453,11 @@ const handler = async (req: Request): Promise<Response> => {
       }
     }
 
-    // ===== STEP 1: ALWAYS SEND ADMIN EMAILS =====
-    const adminEmails = await getAdminEmails(supabase);
-    console.log(`Fetched ${adminEmails.length} admin emails:`, adminEmails);
-    
+    // ===== STEP 1: SEND ADMIN EMAIL TO GENERAL NOTIFICATION ADDRESS ONLY =====
+    // Consolidated: All admin notifications go ONLY to the general email address
+    // This stops sending copies to princess, leira, orderjoseph168, etc.
     const allAdminRecipients = new Set<string>([GENERAL_NOTIFICATION_EMAIL]);
-    adminEmails.forEach(email => allAdminRecipients.add(email.toLowerCase()));
-    
-    console.log(`Sending to ${allAdminRecipients.size} admin recipients`);
+    console.log(`Sending admin notification to: ${GENERAL_NOTIFICATION_EMAIL}`);
 
     // Try to fetch admin template from database first
     const adminTemplateType = `${type}_admin`;
