@@ -134,19 +134,22 @@ interface CheckoutSheetProps {
   onOrderConfirmed: (orderNumber: string, orderId: string, orderType: OrderType, pickupDate?: string, pickupTime?: string) => void;
 }
 
+// Pickup time slots: 11 AM to 9 PM, 15-min intervals, NO buffer
 function generateTimeSlots(selectedDate: Date | undefined): string[] {
   const slots: string[] = [];
   const now = new Date();
   const isSelectedToday = selectedDate && isToday(selectedDate);
-  // Pickup hours: 12 PM to 8 PM only
-  for (let hour = 12; hour <= 20; hour++) {
-    for (const minute of [0, 30]) {
-      if (hour === 20 && minute === 30) continue;
+  
+  for (let hour = 11; hour <= 21; hour++) {
+    for (const minute of [0, 15, 30, 45]) {
+      if (hour === 21 && minute > 0) continue; // Last slot is 9:00 PM
       const slotTime = setMinutes(setHours(new Date(), hour), minute);
+      
       if (isSelectedToday) {
-        const bufferTime = new Date(now.getTime() + 60 * 60 * 1000);
-        if (isBefore(slotTime, bufferTime)) continue;
+        // No buffer - just filter past times
+        if (isBefore(slotTime, now)) continue;
       }
+      
       const timeStr = format(slotTime, "h:mm a");
       slots.push(timeStr);
     }
@@ -154,21 +157,22 @@ function generateTimeSlots(selectedDate: Date | undefined): string[] {
   return slots;
 }
 
-// Delivery time slots - same as pickup (12 PM to 8 PM) with 8 PM cutoff
+// Delivery time slots: 12 PM to 8 PM, 15-min intervals, NO buffer
 function generateDeliveryTimeSlots(selectedDate: Date | undefined): string[] {
   const slots: string[] = [];
   const now = new Date();
   const isSelectedToday = selectedDate && isToday(selectedDate);
-  // Delivery hours: 12 PM to 8 PM (8 PM is cutoff - last delivery slot is 8:00 PM)
+  
   for (let hour = 12; hour <= 20; hour++) {
-    for (const minute of [0, 30]) {
-      if (hour === 20 && minute === 30) continue; // No 8:30 PM slot
+    for (const minute of [0, 15, 30, 45]) {
+      if (hour === 20 && minute > 0) continue; // Last slot is 8:00 PM
       const slotTime = setMinutes(setHours(new Date(), hour), minute);
+      
       if (isSelectedToday) {
-        // 1 hour buffer for same-day delivery
-        const bufferTime = new Date(now.getTime() + 60 * 60 * 1000);
-        if (isBefore(slotTime, bufferTime)) continue;
+        // No buffer - just filter past times
+        if (isBefore(slotTime, now)) continue;
       }
+      
       const timeStr = format(slotTime, "h:mm a");
       slots.push(timeStr);
     }
