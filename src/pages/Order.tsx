@@ -310,14 +310,38 @@ const Order = () => {
     }
   }, [slug, products, navigate]);
 
-  // Filter products by category and search (exclude combo components from customer menu)
+  // Fetch product popularity (add-to-cart counts from analytics)
+  const { data: popularityData } = useQuery({
+    queryKey: ["product-popularity"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("analytics_events")
+        .select("event_data")
+        .eq("event_type", "add_to_cart")
+        .not("event_data->product_id", "is", null);
+      
+      if (error) return {};
+      
+      // Count occurrences per product
+      const counts: Record<string, number> = {};
+      data?.forEach(event => {
+        const eventData = event.event_data as { product_id?: string } | null;
+        const productId = eventData?.product_id;
+        if (productId) {
+          counts[productId] = (counts[productId] || 0) + 1;
+        }
+      });
+      return counts;
+    },
+    staleTime: 300000, // Cache for 5 minutes
+  });
+
+  // Filter products by category and search (exclude ₱0 bundle-only products)
   const filteredProducts = useMemo(() => {
     if (!products) return [];
     
-    // Exclude combo component products (internal bundle items with ₱0 price)
-    let visibleProducts = products.filter(
-      (p) => !(p.name.toLowerCase().startsWith("combo ") && p.price === 0)
-    );
+    // Exclude ALL ₱0 products (bundle-only items like "1L Juice (Bundle)", "Combo Drink", etc.)
+    let visibleProducts = products.filter((p) => p.price > 0);
     
     // Apply category filter
     if (activeCategory !== "all") {
@@ -336,8 +360,26 @@ const Order = () => {
       );
     }
     
+    // Sort by popularity (most added to cart first), then featured, then alphabetical
+    visibleProducts.sort((a, b) => {
+      const aPopularity = popularityData?.[a.id] || 0;
+      const bPopularity = popularityData?.[b.id] || 0;
+      
+      // First: by popularity (descending)
+      if (bPopularity !== aPopularity) {
+        return bPopularity - aPopularity;
+      }
+      
+      // Then: featured products first
+      if (a.is_featured && !b.is_featured) return -1;
+      if (!a.is_featured && b.is_featured) return 1;
+      
+      // Finally: alphabetical
+      return a.name.localeCompare(b.name);
+    });
+    
     return visibleProducts;
-  }, [products, activeCategory, searchQuery]);
+  }, [products, activeCategory, searchQuery, popularityData]);
 
   // Cart calculations
   const cartTotal = useMemo(() => {
