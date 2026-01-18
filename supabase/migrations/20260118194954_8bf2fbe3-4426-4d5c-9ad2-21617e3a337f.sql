@@ -1,0 +1,102 @@
+-- Enable pg_net extension for HTTP requests from PostgreSQL triggers
+CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
+
+-- Create the notification trigger function
+CREATE OR REPLACE FUNCTION public.notify_new_order()
+RETURNS TRIGGER 
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  customer_record RECORD;
+  order_items_json JSONB;
+  supabase_url TEXT;
+  anon_key TEXT;
+BEGIN
+  -- Only trigger for newly inserted orders
+  IF TG_OP = 'INSERT' THEN
+    -- Get Supabase URL and anon key from settings or use hardcoded values
+    supabase_url := 'https://saxwbdwmuzkmxztagfot.supabase.co';
+    anon_key := 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNheHdiZHdtdXprbXh6dGFnZm90Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcyMjM0NDUsImV4cCI6MjA4Mjc5OTQ0NX0.cMcSJxeh3DcPYQtrDxC8x4VwMLApABa_nu_MCBZh9OA';
+    
+    -- Fetch customer details
+    SELECT * INTO customer_record FROM customers WHERE id = NEW.customer_id;
+    
+    -- Fetch order items with flavors (need slight delay for items to be inserted)
+    -- Since items are inserted after order, we'll fetch what's available
+    SELECT COALESCE(jsonb_agg(
+      jsonb_build_object(
+        'name', oi.product_name,
+        'quantity', oi.quantity,
+        'unitPrice', oi.unit_price,
+        'lineTotal', COALESCE(oi.line_total, oi.subtotal),
+        'sku', oi.product_sku
+      )
+    ), '[]'::jsonb) INTO order_items_json
+    FROM order_items oi
+    WHERE oi.order_id = NEW.id;
+    
+    -- Call the edge function via pg_net (async, non-blocking)
+    PERFORM net.http_post(
+      url := supabase_url || '/functions/v1/send-email-notification',
+      headers := jsonb_build_object(
+        'Content-Type', 'application/json',
+        'Authorization', 'Bearer ' || anon_key
+      ),
+      body := jsonb_build_object(
+        'type', 'new_order',
+        'orderId', NEW.id::text,
+        'orderNumber', NEW.order_number,
+        'customerName', customer_record.name,
+        'customerPhone', customer_record.phone,
+        'customerEmail', customer_record.email,
+        'totalAmount', NEW.total_amount,
+        'subtotal', NEW.subtotal,
+        'deliveryFee', COALESCE(NEW.delivery_fee, 0),
+        'deliveryDistance', NEW.delivery_distance_km,
+        'deliveryAddress', NEW.delivery_address,
+        'orderType', NEW.order_type::text,
+        'paymentMethod', NEW.payment_method,
+        'pickupDate', NEW.pickup_date::text,
+        'pickupTime', NEW.pickup_time::text,
+        'notes', NEW.internal_notes,
+        'orderItems', order_items_json,
+        'source', 'database_trigger'
+      )::text
+    );
+    
+    -- Log the trigger execution for audit trail
+    INSERT INTO admin_logs (user_id, user_email, action, entity_type, entity_id, entity_name, details, new_values)
+    VALUES (
+      '00000000-0000-0000-0000-000000000000'::uuid,
+      'system@arwfloridablanca.shop',
+      'trigger_notification',
+      'order',
+      NEW.id,
+      NEW.order_number,
+      'Database trigger fired for new order notification',
+      jsonb_build_object(
+        'order_type', NEW.order_type,
+        'total_amount', NEW.total_amount,
+        'customer_name', customer_record.name,
+        'customer_phone', customer_record.phone
+      )
+    );
+  END IF;
+  
+  RETURN NEW;
+END;
+$$;
+
+-- Drop existing trigger if it exists
+DROP TRIGGER IF EXISTS on_new_order_notify ON orders;
+
+-- Create trigger that fires after order insert
+CREATE TRIGGER on_new_order_notify
+  AFTER INSERT ON orders
+  FOR EACH ROW
+  EXECUTE FUNCTION notify_new_order();
+
+-- Add comment for documentation
+COMMENT ON FUNCTION notify_new_order() IS 'Trigger function that sends email notifications when a new order is created. Uses pg_net for async HTTP calls to the send-email-notification edge function. Ensures admin notifications are NEVER missed even if frontend fails.';

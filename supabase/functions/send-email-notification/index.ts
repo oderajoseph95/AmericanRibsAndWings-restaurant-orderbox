@@ -1335,7 +1335,7 @@ const handler = async (req: Request): Promise<Response> => {
   }
 
   try {
-    const payload: EmailPayload = await req.json();
+    const payload: EmailPayload & { source?: string } = await req.json();
     console.log("Email notification request:", JSON.stringify(payload));
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -1350,6 +1350,36 @@ const handler = async (req: Request): Promise<Response> => {
     console.log("Business settings loaded:", businessSettings);
 
     const { type, recipientEmail, orderNumber, isTest, templateType, testRecipientEmail, orderId } = payload;
+    const source = (payload as any).source || 'frontend';
+    
+    // ===== DUPLICATE PREVENTION =====
+    // Check if we already sent this notification type for this order within last 60 seconds
+    // This prevents duplicates when both frontend and database trigger fire
+    if (orderId && type === 'new_order') {
+      const { data: recentEmail } = await supabase
+        .from('email_logs')
+        .select('id, created_at')
+        .eq('order_id', orderId)
+        .eq('email_type', type)
+        .eq('recipient_type', 'admin')
+        .gte('created_at', new Date(Date.now() - 60000).toISOString())
+        .limit(1);
+      
+      if (recentEmail && recentEmail.length > 0) {
+        console.log(`Skipping duplicate ${type} admin notification for order ${orderNumber} (source: ${source}, previous sent at: ${recentEmail[0].created_at})`);
+        return new Response(JSON.stringify({ 
+          success: true, 
+          skipped: true, 
+          reason: 'duplicate_prevention',
+          message: `Admin notification already sent for this order within last 60 seconds`
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        });
+      }
+      
+      console.log(`Processing ${type} notification for order ${orderNumber} (source: ${source})`);
+    }
 
     // Fetch delivery photos if orderId exists
     if (orderId && !payload.pickupPhotoUrl && !payload.deliveryPhotoUrl) {
