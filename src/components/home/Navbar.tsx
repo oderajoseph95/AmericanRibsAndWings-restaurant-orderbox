@@ -52,10 +52,15 @@ export function Navbar() {
             (sum, f) => sum + f.surcharge,
             0
           ) || 0;
+          // Also include surcharges from includedItems (e.g., Java Rice upgrade)
+          const includedSurcharge = item.includedItems?.reduce(
+            (sum, i) => sum + (i.surcharge || 0),
+            0
+          ) || 0;
           return {
             ...item,
             quantity: newQty,
-            lineTotal: newQty * (item.product.price + flavorSurcharge),
+            lineTotal: newQty * (item.product.price + flavorSurcharge + includedSurcharge),
           };
         })
         .filter(Boolean) as CartItem[]

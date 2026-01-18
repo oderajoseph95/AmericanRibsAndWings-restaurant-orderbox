@@ -173,17 +173,24 @@ export function Cart({ items, onUpdateQuantity, onRemove, onClearCart, onCheckou
                   {/* Included Items for bundles */}
                   {isBundle && (item as any).includedItems && (item as any).includedItems.length > 0 && (
                     <div className="mt-1.5 space-y-0.5">
-                      {(item as any).includedItems.map((incl: { name: string; quantity: number }, idx: number) => (
-                        <div key={idx} className="flex justify-between text-xs text-green-600 dark:text-green-400">
-                          <span className="flex items-center gap-1">
-                            <span className="text-green-500">•</span>
-                            <span>{incl.quantity > 1 ? `${incl.quantity} cups ` : ''}{incl.name}</span>
-                          </span>
-                          <Badge variant="secondary" className="text-[10px] px-1 py-0 bg-green-500/20 text-green-700 dark:text-green-400">
-                            Included
-                          </Badge>
-                        </div>
-                      ))}
+                      {(item as any).includedItems.map((incl: { name: string; quantity: number; surcharge?: number }, idx: number) => {
+                        const isPaidUpgrade = (incl.surcharge || 0) > 0;
+                        return (
+                          <div key={idx} className={`flex justify-between text-xs ${isPaidUpgrade ? 'text-primary' : 'text-green-600 dark:text-green-400'}`}>
+                            <span className="flex items-center gap-1">
+                              <span className={isPaidUpgrade ? 'text-primary' : 'text-green-500'}>•</span>
+                              <span>{incl.quantity > 1 ? `${incl.quantity} cups ` : ''}{incl.name}</span>
+                            </span>
+                            {isPaidUpgrade ? (
+                              <span className="text-primary shrink-0 ml-1">+₱{incl.surcharge}</span>
+                            ) : (
+                              <Badge variant="secondary" className="text-[10px] px-1 py-0 bg-green-500/20 text-green-700 dark:text-green-400">
+                                Included
+                              </Badge>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
 
