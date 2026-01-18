@@ -15,6 +15,7 @@ import { DashboardChart } from '@/components/admin/DashboardChart';
 import { ActivityFeed } from '@/components/admin/ActivityFeed';
 import { LiveVisitorsCard } from '@/components/admin/LiveVisitorsCard';
 import { ConversionFunnelCard } from '@/components/admin/ConversionFunnelCard';
+import { ProductAnalyticsCard } from '@/components/admin/ProductAnalyticsCard';
 import { DashboardCommandHeader } from '@/components/admin/DashboardCommandHeader';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -45,6 +46,7 @@ export default function Dashboard() {
   const [customDateRange, setCustomDateRange] = useState<CustomDateRange | null>(null);
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isTabVisible, setIsTabVisible] = useState(true);
 
   // Refresh all dashboard data
   const refreshAllData = async () => {
@@ -63,14 +65,31 @@ export default function Dashboard() {
     setTimeout(() => setIsRefreshing(false), 500);
   };
 
-  // Auto-refresh every 10 seconds
+  // Track tab visibility to pause updates when tab is hidden
   useEffect(() => {
+    const handleVisibilityChange = () => {
+      setIsTabVisible(!document.hidden);
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
+  // Auto-refresh every 30 seconds (only when tab is visible)
+  useEffect(() => {
+    if (!isTabVisible) return; // Skip if tab is hidden - prevents work loss
+    
     const interval = setInterval(() => {
-      refreshAllData();
-    }, 10000);
+      // Use refetchQueries instead of invalidateQueries to update in background without clearing cache
+      queryClient.refetchQueries({ 
+        queryKey: ['dashboard'],
+        type: 'active', // Only refetch currently mounted queries
+      });
+      setLastUpdate(new Date());
+    }, 30000); // 30 seconds instead of 10
 
     return () => clearInterval(interval);
-  }, [queryClient]);
+  }, [queryClient, isTabVisible]);
 
   // Calculate date range based on filter
   const dateRange = useMemo(() => {
@@ -99,7 +118,7 @@ export default function Dashboard() {
     }
   }, [dateFilter, customDateRange]);
 
-  // Setup realtime subscription
+  // Setup realtime subscription - use refetch instead of invalidate to prevent work loss
   useEffect(() => {
     const channel = supabase
       .channel('dashboard-realtime')
@@ -107,8 +126,19 @@ export default function Dashboard() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'orders' },
         () => {
-          // Invalidate all dashboard queries on any order change
-          queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+          // Only refetch specific active queries, don't invalidate all (prevents work loss)
+          queryClient.refetchQueries({ 
+            queryKey: ['dashboard', 'period-stats'],
+            type: 'active',
+          });
+          queryClient.refetchQueries({ 
+            queryKey: ['dashboard', 'global-counts'],
+            type: 'active',
+          });
+          queryClient.refetchQueries({ 
+            queryKey: ['dashboard', 'recent-orders'],
+            type: 'active',
+          });
           setLastUpdate(new Date());
         }
       )
@@ -574,6 +604,9 @@ export default function Dashboard() {
           <ConversionFunnelCard dateFilter={dateFilter} customDateRange={customDateRange} />
         </div>
       </div>
+
+      {/* Product Analytics */}
+      <ProductAnalyticsCard dateFilter={dateFilter} customDateRange={customDateRange} />
 
       {/* Stats Cards */}
       <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4 relative">
