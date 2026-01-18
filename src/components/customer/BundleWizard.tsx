@@ -22,7 +22,7 @@ interface BundleWizardProps {
   onConfirm: (
     product: Tables<"products">,
     selectedFlavors: { id: string; name: string; quantity: number; surcharge: number; category?: string }[],
-    includedItems?: { name: string; quantity: number }[]
+    includedItems?: { name: string; quantity: number; surcharge?: number }[]
   ) => void;
 }
 
