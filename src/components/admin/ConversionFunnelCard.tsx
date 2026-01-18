@@ -78,7 +78,7 @@ export function ConversionFunnelCard({ dateFilter, customDateRange }: Conversion
 
   // Fetch analytics events
   const { data: funnelData } = useQuery({
-    queryKey: ["conversion-funnel", dateFilter],
+    queryKey: ["conversion-funnel", dateFilter, dateRange.start.toISOString(), dateRange.end.toISOString()],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("analytics_events")
@@ -115,7 +115,7 @@ export function ConversionFunnelCard({ dateFilter, customDateRange }: Conversion
 
   // Fetch abandoned checkouts - ALL unrecovered carts count as "abandoned" in the funnel
   const { data: abandonedData } = useQuery({
-    queryKey: ["abandoned-checkouts-funnel", dateFilter],
+    queryKey: ["abandoned-checkouts-funnel", dateFilter, dateRange.start.toISOString(), dateRange.end.toISOString()],
     queryFn: async () => {
       // Count ALL unrecovered carts (abandoned + recovering + expired = not yet recovered)
       const { count, error } = await supabase
