@@ -403,7 +403,12 @@ async function logEmailSent(
 }
 
 // Create admin notifications for email events
-async function createEmailNotification(supabase: any, payload: EmailPayload, recipientType: string): Promise<void> {
+async function createEmailNotification(
+  supabase: any, 
+  payload: EmailPayload, 
+  recipientType: string,
+  recipientEmail?: string
+): Promise<void> {
   try {
     const { data: adminRoles, error: rolesError } = await supabase
       .from('user_roles')
@@ -412,22 +417,31 @@ async function createEmailNotification(supabase: any, payload: EmailPayload, rec
     
     if (rolesError || !adminRoles) return;
 
+    // Format title with recipient type for clarity
+    const recipientLabel = recipientType.charAt(0).toUpperCase() + recipientType.slice(1);
+    const emailTypeLabel = getEmailTypeLabel(payload.type);
+    
     const notifications = adminRoles.map((role: any) => ({
       user_id: role.user_id,
-      title: `📧 ${getEmailTypeLabel(payload.type)}`,
-      message: `Email sent to ${recipientType}${payload.orderNumber ? ` for order #${payload.orderNumber}` : ''}`,
+      title: `📧 ${emailTypeLabel} - ${recipientLabel}`,
+      message: recipientEmail 
+        ? `Email sent to ${recipientType} (${recipientEmail})${payload.orderNumber ? ` for order #${payload.orderNumber}` : ''}`
+        : `Email sent to ${recipientType}${payload.orderNumber ? ` for order #${payload.orderNumber}` : ''}`,
       type: 'email',
       order_id: payload.orderId || null,
       action_url: payload.orderId ? `/admin/orders?orderId=${payload.orderId}` : '/admin/email-templates',
       metadata: { 
         email_type: payload.type, 
         recipient_type: recipientType, 
+        recipient_email: recipientEmail || null,
         order_number: payload.orderNumber,
+        customer_name: payload.customerName,
         event: payload.type,
       },
     }));
 
     await supabase.from('admin_notifications').insert(notifications);
+    console.log(`Created ${notifications.length} email notifications for ${recipientType} (${recipientEmail || 'N/A'})`);
   } catch (error) {
     console.error("Error creating email notifications:", error);
   }
@@ -1503,7 +1517,7 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     await logEmailSent(supabase, payload, [...allAdminRecipients], 'admin', adminSubject, false);
-    await createEmailNotification(supabase, payload, 'admin');
+    await createEmailNotification(supabase, payload, 'admin', GENERAL_NOTIFICATION_EMAIL);
 
     // ===== STEP 2: SEND CUSTOMER EMAIL =====
     let customerEmailSent = false;
@@ -1549,6 +1563,8 @@ const handler = async (req: Request): Promise<Response> => {
           console.log(`Customer email sent to ${recipientEmail}`);
           customerEmailSent = true;
           await logEmailSent(supabase, payload, [recipientEmail], 'customer', subject, false);
+          // Create notification for customer email too (for audit trail)
+          await createEmailNotification(supabase, payload, 'customer', recipientEmail);
         } catch (customerError) {
           console.error("Customer email failed:", customerError);
         }

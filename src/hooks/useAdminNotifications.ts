@@ -25,6 +25,7 @@ export interface NotificationMetadata {
   event?: string;
   email_type?: string;
   recipient_type?: string;
+  recipient_email?: string;
 }
 
 export interface AdminNotification {
