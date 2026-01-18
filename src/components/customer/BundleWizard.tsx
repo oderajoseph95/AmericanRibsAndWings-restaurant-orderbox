@@ -444,8 +444,8 @@ export function BundleWizard({
                   <p className="text-xs text-accent mt-1">
                     +₱{JAVA_RICE_UPGRADE_PRICE.toFixed(0)}
                   </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Flavorful garlic fried rice
+                  <p className="text-xs text-primary mt-1 animate-pulse">
+                    🔥 Flavourful Java Mix Delicious Rice 🔥
                   </p>
                 </div>
                 <div
