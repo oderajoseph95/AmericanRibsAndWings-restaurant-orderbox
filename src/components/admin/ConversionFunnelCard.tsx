@@ -66,7 +66,13 @@ export function ConversionFunnelCard({ dateFilter, customDateRange }: Conversion
         { event: '*', schema: 'public', table: 'abandoned_checkouts' },
         () => {
           queryClient.invalidateQueries({ queryKey: ['abandoned-checkouts-funnel'] });
-          queryClient.invalidateQueries({ queryKey: ['conversion-funnel'] });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'orders' },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['completed-orders-funnel'] });
         }
       )
       .subscribe();
@@ -144,6 +150,22 @@ export function ConversionFunnelCard({ dateFilter, customDateRange }: Conversion
     },
   });
 
+  // Fetch REAL completed orders from orders table (source of truth)
+  const { data: completedOrdersCount } = useQuery({
+    queryKey: ["completed-orders-funnel", dateFilter, dateRange.start.toISOString(), dateRange.end.toISOString()],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("orders")
+        .select("*", { count: "exact", head: true })
+        .in("status", ["completed", "delivered"])
+        .gte("created_at", dateRange.start.toISOString())
+        .lte("created_at", dateRange.end.toISOString());
+
+      if (error) throw error;
+      return count || 0;
+    },
+  });
+
   const steps: FunnelStep[] = [
     {
       key: "visits",
@@ -182,7 +204,7 @@ export function ConversionFunnelCard({ dateFilter, customDateRange }: Conversion
       key: "checkoutComplete",
       label: "Completed",
       icon: <CheckCircle className="h-4 w-4" />,
-      count: funnelData?.checkoutComplete || 0,
+      count: completedOrdersCount || 0,
       color: "text-emerald-600",
       bgGradient: "from-emerald-500 to-green-600",
     },
@@ -199,7 +221,7 @@ export function ConversionFunnelCard({ dateFilter, customDateRange }: Conversion
   };
 
   const overallConversion = funnelData?.visits
-    ? ((funnelData.checkoutComplete / funnelData.visits) * 100).toFixed(1)
+    ? (((completedOrdersCount || 0) / funnelData.visits) * 100).toFixed(1)
     : "0";
 
   const abandonmentRate = funnelData?.checkoutStart && funnelData.checkoutStart > 0
