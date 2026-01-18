@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Link2 } from "lucide-react";
 import { shareProduct } from "@/lib/productUtils";
+import { trackAnalyticsEvent } from "@/hooks/useAnalytics";
 import type { Tables } from "@/integrations/supabase/types";
 
 type ProductWithCategory = Tables<"products"> & {
@@ -59,9 +60,17 @@ export function ProductDetailModal({
     staleTime: 1000 * 60 * 60, // Cache for 1 hour
   });
 
-  // Update SEO meta tags when product modal opens
+  // Update SEO meta tags and track analytics when product modal opens
   useEffect(() => {
     if (open && product) {
+      // Track internal view_product analytics for dashboard
+      trackAnalyticsEvent("view_product", {
+        product_id: product.id,
+        product_name: product.name,
+        price: product.price,
+        category: product.categories?.name || "Uncategorized",
+      });
+
       const productTitle = product.seo_title || product.name;
       const title = `${productTitle} | ${storeName || 'American Ribs & Wings'}`;
       const description = product.seo_description || product.description || '';

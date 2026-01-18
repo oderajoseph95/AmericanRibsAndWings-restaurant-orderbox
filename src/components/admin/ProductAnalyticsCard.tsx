@@ -100,14 +100,15 @@ export function ProductAnalyticsCard({ dateFilter, customDateRange }: ProductAna
     },
   });
 
-  // Top Categories Viewed
+  // Top Categories (from view_product AND add_to_cart events)
   const { data: topCategories, isLoading: loadingCategories } = useQuery({
     queryKey: ["product-analytics", "top-categories", dateFilter, dateRange.start.toISOString(), dateRange.end.toISOString()],
     queryFn: async () => {
+      // Get both view_product and add_to_cart events for category data
       const { data, error } = await supabase
         .from("analytics_events")
         .select("event_data")
-        .eq("event_type", "view_product")
+        .in("event_type", ["view_product", "add_to_cart"])
         .gte("created_at", dateRange.start.toISOString())
         .lte("created_at", dateRange.end.toISOString());
 
@@ -117,7 +118,7 @@ export function ProductAnalyticsCard({ dateFilter, customDateRange }: ProductAna
       data?.forEach((e) => {
         const eventData = e.event_data as { category?: string; category_name?: string } | null;
         const category = eventData?.category || eventData?.category_name;
-        if (category) {
+        if (category && category !== "Uncategorized") {
           counts[category] = (counts[category] || 0) + 1;
         }
       });

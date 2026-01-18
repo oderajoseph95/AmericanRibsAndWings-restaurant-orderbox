@@ -42,6 +42,8 @@ export function BundleWizard({
 }: BundleWizardProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const [selections, setSelections] = useState<Record<number, StepSelection>>({});
+  // Rice upgrade state: 'plain' (default, free) or 'java' (+₱40)
+  const [riceUpgrade, setRiceUpgrade] = useState<'plain' | 'java'>('plain');
 
   // Fetch ALL bundle components (both flavor-selectable and included)
   const { data: allBundleComponents, isLoading } = useQuery({
@@ -67,6 +69,16 @@ export function BundleWizard({
     return allBundleComponents?.filter(c => !c.has_flavor_selection) || [];
   }, [allBundleComponents]);
 
+  // Check if this bundle has Plain Rice (Rice Meal bundles)
+  const hasPlainRice = useMemo(() => {
+    return includedComponents.some(c => 
+      c.component_product.name.toLowerCase().includes('plain rice')
+    );
+  }, [includedComponents]);
+
+  // Java Rice upgrade price
+  const JAVA_RICE_UPGRADE_PRICE = 40;
+
   // Determine flavor category from component product name
   const getFlavorCategory = (componentName: string): string => {
     const lower = componentName.toLowerCase();
@@ -80,13 +92,15 @@ export function BundleWizard({
     return "wings"; // default
   };
 
-  // Total steps = flavor-selectable components + 1 review step
-  const totalSteps = flavorSelectableComponents.length + 1;
+  // Total steps = flavor-selectable components + rice upgrade step (if applicable) + 1 review step
+  const riceUpgradeStepIndex = flavorSelectableComponents.length;
+  const totalSteps = flavorSelectableComponents.length + (hasPlainRice ? 1 : 0) + 1;
+  const isRiceUpgradeStep = hasPlainRice && currentStep === riceUpgradeStepIndex;
   const isReviewStep = currentStep === totalSteps - 1;
   const isLastStep = isReviewStep;
 
   // Get current step component and filtered flavors (include unavailable for display)
-  const currentComponent = !isReviewStep ? flavorSelectableComponents[currentStep] : null;
+  const currentComponent = (!isReviewStep && !isRiceUpgradeStep) ? flavorSelectableComponents[currentStep] : null;
   const stepFlavors = useMemo(() => {
     if (!currentComponent || !flavors) return [];
     const category = getFlavorCategory(currentComponent.component_product.name);
@@ -127,19 +141,20 @@ export function BundleWizard({
     return selectedPcs / unitsPerSlot;
   }, [selectedPcs, unitsPerSlot]);
 
-  // Can proceed if: multi-slot has all pieces selected, or single-slot has selection, or review step
+  // Can proceed if: multi-slot has all pieces selected, or single-slot has selection, or rice upgrade step, or review step
   const canProceed = useMemo(() => {
     if (isReviewStep) return true;
+    if (isRiceUpgradeStep) return true; // Rice upgrade always has a default selection
     if (isMultiSlotStep) {
       return selectedPcs === totalUnits;
     }
     return selections[currentStep] !== undefined;
-  }, [isReviewStep, isMultiSlotStep, selectedPcs, totalUnits, selections, currentStep]);
+  }, [isReviewStep, isRiceUpgradeStep, isMultiSlotStep, selectedPcs, totalUnits, selections, currentStep]);
 
-  // Calculate total surcharge - PER DISTINCT SPECIAL FLAVOR USED
+  // Calculate total surcharge - PER DISTINCT SPECIAL FLAVOR USED + rice upgrade
   // Rule: ₱40 per distinct special flavor, regardless of how many pieces/slots it covers
   const totalSurcharge = useMemo(() => {
-    return Object.entries(selections).reduce((sum, [stepIdx, stepData]) => {
+    const flavorSurcharge = Object.entries(selections).reduce((sum, [stepIdx, stepData]) => {
       if (typeof stepData === 'string') {
         // Single selection (drinks, fries)
         const flavor = flavors.find((f) => f.id === stepData);
@@ -154,7 +169,12 @@ export function BundleWizard({
         }, 0);
       }
     }, 0);
-  }, [selections, flavors]);
+    
+    // Add rice upgrade surcharge if Java Rice selected
+    const riceSurcharge = (hasPlainRice && riceUpgrade === 'java') ? JAVA_RICE_UPGRADE_PRICE : 0;
+    
+    return flavorSurcharge + riceSurcharge;
+  }, [selections, flavors, hasPlainRice, riceUpgrade]);
 
   // Handle single flavor selection (for drinks, fries)
   const handleFlavorSelect = (flavorId: string, isAvailable: boolean) => {
@@ -234,14 +254,24 @@ export function BundleWizard({
       }
     });
 
-    // Build included items list
+    // Build included items list - handle rice upgrade for Rice Meals
     const includedItems = includedComponents.map(comp => {
       let displayName = comp.component_product.name;
+      const isPlainRice = displayName.toLowerCase().includes('plain rice');
+      
       // Clean up display names
-      if (displayName.toLowerCase().includes('java rice')) displayName = 'Java Rice';
-      else if (displayName.toLowerCase().includes('coleslaw')) displayName = 'Coleslaw';
-      else if (displayName.toLowerCase().includes('fries')) displayName = 'Fries';
-      else if (displayName.toLowerCase().includes('juice')) displayName = '1L Juice';
+      if (isPlainRice) {
+        // If user upgraded to Java Rice, show that instead
+        displayName = (hasPlainRice && riceUpgrade === 'java') ? 'Java Rice (+₱40)' : 'Plain Rice';
+      } else if (displayName.toLowerCase().includes('java rice')) {
+        displayName = 'Java Rice';
+      } else if (displayName.toLowerCase().includes('coleslaw')) {
+        displayName = 'Coleslaw';
+      } else if (displayName.toLowerCase().includes('fries')) {
+        displayName = 'Fries';
+      } else if (displayName.toLowerCase().includes('juice')) {
+        displayName = '1L Juice';
+      }
       
       return {
         name: displayName,
@@ -256,6 +286,7 @@ export function BundleWizard({
   const handleClose = () => {
     setCurrentStep(0);
     setSelections({});
+    setRiceUpgrade('plain'); // Reset rice selection
     onOpenChange(false);
   };
 
@@ -343,6 +374,85 @@ export function BundleWizard({
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
+        ) : isRiceUpgradeStep ? (
+          /* Rice Upgrade Step - Only for Rice Meal bundles */
+          <ScrollArea className="flex-1 max-h-[50vh]">
+            <div className="space-y-4 pr-4">
+              <div className="text-center mb-6">
+                <h3 className="text-2xl font-bold text-primary animate-pulse mb-2">
+                  RICE OPTION
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Your meal includes Plain Rice. Would you like to upgrade?
+                </p>
+              </div>
+
+              {/* Plain Rice Option - Default */}
+              <button
+                onClick={() => setRiceUpgrade('plain')}
+                className={`w-full flex items-center justify-between p-4 rounded-lg border transition-colors text-left ${
+                  riceUpgrade === 'plain'
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:border-primary/50"
+                }`}
+              >
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">Plain Rice</span>
+                    <Badge variant="secondary" className="text-xs bg-green-500/20 text-green-700 dark:text-green-400">
+                      Included
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Standard white rice, included in your meal
+                  </p>
+                </div>
+                <div
+                  className={`h-5 w-5 rounded-full border-2 flex items-center justify-center transition-colors ${
+                    riceUpgrade === 'plain'
+                      ? "border-primary bg-primary"
+                      : "border-muted-foreground"
+                  }`}
+                >
+                  {riceUpgrade === 'plain' && <Check className="h-3 w-3 text-primary-foreground" />}
+                </div>
+              </button>
+
+              {/* Java Rice Upgrade Option */}
+              <button
+                onClick={() => setRiceUpgrade('java')}
+                className={`w-full flex items-center justify-between p-4 rounded-lg border transition-colors text-left ${
+                  riceUpgrade === 'java'
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:border-primary/50"
+                }`}
+              >
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">Java Rice</span>
+                    <Badge variant="secondary" className="text-xs">
+                      Upgrade
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-accent mt-1">
+                    +₱{JAVA_RICE_UPGRADE_PRICE.toFixed(0)}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Flavorful garlic fried rice
+                  </p>
+                </div>
+                <div
+                  className={`h-5 w-5 rounded-full border-2 flex items-center justify-center transition-colors ${
+                    riceUpgrade === 'java'
+                      ? "border-primary bg-primary"
+                      : "border-muted-foreground"
+                  }`}
+                >
+                  {riceUpgrade === 'java' && <Check className="h-3 w-3 text-primary-foreground" />}
+                </div>
+              </button>
+            </div>
+          </ScrollArea>
         ) : isReviewStep ? (
           /* Review Step */
           <ScrollArea className="flex-1 max-h-[50vh]">
@@ -379,31 +489,48 @@ export function BundleWizard({
                 </div>
               ))}
 
-              {/* Included Items */}
+              {/* Included Items - with rice upgrade handling */}
               {includedComponents.length > 0 && (
                 <div className="border rounded-lg p-3 bg-green-500/10 border-green-500/30">
                   <h4 className="font-semibold text-sm mb-2 text-green-700 dark:text-green-400">
-                    Included in this group meal:
+                    Included in this meal:
                   </h4>
                   <div className="space-y-1">
                     {includedComponents.map((comp, idx) => {
                       let displayName = comp.component_product.name;
-                      // Clean up display names
-                      if (displayName.toLowerCase().includes('java rice')) displayName = 'Java Rice';
-                      else if (displayName.toLowerCase().includes('coleslaw')) displayName = 'Coleslaw';
-                      else if (displayName.toLowerCase().includes('fries')) displayName = 'Fries';
-                      else if (displayName.toLowerCase().includes('juice')) displayName = '1L Juice';
+                      const isPlainRice = displayName.toLowerCase().includes('plain rice');
+                      
+                      // Handle rice upgrade display
+                      if (isPlainRice && hasPlainRice && riceUpgrade === 'java') {
+                        displayName = 'Java Rice';
+                      } else if (isPlainRice) {
+                        displayName = 'Plain Rice';
+                      } else if (displayName.toLowerCase().includes('java rice')) {
+                        displayName = 'Java Rice';
+                      } else if (displayName.toLowerCase().includes('coleslaw')) {
+                        displayName = 'Coleslaw';
+                      } else if (displayName.toLowerCase().includes('fries')) {
+                        displayName = 'Fries';
+                      } else if (displayName.toLowerCase().includes('juice')) {
+                        displayName = '1L Juice';
+                      }
                       
                       const qty = comp.quantity || 1;
+                      const showUpgradePrice = isPlainRice && hasPlainRice && riceUpgrade === 'java';
+                      
                       return (
                         <div key={idx} className="flex justify-between text-sm">
                           <span className="flex items-center gap-1">
                             <span className="text-green-600 dark:text-green-400">•</span>
                             <span>{qty > 1 ? `${qty} cups ` : ''}{displayName}</span>
                           </span>
-                          <Badge variant="secondary" className="text-xs bg-green-500/20 text-green-700 dark:text-green-400">
-                            Included
-                          </Badge>
+                          {showUpgradePrice ? (
+                            <span className="text-primary font-medium">+₱{JAVA_RICE_UPGRADE_PRICE}</span>
+                          ) : (
+                            <Badge variant="secondary" className="text-xs bg-green-500/20 text-green-700 dark:text-green-400">
+                              Included
+                            </Badge>
+                          )}
                         </div>
                       );
                     })}
