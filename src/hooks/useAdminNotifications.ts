@@ -26,6 +26,7 @@ export interface NotificationMetadata {
   email_type?: string;
   recipient_type?: string;
   recipient_email?: string;
+  new_status?: string;
 }
 
 export interface AdminNotification {

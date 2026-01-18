@@ -310,6 +310,49 @@ export default function Drivers() {
     },
   });
 
+  // Update availability status mutation (for admin to set driver offline/online/busy)
+  const updateAvailabilityMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: 'offline' | 'online' | 'busy' | 'unavailable' }) => {
+      const driver = drivers.find(d => d.id === id);
+      const oldStatus = driver?.availability_status;
+      const { error } = await supabase
+        .from('drivers')
+        .update({ availability_status: status })
+        .eq('id', id);
+      if (error) throw error;
+      return { driver, oldStatus, newStatus: status };
+    },
+    onSuccess: async ({ driver, oldStatus, newStatus }) => {
+      queryClient.invalidateQueries({ queryKey: ['admin-drivers'] });
+      // Also update selected driver if viewing their profile
+      if (selectedDriver?.id === driver?.id) {
+        setSelectedDriver({ ...selectedDriver, availability_status: newStatus });
+      }
+      toast.success(`${driver?.name}'s status set to ${availabilityLabels[newStatus]}`);
+      
+      await logAdminAction({
+        action: 'availability_change',
+        entityType: 'driver',
+        entityId: driver?.id,
+        entityName: driver?.name,
+        oldValues: { availability_status: oldStatus },
+        newValues: { availability_status: newStatus },
+        details: `Admin changed availability from ${oldStatus || 'unknown'} to ${newStatus}`,
+      });
+      
+      await createAdminNotification({
+        title: newStatus === 'offline' ? "🔴 Driver Set Offline" : "🟢 Driver Status Changed",
+        message: `${driver?.name} status changed to ${availabilityLabels[newStatus]} by admin`,
+        type: "driver",
+        metadata: { driver_name: driver?.name, new_status: newStatus },
+        action_url: "/admin/drivers",
+      });
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to update availability');
+    },
+  });
+
   const resetForm = () => {
     setFormData({ name: '', email: '', phone: '', password: '' });
     setFormErrors({});
@@ -717,6 +760,57 @@ export default function Drivers() {
                   >
                     {availabilityLabels[selectedDriver.availability_status || 'offline']}
                   </Badge>
+                </div>
+
+                {/* Admin Availability Controls */}
+                <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+                  <div>
+                    <h4 className="font-medium text-sm">Set Driver Availability</h4>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Use this when a driver forgets to go offline
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant={selectedDriver.availability_status === 'offline' ? 'default' : 'outline'}
+                      onClick={() => updateAvailabilityMutation.mutate({ 
+                        id: selectedDriver.id, 
+                        status: 'offline' 
+                      })}
+                      disabled={updateAvailabilityMutation.isPending || selectedDriver.availability_status === 'offline'}
+                      className="gap-1"
+                    >
+                      <Circle className="h-3 w-3 fill-gray-400 text-gray-400" />
+                      Set Offline
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={selectedDriver.availability_status === 'online' ? 'default' : 'outline'}
+                      onClick={() => updateAvailabilityMutation.mutate({ 
+                        id: selectedDriver.id, 
+                        status: 'online' 
+                      })}
+                      disabled={updateAvailabilityMutation.isPending || selectedDriver.availability_status === 'online'}
+                      className="gap-1"
+                    >
+                      <Circle className="h-3 w-3 fill-green-500 text-green-500" />
+                      Set Online
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={selectedDriver.availability_status === 'busy' ? 'default' : 'outline'}
+                      onClick={() => updateAvailabilityMutation.mutate({ 
+                        id: selectedDriver.id, 
+                        status: 'busy' 
+                      })}
+                      disabled={updateAvailabilityMutation.isPending || selectedDriver.availability_status === 'busy'}
+                      className="gap-1"
+                    >
+                      <Circle className="h-3 w-3 fill-yellow-500 text-yellow-500" />
+                      Set Busy
+                    </Button>
+                  </div>
                 </div>
 
                 <Separator />

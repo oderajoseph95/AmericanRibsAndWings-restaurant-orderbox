@@ -25,9 +25,12 @@ export function ProductCard({ product, onAdd }: ProductCardProps) {
   const navigate = useNavigate();
   
   // Navigate to product page (opens modal via URL)
+  // Preserve current search params (like category filter) to prevent filter reset on close
   const handleCardClick = () => {
     const slug = product.slug || product.id;
-    navigate(`/product/${slug}`);
+    const currentParams = new URLSearchParams(window.location.search);
+    const queryString = currentParams.toString();
+    navigate(`/product/${slug}${queryString ? `?${queryString}` : ''}`);
   };
 
   // View product (same as card click)
