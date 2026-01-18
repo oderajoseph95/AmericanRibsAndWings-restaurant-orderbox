@@ -839,20 +839,14 @@ export function CheckoutSheet({
       // Clear session ID
       sessionStorage.removeItem('checkout_session_id');
       
-      // CRITICAL: Clear cart and checkout data BEFORE redirect
-      clearCheckoutData();
-      localStorage.removeItem('arw_cart_data');
-      onOrderConfirmed(order.order_number, order.id, data.orderType, 
-        data.orderType === "pickup" && data.pickupDate ? format(data.pickupDate, "yyyy-MM-dd") : undefined,
-        data.orderType === "pickup" ? data.pickupTime : undefined
-      );
+      // Log order details for debugging
+      console.log("Order created successfully:", order.id, order.order_number);
       
-      // Show success and redirect
-      toast.success("Order placed successfully!");
-      window.location.href = `/thank-you/${order.id}?source=checkout`;
-
-      // Fire notifications in background (don't block redirect)
-      Promise.all([
+      // CRITICAL: Send ALL notifications BEFORE redirect to ensure they complete
+      // Using Promise.allSettled so individual failures don't block others
+      console.log("Sending notifications for order:", order.order_number);
+      
+      await Promise.allSettled([
         sendPushNotification({
           title: "New Order Received! 🔔",
           body: `Order #${order.order_number} from ${data.name} (₱${grandTotal.toLocaleString()})`,
@@ -860,7 +854,8 @@ export function CheckoutSheet({
           userType: "admin",
           orderId: order.id,
           orderNumber: order.order_number,
-        }).catch(e => console.error("Push notification failed:", e)),
+        }).then(() => console.log("Push notification sent"))
+          .catch(e => console.error("Push notification failed:", e)),
         
         createAdminNotification({
           title: "New Order Received! 🔔",
@@ -881,7 +876,8 @@ export function CheckoutSheet({
             delivery_address: data.orderType === "delivery" ? `${data.streetAddress}, ${barangay}, ${data.city}` : undefined,
           },
           action_url: `/admin/orders?search=${order.order_number}`,
-        }).catch(e => console.error("Admin notification failed:", e)),
+        }).then(() => console.log("Admin notification created"))
+          .catch(e => console.error("Admin notification failed:", e)),
         
         // Single email call - edge function handles both customer and admin emails
         sendEmailNotification({
@@ -904,7 +900,8 @@ export function CheckoutSheet({
           pickupTime: data.orderType === "pickup" && data.pickupTime ? data.pickupTime : undefined,
           notes: data.notes || undefined,
           orderItems: orderItemsForNotification,
-        }).catch(e => console.error("Email notification failed:", e)),
+        }).then(() => console.log("Email notification sent"))
+          .catch(e => console.error("Email notification failed:", e)),
         
         // SMS Notification - always sent to customer + admin backups
         sendSmsNotification({
@@ -915,11 +912,23 @@ export function CheckoutSheet({
           customerName: data.name,
           totalAmount: grandTotal,
           deliveryAddress: data.orderType === "delivery" ? `${data.streetAddress}, ${barangay}, ${data.city}` : undefined,
-        }).catch(e => console.error("SMS notification failed:", e)),
+        }).then(() => console.log("SMS notification sent"))
+          .catch(e => console.error("SMS notification failed:", e)),
       ]);
-
-      // Clear persisted checkout data on successful order
+      
+      console.log("All notifications attempted, proceeding with redirect");
+      
+      // Clear cart and checkout data BEFORE redirect
       clearCheckoutData();
+      localStorage.removeItem('arw_cart_data');
+      onOrderConfirmed(order.order_number, order.id, data.orderType, 
+        data.orderType === "pickup" && data.pickupDate ? format(data.pickupDate, "yyyy-MM-dd") : undefined,
+        data.orderType === "pickup" ? data.pickupTime : undefined
+      );
+      
+      // Show success and redirect AFTER notifications complete
+      toast.success("Order placed successfully!");
+      window.location.href = `/thank-you/${order.id}?source=checkout`;
       
       form.reset();
       clearPaymentProof();
