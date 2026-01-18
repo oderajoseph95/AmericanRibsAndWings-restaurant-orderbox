@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Minus, Plus, Trash2, ShoppingBag } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -44,112 +45,143 @@ export function Cart({ items, onUpdateQuantity, onRemove, onClearCart, onCheckou
     );
   }
 
+  // Helper to get flavor display text
+  const getFlavorDisplayText = (flavor: { name: string; quantity: number; surcharge: number; category?: string }, isBundle: boolean) => {
+    const category = flavor.category || 'wings';
+    
+    // For bundles, use "for X wings" format
+    if (isBundle && (category === 'wings' || category === 'ribs')) {
+      if (category === 'wings' && flavor.quantity > 1) {
+        return `(for ${flavor.quantity} wings)`;
+      }
+      // Single ribs selection - no extra text needed
+      return '';
+    }
+    
+    // For non-bundle items, use regular format
+    if (category === 'drinks' || category === 'fries') {
+      return ''; // Drinks/fries don't need extra label
+    }
+    
+    // Wings/ribs category - show quantity if multiple pieces
+    if (flavor.quantity > 1) {
+      return `(${flavor.quantity} pcs)`;
+    }
+    
+    return '';
+  };
+
   return (
     <div className="flex flex-col h-full">
       <ScrollArea className="flex-1 max-h-[50vh] lg:max-h-[calc(100vh-350px)]">
         <div className="p-4 space-y-4">
-          {items.map((item) => (
-            <div key={item.id} className="flex gap-3">
-              {/* Product image */}
-              <div className="w-16 h-16 rounded-md bg-muted flex items-center justify-center shrink-0 overflow-hidden">
-                {item.product.image_url ? (
-                  <img
-                    src={item.product.image_url}
-                    alt={item.product.name}
-                    loading="lazy"
-                    decoding="async"
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <span className="text-2xl opacity-50">🍖</span>
-                )}
-              </div>
+          {items.map((item) => {
+            // Check if this is a bundle/group meal
+            const isBundle = item.product.product_type === 'bundle';
+            
+            return (
+              <div key={item.id} className="flex gap-3">
+                {/* Product image */}
+                <div className="w-16 h-16 rounded-md bg-muted flex items-center justify-center shrink-0 overflow-hidden">
+                  {item.product.image_url ? (
+                    <img
+                      src={item.product.image_url}
+                      alt={item.product.name}
+                      loading="lazy"
+                      decoding="async"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-2xl opacity-50">🍖</span>
+                  )}
+                </div>
 
-              {/* Details */}
-              <div className="flex-1 min-w-0">
-                <h4 className="font-medium text-sm line-clamp-1">
-                  {item.product.name}
-                </h4>
+                {/* Details */}
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-medium text-sm line-clamp-1">
+                    {item.product.name}
+                  </h4>
 
-                {/* Flavors */}
-                {item.flavors && item.flavors.length > 0 && (
-                  <div className="mt-1 space-y-0.5">
-                    {item.flavors.map((flavor, idx) => {
-                      // Determine display label based on flavor category
-                      const category = (flavor as any).category || 'wings';
-                      const isSingleUnit = item.flavors?.length === 1 && flavor.quantity === 1;
-                      
-                      // Build descriptive label based on category
-                      const getFlavorLabel = () => {
-                        if (category === 'drinks') {
-                          return ''; // Drinks don't need extra label
-                        }
-                        if (category === 'fries') {
-                          return ''; // Fries flavors don't need extra label
-                        }
-                        // Wings/ribs category - show quantity if multiple
-                        if (isSingleUnit) {
-                          return flavor.surcharge > 0 ? '(Special)' : '';
-                        }
-                        return `(${flavor.quantity} pcs)`;
-                      };
-                      
-                      return (
-                        <div key={idx} className="flex justify-between text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <span className="text-muted-foreground/70">•</span>
-                            <span>{flavor.name}</span>
-                            {getFlavorLabel() && (
-                              <span className="text-muted-foreground/60">{getFlavorLabel()}</span>
+                  {/* Flavors */}
+                  {item.flavors && item.flavors.length > 0 && (
+                    <div className="mt-1 space-y-0.5">
+                      {item.flavors.map((flavor, idx) => {
+                        const displayText = getFlavorDisplayText(flavor, isBundle);
+                        
+                        return (
+                          <div key={idx} className="flex justify-between text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <span className="text-muted-foreground/70">•</span>
+                              <span>{flavor.name}</span>
+                              {displayText && (
+                                <span className="text-muted-foreground/60">{displayText}</span>
+                              )}
+                            </span>
+                            {flavor.surcharge > 0 && (
+                              <span className="text-primary shrink-0 ml-1">+₱{flavor.surcharge.toFixed(0)}</span>
                             )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Included Items for bundles */}
+                  {isBundle && (item as any).includedItems && (item as any).includedItems.length > 0 && (
+                    <div className="mt-1.5 space-y-0.5">
+                      {(item as any).includedItems.map((incl: { name: string; quantity: number }, idx: number) => (
+                        <div key={idx} className="flex justify-between text-xs text-green-600 dark:text-green-400">
+                          <span className="flex items-center gap-1">
+                            <span className="text-green-500">•</span>
+                            <span>{incl.quantity > 1 ? `${incl.quantity} cups ` : ''}{incl.name}</span>
                           </span>
-                          {flavor.surcharge > 0 && (
-                            <span className="text-primary shrink-0 ml-1">+₱{flavor.surcharge.toFixed(2)}</span>
-                          )}
+                          <Badge variant="secondary" className="text-[10px] px-1 py-0 bg-green-500/20 text-green-700 dark:text-green-400">
+                            Included
+                          </Badge>
                         </div>
-                      );
-                    })}
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Price */}
+                  <p className="text-sm font-semibold text-primary mt-1">
+                    ₱{item.lineTotal.toFixed(2)}
+                  </p>
+
+                  {/* Quantity controls */}
+                  <div className="flex items-center gap-2 mt-2">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => onUpdateQuantity(item.id, -1)}
+                    >
+                      <Minus className="h-3 w-3" />
+                    </Button>
+                    <span className="text-sm font-medium w-6 text-center">
+                      {item.quantity}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => onUpdateQuantity(item.id, 1)}
+                    >
+                      <Plus className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-destructive hover:text-destructive ml-auto"
+                      onClick={() => onRemove(item.id)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
                   </div>
-                )}
-
-                {/* Price */}
-                <p className="text-sm font-semibold text-primary mt-1">
-                  ₱{item.lineTotal.toFixed(2)}
-                </p>
-
-                {/* Quantity controls */}
-                <div className="flex items-center gap-2 mt-2">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={() => onUpdateQuantity(item.id, -1)}
-                  >
-                    <Minus className="h-3 w-3" />
-                  </Button>
-                  <span className="text-sm font-medium w-6 text-center">
-                    {item.quantity}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={() => onUpdateQuantity(item.id, 1)}
-                  >
-                    <Plus className="h-3 w-3" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-destructive hover:text-destructive ml-auto"
-                    onClick={() => onRemove(item.id)}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </ScrollArea>
 
