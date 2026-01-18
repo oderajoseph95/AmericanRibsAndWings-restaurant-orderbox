@@ -11,7 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowLeft, ArrowRight, Check, Loader2, Minus, Plus } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Loader2, Minus, Plus, Package } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
 
 interface BundleWizardProps {
@@ -21,7 +21,8 @@ interface BundleWizardProps {
   flavors: Tables<"flavors">[];
   onConfirm: (
     product: Tables<"products">,
-    selectedFlavors: { id: string; name: string; quantity: number; surcharge: number }[]
+    selectedFlavors: { id: string; name: string; quantity: number; surcharge: number; category?: string }[],
+    includedItems?: { name: string; quantity: number }[]
   ) => void;
 }
 
@@ -42,21 +43,29 @@ export function BundleWizard({
   const [currentStep, setCurrentStep] = useState(0);
   const [selections, setSelections] = useState<Record<number, StepSelection>>({});
 
-  // Fetch bundle components
-  const { data: bundleComponents, isLoading } = useQuery({
-    queryKey: ["bundle-components", product.id],
+  // Fetch ALL bundle components (both flavor-selectable and included)
+  const { data: allBundleComponents, isLoading } = useQuery({
+    queryKey: ["bundle-components-all", product.id],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("bundle_components")
         .select("*, component_product:products!component_product_id(*)")
         .eq("bundle_product_id", product.id)
-        .eq("has_flavor_selection", true)
         .order("id");
       if (error) throw error;
       return data as BundleComponent[];
     },
     enabled: open,
   });
+
+  // Separate flavor-selectable components from included items
+  const flavorSelectableComponents = useMemo(() => {
+    return allBundleComponents?.filter(c => c.has_flavor_selection) || [];
+  }, [allBundleComponents]);
+
+  const includedComponents = useMemo(() => {
+    return allBundleComponents?.filter(c => !c.has_flavor_selection) || [];
+  }, [allBundleComponents]);
 
   // Determine flavor category from component product name
   const getFlavorCategory = (componentName: string): string => {
@@ -71,8 +80,13 @@ export function BundleWizard({
     return "wings"; // default
   };
 
+  // Total steps = flavor-selectable components + 1 review step
+  const totalSteps = flavorSelectableComponents.length + 1;
+  const isReviewStep = currentStep === totalSteps - 1;
+  const isLastStep = isReviewStep;
+
   // Get current step component and filtered flavors (include unavailable for display)
-  const currentComponent = bundleComponents?.[currentStep];
+  const currentComponent = !isReviewStep ? flavorSelectableComponents[currentStep] : null;
   const stepFlavors = useMemo(() => {
     if (!currentComponent || !flavors) return [];
     const category = getFlavorCategory(currentComponent.component_product.name);
@@ -113,16 +127,14 @@ export function BundleWizard({
     return selectedPcs / unitsPerSlot;
   }, [selectedPcs, unitsPerSlot]);
 
-  const totalSteps = bundleComponents?.length || 0;
-  const isLastStep = currentStep === totalSteps - 1;
-  
-  // Can proceed if: multi-slot has all pieces selected, or single-slot has selection
+  // Can proceed if: multi-slot has all pieces selected, or single-slot has selection, or review step
   const canProceed = useMemo(() => {
+    if (isReviewStep) return true;
     if (isMultiSlotStep) {
       return selectedPcs === totalUnits;
     }
     return selections[currentStep] !== undefined;
-  }, [isMultiSlotStep, selectedPcs, totalUnits, selections, currentStep]);
+  }, [isReviewStep, isMultiSlotStep, selectedPcs, totalUnits, selections, currentStep]);
 
   // Calculate total surcharge - PER DISTINCT SPECIAL FLAVOR USED
   // Rule: ₱40 per distinct special flavor, regardless of how many pieces/slots it covers
@@ -186,7 +198,14 @@ export function BundleWizard({
 
   const handleConfirm = () => {
     const selectedFlavors = Object.entries(selections).flatMap(([stepIdx, stepData]) => {
-      const component = bundleComponents?.[Number(stepIdx)];
+      const component = flavorSelectableComponents[Number(stepIdx)];
+      const componentName = component?.component_product.name.toLowerCase() || '';
+      
+      // Determine category for display
+      let category = 'wings';
+      if (componentName.includes('rib')) category = 'ribs';
+      else if (componentName.includes('fries')) category = 'fries';
+      else if (componentName.includes('drink')) category = 'drinks';
       
       if (typeof stepData === 'string') {
         // Single selection (drinks, fries)
@@ -196,7 +215,7 @@ export function BundleWizard({
           name: flavor.name,
           quantity: component?.total_units || 1,
           surcharge: flavor.surcharge || 0,
-          category: (flavor as any).flavor_category || 'drinks', // Pass category for display
+          category,
         }];
       } else {
         // Multi-slot selection (wings) - charge ONCE per distinct special flavor
@@ -209,13 +228,28 @@ export function BundleWizard({
               name: flavor.name,
               quantity: qty,
               surcharge: flavor.surcharge || 0, // one-time per distinct flavor
-              category: (flavor as any).flavor_category || 'wings', // Pass category for display
+              category,
             };
           });
       }
     });
 
-    onConfirm(product, selectedFlavors);
+    // Build included items list
+    const includedItems = includedComponents.map(comp => {
+      let displayName = comp.component_product.name;
+      // Clean up display names
+      if (displayName.toLowerCase().includes('java rice')) displayName = 'Java Rice';
+      else if (displayName.toLowerCase().includes('coleslaw')) displayName = 'Coleslaw';
+      else if (displayName.toLowerCase().includes('fries')) displayName = 'Fries';
+      else if (displayName.toLowerCase().includes('juice')) displayName = '1L Juice';
+      
+      return {
+        name: displayName,
+        quantity: comp.quantity || 1,
+      };
+    });
+
+    onConfirm(product, selectedFlavors, includedItems);
     handleClose();
   };
 
@@ -235,9 +269,53 @@ export function BundleWizard({
     return "CHOOSE FLAVOR";
   };
 
+  // Get display text for wings quantity (for X wings)
+  const getWingsDisplayText = (qty: number): string => {
+    return `for ${qty} wings`;
+  };
+
+  // Build summary of selections for review step
+  const getSelectionsSummary = () => {
+    return Object.entries(selections).map(([stepIdx, stepData]) => {
+      const component = flavorSelectableComponents[Number(stepIdx)];
+      const componentName = component?.component_product.name || '';
+      const isWings = componentName.toLowerCase().includes('wing') || componentName.toLowerCase().includes('ala carte');
+      const isRibs = componentName.toLowerCase().includes('rib');
+      
+      if (typeof stepData === 'string') {
+        const flavor = flavors.find((f) => f.id === stepData);
+        return {
+          componentName: isRibs ? 'Ribs' : componentName,
+          isMultiSlot: false,
+          flavors: [{
+            name: flavor?.name || '',
+            quantity: component?.total_units || 1,
+            surcharge: flavor?.surcharge || 0,
+          }],
+        };
+      } else {
+        return {
+          componentName: isWings ? 'Chicken Wings' : componentName,
+          isMultiSlot: true,
+          totalPcs: component?.total_units || 0,
+          flavors: Object.entries(stepData)
+            .filter(([_, qty]) => qty > 0)
+            .map(([flavorId, qty]) => {
+              const flavor = flavors.find((f) => f.id === flavorId);
+              return {
+                name: flavor?.name || '',
+                quantity: qty,
+                surcharge: flavor?.surcharge || 0,
+              };
+            }),
+        };
+      }
+    });
+  };
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="text-xl">{product.name}</DialogTitle>
           <p className="text-sm text-muted-foreground">
@@ -265,6 +343,75 @@ export function BundleWizard({
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
+        ) : isReviewStep ? (
+          /* Review Step */
+          <ScrollArea className="flex-1 max-h-[50vh]">
+            <div className="space-y-4 pr-4">
+              <h3 className="text-lg font-bold text-primary flex items-center gap-2">
+                <Package className="h-5 w-5" />
+                Review Your Order
+              </h3>
+
+              {/* Selected Flavors Summary */}
+              {getSelectionsSummary().map((item, idx) => (
+                <div key={idx} className="border rounded-lg p-3 bg-muted/30">
+                  <h4 className="font-semibold text-sm mb-2">
+                    {item.isMultiSlot ? `${item.totalPcs} pcs ${item.componentName}` : item.componentName}
+                  </h4>
+                  <div className="space-y-1">
+                    {item.flavors.map((flavor, fIdx) => (
+                      <div key={fIdx} className="flex justify-between text-sm">
+                        <span className="flex items-center gap-1">
+                          <span className="text-muted-foreground">•</span>
+                          <span>{flavor.name}</span>
+                          {item.isMultiSlot && (
+                            <span className="text-muted-foreground text-xs">
+                              ({getWingsDisplayText(flavor.quantity)})
+                            </span>
+                          )}
+                        </span>
+                        {flavor.surcharge > 0 && (
+                          <span className="text-primary font-medium">+₱{flavor.surcharge.toFixed(0)}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              {/* Included Items */}
+              {includedComponents.length > 0 && (
+                <div className="border rounded-lg p-3 bg-green-500/10 border-green-500/30">
+                  <h4 className="font-semibold text-sm mb-2 text-green-700 dark:text-green-400">
+                    Included in this group meal:
+                  </h4>
+                  <div className="space-y-1">
+                    {includedComponents.map((comp, idx) => {
+                      let displayName = comp.component_product.name;
+                      // Clean up display names
+                      if (displayName.toLowerCase().includes('java rice')) displayName = 'Java Rice';
+                      else if (displayName.toLowerCase().includes('coleslaw')) displayName = 'Coleslaw';
+                      else if (displayName.toLowerCase().includes('fries')) displayName = 'Fries';
+                      else if (displayName.toLowerCase().includes('juice')) displayName = '1L Juice';
+                      
+                      const qty = comp.quantity || 1;
+                      return (
+                        <div key={idx} className="flex justify-between text-sm">
+                          <span className="flex items-center gap-1">
+                            <span className="text-green-600 dark:text-green-400">•</span>
+                            <span>{qty > 1 ? `${qty} cups ` : ''}{displayName}</span>
+                          </span>
+                          <Badge variant="secondary" className="text-xs bg-green-500/20 text-green-700 dark:text-green-400">
+                            Included
+                          </Badge>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </ScrollArea>
         ) : (
           <>
             {currentComponent && (
@@ -293,7 +440,7 @@ export function BundleWizard({
               </div>
             )}
 
-            <ScrollArea className="max-h-[50vh]">
+            <ScrollArea className="flex-1 max-h-[50vh]">
               <div className="space-y-2 pr-4">
                 {stepFlavors.length === 0 ? (
                   <p className="text-center text-muted-foreground py-4">
@@ -444,9 +591,9 @@ export function BundleWizard({
           </>
         )}
 
-        <DialogFooter className="flex-col gap-2 sm:flex-col">
-          {/* Price summary on last step */}
-          {isLastStep && (
+        <DialogFooter className="flex-col gap-2 sm:flex-col mt-4">
+          {/* Price summary on review step */}
+          {isReviewStep && (
             <div className="w-full flex justify-between items-center py-2 border-t">
               <span className="text-muted-foreground">Total Price</span>
               <div className="text-right">

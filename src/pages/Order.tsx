@@ -38,6 +38,7 @@ export type CartItem = {
   product: Tables<"products">;
   quantity: number;
   flavors?: CartItemFlavor[];
+  includedItems?: { name: string; quantity: number }[];
   lineTotal: number;
 };
 
@@ -440,10 +441,11 @@ const Order = () => {
     }
   }, [addToCartId, products, processedAddToCart]);
 
-  // Add flavored item to cart
+  // Add flavored item to cart (also handles bundle items with includedItems)
   const handleAddFlavoredItem = (
     product: Tables<"products">,
-    selectedFlavors: { id: string; name: string; quantity: number; surcharge: number }[]
+    selectedFlavors: { id: string; name: string; quantity: number; surcharge: number; category?: string }[],
+    includedItems?: { name: string; quantity: number }[]
   ) => {
     // Surcharge is per distinct flavor, NOT per piece - just sum them directly
     const flavorSurcharge = selectedFlavors.reduce(
@@ -459,20 +461,22 @@ const Order = () => {
         product,
         quantity: 1,
         flavors: selectedFlavors,
-      lineTotal,
-    },
-  ]);
-  setIsFlavorModalOpen(false);
-  setSelectedProduct(null);
+        includedItems,
+        lineTotal,
+      },
+    ]);
+    setIsFlavorModalOpen(false);
+    setIsBundleWizardOpen(false);
+    setSelectedProduct(null);
   
-  // Show toast notification for flavored products
-  toast.success(`${product.name} added to cart!`, {
-    duration: 2000,
-    action: {
-      label: "View Cart",
-      onClick: () => setIsCartOpen(true),
-    },
-  });
+    // Show toast notification
+    toast.success(`${product.name} added to cart!`, {
+      duration: 2000,
+      action: {
+        label: "View Cart",
+        onClick: () => setIsCartOpen(true),
+      },
+    });
   };
 
   // Update cart item quantity
