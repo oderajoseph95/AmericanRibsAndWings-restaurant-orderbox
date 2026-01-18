@@ -392,11 +392,15 @@ const Order = () => {
 
   // Add to cart handler
   const handleAddToCart = (product: Tables<"products">) => {
-    // Track analytics event
+    // Get category from product
+    const category = (product as any).categories?.name || "Uncategorized";
+    
+    // Track analytics event with category
     trackAnalyticsEvent("add_to_cart", { 
       product_id: product.id, 
       product_name: product.name,
-      price: product.price 
+      price: product.price,
+      category: category,
     }, "/order");
 
     // Fire Meta Pixel AddToCart event
