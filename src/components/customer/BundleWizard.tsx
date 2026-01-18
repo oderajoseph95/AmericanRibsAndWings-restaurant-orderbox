@@ -315,7 +315,7 @@ export function BundleWizard({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-md max-h-[90vh] flex flex-col">
+      <DialogContent className="max-w-md h-[85vh] max-h-[85vh] flex flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle className="text-xl">{product.name}</DialogTitle>
           <p className="text-sm text-muted-foreground">
@@ -440,8 +440,8 @@ export function BundleWizard({
               </div>
             )}
 
-            <ScrollArea className="flex-1 max-h-[50vh]">
-              <div className="space-y-2 pr-4">
+            <ScrollArea className="flex-1 min-h-0">
+              <div className="space-y-2 pr-4 pb-4">
                 {stepFlavors.length === 0 ? (
                   <p className="text-center text-muted-foreground py-4">
                     No options available for this selection.

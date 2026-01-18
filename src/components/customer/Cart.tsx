@@ -102,27 +102,71 @@ export function Cart({ items, onUpdateQuantity, onRemove, onClearCart, onCheckou
                     {item.product.name}
                   </h4>
 
-                  {/* Flavors */}
+                  {/* Flavors - grouped by category for bundles */}
                   {item.flavors && item.flavors.length > 0 && (
-                    <div className="mt-1 space-y-0.5">
-                      {item.flavors.map((flavor, idx) => {
-                        const displayText = getFlavorDisplayText(flavor, isBundle);
-                        
-                        return (
-                          <div key={idx} className="flex justify-between text-xs text-muted-foreground">
-                            <span className="flex items-center gap-1">
-                              <span className="text-muted-foreground/70">•</span>
-                              <span>{flavor.name}</span>
-                              {displayText && (
-                                <span className="text-muted-foreground/60">{displayText}</span>
+                    <div className="mt-1 space-y-1">
+                      {isBundle ? (
+                        // Group flavors by category for bundles
+                        <>
+                          {/* Ribs section */}
+                          {item.flavors.filter(f => f.category === 'ribs').length > 0 && (
+                            <div className="space-y-0.5">
+                              <span className="text-xs font-medium text-muted-foreground">Ribs:</span>
+                              {item.flavors.filter(f => f.category === 'ribs').map((flavor, idx) => (
+                                <div key={idx} className="flex justify-between text-xs text-muted-foreground ml-2">
+                                  <span className="flex items-center gap-1">
+                                    <span className="text-muted-foreground/70">•</span>
+                                    <span>{flavor.name}</span>
+                                  </span>
+                                  {flavor.surcharge > 0 && (
+                                    <span className="text-primary shrink-0 ml-1">+₱{flavor.surcharge.toFixed(0)}</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          
+                          {/* Wings section */}
+                          {item.flavors.filter(f => f.category === 'wings').length > 0 && (
+                            <div className="space-y-0.5">
+                              <span className="text-xs font-medium text-muted-foreground">
+                                {item.flavors.filter(f => f.category === 'wings').reduce((sum, f) => sum + f.quantity, 0)} pcs Chicken Wings:
+                              </span>
+                              {item.flavors.filter(f => f.category === 'wings').map((flavor, idx) => (
+                                <div key={idx} className="flex justify-between text-xs text-muted-foreground ml-2">
+                                  <span className="flex items-center gap-1">
+                                    <span className="text-muted-foreground/70">•</span>
+                                    <span>{flavor.name}</span>
+                                    <span className="text-muted-foreground/60">(for {flavor.quantity} wings)</span>
+                                  </span>
+                                  {flavor.surcharge > 0 && (
+                                    <span className="text-primary shrink-0 ml-1">+₱{flavor.surcharge.toFixed(0)}</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        // Regular flat list for non-bundle items
+                        item.flavors.map((flavor, idx) => {
+                          const displayText = getFlavorDisplayText(flavor, isBundle);
+                          return (
+                            <div key={idx} className="flex justify-between text-xs text-muted-foreground">
+                              <span className="flex items-center gap-1">
+                                <span className="text-muted-foreground/70">•</span>
+                                <span>{flavor.name}</span>
+                                {displayText && (
+                                  <span className="text-muted-foreground/60">{displayText}</span>
+                                )}
+                              </span>
+                              {flavor.surcharge > 0 && (
+                                <span className="text-primary shrink-0 ml-1">+₱{flavor.surcharge.toFixed(0)}</span>
                               )}
-                            </span>
-                            {flavor.surcharge > 0 && (
-                              <span className="text-primary shrink-0 ml-1">+₱{flavor.surcharge.toFixed(0)}</span>
-                            )}
-                          </div>
-                        );
-                      })}
+                            </div>
+                          );
+                        })
+                      )}
                     </div>
                   )}
 

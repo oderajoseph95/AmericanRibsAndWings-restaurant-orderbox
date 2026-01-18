@@ -1666,28 +1666,80 @@ export function CheckoutSheet({
                   {/* Detailed Order Items */}
                   <div className="bg-muted/50 rounded-lg p-3 space-y-2">
                     <p className="text-sm font-medium mb-2">Order Items</p>
-                    {cart.map(item => (
-                      <div key={item.id} className="space-y-1">
-                        <div className="flex justify-between text-sm">
-                          <span>{item.quantity}x {item.product.name}</span>
-                          <span>₱{item.lineTotal.toFixed(2)}</span>
-                        </div>
-                        {item.flavors && item.flavors.length > 0 && (
-                          <div className="ml-4 space-y-0.5">
-                            {item.flavors.map((flavor, idx) => (
-                              <div key={idx} className="flex justify-between text-xs text-muted-foreground">
-                                <span>
-                                  • {flavor.name} {flavor.surcharge > 0 ? `(Special flavor for ${flavor.quantity} wings)` : `(Free flavor for ${flavor.quantity} wings)`}
-                                </span>
-                                {flavor.surcharge > 0 && (
-                                  <span className="text-primary">+₱{flavor.surcharge.toFixed(2)}</span>
-                                )}
-                              </div>
-                            ))}
+                    {cart.map(item => {
+                      const isBundle = item.product.product_type === 'bundle';
+                      return (
+                        <div key={item.id} className="space-y-1">
+                          <div className="flex justify-between text-sm">
+                            <span>{item.quantity}x {item.product.name}</span>
+                            <span>₱{item.lineTotal.toFixed(2)}</span>
                           </div>
-                        )}
-                      </div>
-                    ))}
+                          {item.flavors && item.flavors.length > 0 && (
+                            <div className="ml-4 space-y-1">
+                              {isBundle ? (
+                                <>
+                                  {/* Ribs section */}
+                                  {item.flavors.filter(f => f.category === 'ribs').length > 0 && (
+                                    <div className="space-y-0.5">
+                                      <span className="text-xs font-medium text-muted-foreground">Ribs:</span>
+                                      {item.flavors.filter(f => f.category === 'ribs').map((flavor, idx) => (
+                                        <div key={idx} className="flex justify-between text-xs text-muted-foreground ml-2">
+                                          <span>• {flavor.name}</span>
+                                          {flavor.surcharge > 0 && (
+                                            <span className="text-primary">+₱{flavor.surcharge.toFixed(2)}</span>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                  
+                                  {/* Wings section */}
+                                  {item.flavors.filter(f => f.category === 'wings').length > 0 && (
+                                    <div className="space-y-0.5">
+                                      <span className="text-xs font-medium text-muted-foreground">
+                                        {item.flavors.filter(f => f.category === 'wings').reduce((sum, f) => sum + f.quantity, 0)} pcs Chicken Wings:
+                                      </span>
+                                      {item.flavors.filter(f => f.category === 'wings').map((flavor, idx) => (
+                                        <div key={idx} className="flex justify-between text-xs text-muted-foreground ml-2">
+                                          <span>• {flavor.name} (for {flavor.quantity} wings)</span>
+                                          {flavor.surcharge > 0 && (
+                                            <span className="text-primary">+₱{flavor.surcharge.toFixed(2)}</span>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </>
+                              ) : (
+                                item.flavors.map((flavor, idx) => (
+                                  <div key={idx} className="flex justify-between text-xs text-muted-foreground">
+                                    <span>
+                                      • {flavor.name} {flavor.quantity > 1 ? `(${flavor.quantity} pcs)` : ''}
+                                    </span>
+                                    {flavor.surcharge > 0 && (
+                                      <span className="text-primary">+₱{flavor.surcharge.toFixed(2)}</span>
+                                    )}
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          )}
+                          
+                          {/* Included Items for bundles */}
+                          {isBundle && (item as any).includedItems && (item as any).includedItems.length > 0 && (
+                            <div className="ml-4 space-y-0.5">
+                              <span className="text-xs font-medium text-green-600 dark:text-green-400">Included:</span>
+                              {(item as any).includedItems.map((incl: { name: string; quantity: number }, idx: number) => (
+                                <div key={idx} className="flex justify-between text-xs text-green-600 dark:text-green-400 ml-2">
+                                  <span>• {incl.quantity > 1 ? `${incl.quantity} cups ` : ''}{incl.name}</span>
+                                  <span className="text-green-500">Included</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                     <Separator className="my-2" />
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Subtotal</span>
