@@ -266,11 +266,31 @@ export function NotificationsSheet({ open, onOpenChange }: NotificationsSheetPro
                                 <p className="text-sm text-muted-foreground line-clamp-2 mt-0.5">
                                   {notification.message}
                                 </p>
-                                <div className="flex items-center gap-2 mt-1.5">
+                              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                                   {notification.metadata?.order_number && (
                                     <Badge variant="outline" className="text-xs">
                                       {notification.metadata.order_number}
                                     </Badge>
+                                  )}
+                                  {/* Email recipient type badge */}
+                                  {notification.type === "email" && notification.metadata?.recipient_type && (
+                                    <Badge 
+                                      variant="outline" 
+                                      className={cn(
+                                        "text-xs capitalize",
+                                        notification.metadata.recipient_type === 'customer' && "bg-green-500/10 text-green-600 border-green-200",
+                                        notification.metadata.recipient_type === 'admin' && "bg-blue-500/10 text-blue-600 border-blue-200",
+                                        notification.metadata.recipient_type === 'driver' && "bg-orange-500/10 text-orange-600 border-orange-200",
+                                      )}
+                                    >
+                                      {notification.metadata.recipient_type}
+                                    </Badge>
+                                  )}
+                                  {/* Recipient email display */}
+                                  {notification.type === "email" && notification.metadata?.recipient_email && (
+                                    <span className="text-xs text-muted-foreground truncate max-w-[150px]">
+                                      {notification.metadata.recipient_email}
+                                    </span>
                                   )}
                                   <p className="text-xs text-muted-foreground/70">
                                     {formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}
@@ -424,6 +444,43 @@ export function NotificationsSheet({ open, onOpenChange }: NotificationsSheetPro
                     <span className="font-medium">Driver:</span>
                     <span>{selectedNotification.metadata.driver_name}</span>
                   </div>
+                )}
+                
+                {/* Email-specific metadata */}
+                {selectedNotification.type === "email" && (
+                  <>
+                    {selectedNotification.metadata.recipient_type && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Mail className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium">Sent to:</span>
+                        <Badge 
+                          variant="outline" 
+                          className={cn(
+                            "capitalize",
+                            selectedNotification.metadata.recipient_type === 'customer' && "bg-green-500/10 text-green-600",
+                            selectedNotification.metadata.recipient_type === 'admin' && "bg-blue-500/10 text-blue-600",
+                            selectedNotification.metadata.recipient_type === 'driver' && "bg-orange-500/10 text-orange-600",
+                          )}
+                        >
+                          {selectedNotification.metadata.recipient_type}
+                        </Badge>
+                      </div>
+                    )}
+                    {selectedNotification.metadata.recipient_email && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Mail className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium">Email:</span>
+                        <span className="text-primary">{selectedNotification.metadata.recipient_email}</span>
+                      </div>
+                    )}
+                    {selectedNotification.metadata.email_type && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Settings className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium">Template:</span>
+                        <span className="capitalize">{selectedNotification.metadata.email_type.replace(/_/g, ' ')}</span>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
