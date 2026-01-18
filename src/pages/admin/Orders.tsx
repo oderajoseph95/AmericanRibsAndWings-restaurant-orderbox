@@ -36,13 +36,13 @@ import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
 import { RefundDialog } from '@/components/admin/RefundDialog';
 import { ReviewRequestModal } from '@/components/admin/ReviewRequestModal';
-import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package, MoreHorizontal, Link, Share2, Copy, User, AlertTriangle, ChevronDown, Trash2, Camera, Upload, RefreshCw, Mail, Star } from 'lucide-react';
+import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package, MoreHorizontal, Link, Share2, Copy, User, AlertTriangle, ChevronDown, Trash2, Camera, Upload, RefreshCw, Mail, Star, Printer } from 'lucide-react';
 import { sendPushNotification } from '@/hooks/usePushNotifications';
 import { createAdminNotification } from '@/hooks/useAdminNotifications';
 import { createDriverNotification } from '@/hooks/useDriverNotifications';
 import { sendSmsNotification, SmsType } from '@/hooks/useSmsNotifications';
 import { sendEmailNotification, EmailType } from '@/hooks/useEmailNotifications';
-import { ADMIN_EMAIL } from '@/lib/constants';
+import { ADMIN_EMAIL, STORE_NAME, STORE_ADDRESS_LINE1, STORE_ADDRESS_LINE2, STORE_ADDRESS_LINE3, STORE_PHONE, STORE_TIN } from '@/lib/constants';
 import { format } from 'date-fns';
 import type { Tables, Enums } from '@/integrations/supabase/types';
 
@@ -123,7 +123,7 @@ export default function Orders() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [reviewRequestOrder, setReviewRequestOrder] = useState<Order | null>(null);
-  const ITEMS_PER_PAGE = 20;
+  const ITEMS_PER_PAGE = 10;
   const queryClient = useQueryClient();
 
   const isOwner = role === 'owner';
@@ -907,6 +907,152 @@ export default function Orders() {
     }
   };
 
+  // Print receipt for thermal printer
+  const handlePrintReceipt = () => {
+    if (!selectedOrder) return;
+    
+    const order = selectedOrder;
+    const orderNum = order.order_number || '';
+    const customer = order.customers;
+    
+    // Build items HTML
+    const itemsHtml = orderItems.map(item => {
+      const flavorsHtml = item.order_item_flavors.map(f => 
+        `<div style="padding-left:10px; font-size:10px;">- ${f.flavor_name}${f.surcharge_applied > 0 ? ` (+₱${f.surcharge_applied.toFixed(2)})` : ''}</div>`
+      ).join('');
+      
+      return `
+        <div style="display:flex; justify-content:space-between;">
+          <span>${item.quantity}x ${item.product_name}</span>
+          <span>₱${(item.line_total || item.subtotal).toFixed(2)}</span>
+        </div>
+        ${flavorsHtml}
+      `;
+    }).join('');
+    
+    const receiptHTML = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Receipt - ${orderNum}</title>
+        <style>
+          @page { margin: 0; size: 80mm auto; }
+          @media print {
+            body { margin: 0; padding: 0; }
+            .no-print { display: none; }
+          }
+          body {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            width: 80mm;
+            padding: 5mm;
+            margin: 0 auto;
+          }
+          .center { text-align: center; }
+          .right { text-align: right; }
+          .bold { font-weight: bold; }
+          .divider { border-top: 1px dashed #000; margin: 8px 0; }
+          .header { font-size: 14px; font-weight: bold; }
+        </style>
+      </head>
+      <body>
+        <div class="center header">
+          ================================<br>
+          ${STORE_NAME.toUpperCase()}<br>
+          ================================
+        </div>
+        <div class="center" style="font-size:10px; margin:5px 0;">
+          ${STORE_ADDRESS_LINE1}<br>
+          ${STORE_ADDRESS_LINE2}<br>
+          ${STORE_ADDRESS_LINE3}<br>
+          Tel: ${STORE_PHONE}<br>
+          TIN: ${STORE_TIN}
+        </div>
+        <div class="divider"></div>
+        
+        <div>
+          Order #: ${orderNum}<br>
+          Date: ${order.created_at ? format(new Date(order.created_at), 'PPpp') : '-'}<br>
+          Type: ${(order.order_type || 'pickup').toUpperCase()}
+        </div>
+        <div class="divider"></div>
+        
+        <div>
+          Customer: ${customer?.name || 'Walk-in'}<br>
+          Phone: ${customer?.phone || '-'}<br>
+          ${order.order_type === 'delivery' && order.delivery_address ? `Address: ${order.delivery_address}` : ''}
+        </div>
+        <div class="divider"></div>
+        
+        <div class="bold">ITEMS:</div>
+        ${itemsHtml}
+        <div class="divider"></div>
+        
+        <div style="display:flex; justify-content:space-between;">
+          <span>Subtotal:</span>
+          <span>₱${(order.subtotal || 0).toFixed(2)}</span>
+        </div>
+        ${order.order_type === 'delivery' && order.delivery_fee ? `
+          <div style="display:flex; justify-content:space-between;">
+            <span>Delivery Fee:</span>
+            <span>₱${order.delivery_fee.toFixed(2)}</span>
+          </div>
+        ` : ''}
+        <div class="divider"></div>
+        <div style="display:flex; justify-content:space-between; font-size:14px;" class="bold">
+          <span>TOTAL:</span>
+          <span>₱${(order.total_amount || 0).toFixed(2)}</span>
+        </div>
+        <div class="divider"></div>
+        
+        <div>
+          Payment: ${(order.payment_method || 'cash').replace('_', ' ').toUpperCase()}<br>
+          Status: ${(order.status || 'pending').replace('_', ' ').toUpperCase()}
+        </div>
+        
+        ${order.internal_notes ? `<div class="divider"></div><div>Notes: ${order.internal_notes}</div>` : ''}
+        
+        ${order.order_type === 'pickup' && order.pickup_date ? `
+          <div class="divider"></div>
+          <div class="center bold">
+            Pickup: ${format(new Date(order.pickup_date), 'PPP')}<br>
+            ${order.pickup_time || ''}
+          </div>
+        ` : ''}
+        
+        ${order.order_type === 'delivery' && (order as any).delivery_date ? `
+          <div class="divider"></div>
+          <div class="center bold">
+            Delivery: ${format(new Date((order as any).delivery_date), 'PPP')}<br>
+            ${(order as any).delivery_time || ''}
+          </div>
+        ` : ''}
+        
+        <div class="divider"></div>
+        <div class="center" style="margin-top:10px;">
+          ================================<br>
+          Thank you for ordering!<br>
+          ================================
+        </div>
+        
+        <script>
+          window.onload = function() {
+            window.print();
+            setTimeout(function() { window.close(); }, 500);
+          };
+        </script>
+      </body>
+      </html>
+    `;
+    
+    const printWindow = window.open('', '_blank', 'width=400,height=600');
+    if (printWindow) {
+      printWindow.document.write(receiptHTML);
+      printWindow.document.close();
+    }
+  };
+
   const filteredOrders = orders.filter(
     (order) =>
       order.order_number?.toLowerCase().includes(search.toLowerCase()) ||
@@ -1358,7 +1504,15 @@ export default function Orders() {
                       onClick={() => handleCopyTrackingLink(selectedOrder.id)}
                     >
                       <Copy className="h-4 w-4 mr-2" />
-                      Share Tracking Link
+                      Share Link
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handlePrintReceipt}
+                    >
+                      <Printer className="h-4 w-4 mr-2" />
+                      Print Receipt
                     </Button>
                   </div>
                 </div>
@@ -1393,9 +1547,9 @@ export default function Orders() {
                             {item.order_item_flavors.map((f, idx) => (
                               <div key={idx} className="flex justify-between">
                                 <span>
-                                  {f.flavor_name} {f.surcharge_applied && f.surcharge_applied > 0 ? `(Special flavor for ${f.quantity} wings)` : `(Free flavor for ${f.quantity} wings)`}
+                                  {f.flavor_name} {f.surcharge_applied > 0 ? `(Special flavor for ${f.quantity} wings)` : `(Free flavor for ${f.quantity} wings)`}
                                 </span>
-                                {f.surcharge_applied && f.surcharge_applied > 0 && (
+                                {f.surcharge_applied > 0 && (
                                   <span>+₱{f.surcharge_applied.toFixed(2)}</span>
                                 )}
                               </div>

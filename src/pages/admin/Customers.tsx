@@ -23,7 +23,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
-import { Plus, Pencil, Trash2, Search, Loader2, Eye, RefreshCw } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, Loader2, Eye, RefreshCw, MapPin, ArrowUpDown } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { format } from 'date-fns';
 import type { Tables } from '@/integrations/supabase/types';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -43,6 +44,8 @@ export default function Customers() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [sortBy, setSortBy] = useState<'date' | 'spending' | 'orders'>('date');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const ITEMS_PER_PAGE = 20;
   const queryClient = useQueryClient();
 
@@ -59,7 +62,7 @@ export default function Customers() {
       const { data, error } = await supabase
         .from('customers')
         .select('*')
-        .order('name');
+        .order('created_at', { ascending: false });
       if (error) throw error;
       
       // Deduplicate customers by email (combine stats for duplicates)
@@ -81,6 +84,25 @@ export default function Customers() {
       
       return Object.values(deduped);
     },
+  });
+
+  // Fetch delivery addresses for selected customer
+  const { data: customerAddresses = [] } = useQuery({
+    queryKey: ['customer-addresses', selectedCustomer?.id],
+    queryFn: async () => {
+      if (!selectedCustomer) return [];
+      const { data, error } = await supabase
+        .from('orders')
+        .select('delivery_address')
+        .eq('customer_id', selectedCustomer.id)
+        .eq('order_type', 'delivery')
+        .not('delivery_address', 'is', null);
+      if (error) return [];
+      // Get unique addresses
+      const unique = [...new Set(data.map(o => o.delivery_address).filter(Boolean))];
+      return unique;
+    },
+    enabled: !!selectedCustomer,
   });
 
   const { data: customerOrders = [] } = useQuery({
@@ -171,12 +193,29 @@ export default function Customers() {
     }
   };
 
-  const filteredCustomers = customers.filter(
-    (c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.phone?.toLowerCase().includes(search.toLowerCase()) ||
-      c.email?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredCustomers = customers
+    .filter(
+      (c) =>
+        c.name.toLowerCase().includes(search.toLowerCase()) ||
+        c.phone?.toLowerCase().includes(search.toLowerCase()) ||
+        c.email?.toLowerCase().includes(search.toLowerCase())
+    )
+    .sort((a, b) => {
+      if (sortBy === 'date') {
+        const aDate = new Date(a.created_at || 0).getTime();
+        const bDate = new Date(b.created_at || 0).getTime();
+        return sortOrder === 'desc' ? bDate - aDate : aDate - bDate;
+      } else if (sortBy === 'spending') {
+        return sortOrder === 'desc' 
+          ? (b.total_spent || 0) - (a.total_spent || 0)
+          : (a.total_spent || 0) - (b.total_spent || 0);
+      } else if (sortBy === 'orders') {
+        return sortOrder === 'desc'
+          ? (b.total_orders || 0) - (a.total_orders || 0)
+          : (a.total_orders || 0) - (b.total_orders || 0);
+      }
+      return 0;
+    });
 
   // Paginate filtered results
   const totalPages = Math.ceil(filteredCustomers.length / ITEMS_PER_PAGE);
@@ -322,14 +361,34 @@ export default function Customers() {
 
       <Card>
         <CardHeader>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search by name, phone, or email..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-10"
-            />
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by name, phone, or email..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <Select value={`${sortBy}-${sortOrder}`} onValueChange={(value) => {
+              const [newSortBy, newSortOrder] = value.split('-') as ['date' | 'spending' | 'orders', 'asc' | 'desc'];
+              setSortBy(newSortBy);
+              setSortOrder(newSortOrder);
+            }}>
+              <SelectTrigger className="w-full sm:w-[180px]">
+                <ArrowUpDown className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="date-desc">Newest First</SelectItem>
+                <SelectItem value="date-asc">Oldest First</SelectItem>
+                <SelectItem value="spending-desc">Top Spenders</SelectItem>
+                <SelectItem value="spending-asc">Lowest Spenders</SelectItem>
+                <SelectItem value="orders-desc">Most Orders</SelectItem>
+                <SelectItem value="orders-asc">Least Orders</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardHeader>
         <CardContent>
@@ -425,6 +484,8 @@ export default function Customers() {
                   <TableHead>Email</TableHead>
                   <TableHead className="text-center">Orders</TableHead>
                   <TableHead className="text-right">Total Spent</TableHead>
+                  <TableHead>Joined</TableHead>
+                  <TableHead>Last Order</TableHead>
                   <TableHead className="w-[120px]"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -451,6 +512,12 @@ export default function Customers() {
                     </TableCell>
                     <TableCell className="text-right">
                       ₱{(customer.total_spent || 0).toFixed(2)}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {customer.created_at ? format(new Date(customer.created_at), 'MMM d, yyyy') : '-'}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {customer.last_order_date ? format(new Date(customer.last_order_date), 'MMM d, yyyy') : '-'}
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
@@ -573,7 +640,40 @@ export default function Customers() {
                       ₱{(selectedCustomer.total_spent || 0).toFixed(2)}
                     </p>
                   </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Customer Since</p>
+                    <p className="font-medium">
+                      {selectedCustomer.created_at 
+                        ? format(new Date(selectedCustomer.created_at), 'MMMM d, yyyy') 
+                        : '-'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Last Order</p>
+                    <p className="font-medium">
+                      {selectedCustomer.last_order_date 
+                        ? format(new Date(selectedCustomer.last_order_date), 'MMMM d, yyyy') 
+                        : 'Never'}
+                    </p>
+                  </div>
                 </div>
+
+                {/* Delivery Addresses Section */}
+                {customerAddresses.length > 0 && (
+                  <div>
+                    <h4 className="font-medium mb-3 flex items-center gap-2">
+                      <MapPin className="h-4 w-4" />
+                      Delivery Addresses
+                    </h4>
+                    <div className="space-y-2">
+                      {customerAddresses.map((addr, idx) => (
+                        <div key={idx} className="p-2 bg-muted rounded text-sm">
+                          {addr}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div>
                   <h4 className="font-medium mb-3">Recent Orders</h4>
