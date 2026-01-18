@@ -123,6 +123,8 @@ export default function Orders() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [reviewRequestOrder, setReviewRequestOrder] = useState<Order | null>(null);
+  const [quickReviewItems, setQuickReviewItems] = useState<OrderItem[]>([]);
+  const [printingOrderId, setPrintingOrderId] = useState<string | null>(null);
   const ITEMS_PER_PAGE = 10;
   const queryClient = useQueryClient();
 
@@ -907,28 +909,41 @@ export default function Orders() {
     }
   };
 
-  // Print receipt for thermal printer
-  const handlePrintReceipt = () => {
-    if (!selectedOrder) return;
+  // Print receipt for thermal printer - can be called from table or sheet
+  const handlePrintReceipt = async (order: Order, existingItems?: OrderItem[]) => {
+    if (!order) return;
     
-    const order = selectedOrder;
-    const orderNum = order.order_number || '';
-    const customer = order.customers;
+    setPrintingOrderId(order.id);
     
-    // Build items HTML
-    const itemsHtml = orderItems.map(item => {
-      const flavorsHtml = item.order_item_flavors.map(f => 
-        `<div style="padding-left:10px; font-size:10px;">- ${f.flavor_name}${f.surcharge_applied > 0 ? ` (+₱${f.surcharge_applied.toFixed(2)})` : ''}</div>`
-      ).join('');
+    try {
+      // Use existing items if provided (from sheet), otherwise fetch
+      let items = existingItems;
+      if (!items) {
+        const { data, error } = await supabase
+          .from('order_items')
+          .select('*, order_item_flavors(*)')
+          .eq('order_id', order.id);
+        if (error) throw error;
+        items = data as OrderItem[];
+      }
       
-      return `
-        <div style="display:flex; justify-content:space-between;">
-          <span>${item.quantity}x ${item.product_name}</span>
-          <span>₱${(item.line_total || item.subtotal).toFixed(2)}</span>
-        </div>
-        ${flavorsHtml}
-      `;
-    }).join('');
+      const orderNum = order.order_number || '';
+      const customer = order.customers;
+      
+      // Build items HTML
+      const itemsHtml = items.map(item => {
+        const flavorsHtml = item.order_item_flavors.map(f => 
+          `<div style="padding-left:10px; font-size:10px;">- ${f.flavor_name}${f.surcharge_applied > 0 ? ` (+₱${f.surcharge_applied.toFixed(2)})` : ''}</div>`
+        ).join('');
+        
+        return `
+          <div style="display:flex; justify-content:space-between;">
+            <span>${item.quantity}x ${item.product_name}</span>
+            <span>₱${(item.line_total || item.subtotal).toFixed(2)}</span>
+          </div>
+          ${flavorsHtml}
+        `;
+      }).join('');
     
     const receiptHTML = `
       <!DOCTYPE html>
@@ -1046,10 +1061,30 @@ export default function Orders() {
       </html>
     `;
     
-    const printWindow = window.open('', '_blank', 'width=400,height=600');
-    if (printWindow) {
-      printWindow.document.write(receiptHTML);
-      printWindow.document.close();
+      const printWindow = window.open('', '_blank', 'width=400,height=600');
+      if (printWindow) {
+        printWindow.document.write(receiptHTML);
+        printWindow.document.close();
+      }
+    } catch (error: any) {
+      toast.error('Failed to print receipt');
+    } finally {
+      setPrintingOrderId(null);
+    }
+  };
+
+  // Quick review request from table - fetches items first
+  const handleQuickReviewRequest = async (order: Order) => {
+    try {
+      const { data, error } = await supabase
+        .from('order_items')
+        .select('*, order_item_flavors(*)')
+        .eq('order_id', order.id);
+      if (error) throw error;
+      setQuickReviewItems(data as OrderItem[]);
+      setReviewRequestOrder(order);
+    } catch (error) {
+      toast.error('Failed to load order items');
     }
   };
 
@@ -1238,7 +1273,7 @@ export default function Orders() {
                   <TableHead>Driver</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Date</TableHead>
-                  <TableHead className="w-[60px]"></TableHead>
+                  <TableHead className="w-[100px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1363,47 +1398,47 @@ export default function Orders() {
                       {order.created_at && format(new Date(order.created_at), 'MMM d, h:mm a')}
                     </TableCell>
                     <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => setSelectedOrder(order)}>
-                            <Eye className="h-4 w-4 mr-2" />
-                            View Details
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleCopyTrackingLink(order.id)}>
-                            <Copy className="h-4 w-4 mr-2" />
-                            Copy Tracking Link
-                          </DropdownMenuItem>
-                          
-                          {getNextActions(order.status, order.order_type).length > 0 && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuSub>
-                                <DropdownMenuSubTrigger>
-                                  <Share2 className="h-4 w-4 mr-2" />
-                                  Update Status
-                                </DropdownMenuSubTrigger>
-                                <DropdownMenuSubContent>
-                                  {getNextActions(order.status, order.order_type).map((action) => (
-                                    <DropdownMenuItem
-                                      key={action.status}
-                                      onClick={() => handleQuickStatusUpdate(order.id, action.status)}
-                                      disabled={updateStatusMutation.isPending}
-                                      className={action.variant === 'destructive' ? 'text-destructive' : ''}
-                                    >
-                                      {action.label}
-                                    </DropdownMenuItem>
-                                  ))}
-                                </DropdownMenuSubContent>
-                              </DropdownMenuSub>
-                            </>
+                      <div className="flex items-center gap-1">
+                        {/* View Details */}
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8"
+                          onClick={() => setSelectedOrder(order)}
+                          title="View Details"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        
+                        {/* Print Receipt */}
+                        <Button 
+                          variant="ghost" 
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => handlePrintReceipt(order)}
+                          disabled={printingOrderId === order.id}
+                          title="Print Receipt"
+                        >
+                          {printingOrderId === order.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Printer className="h-4 w-4" />
                           )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                        </Button>
+                        
+                        {/* Review Request - Only for completed/delivered orders */}
+                        {(order.status === 'completed' || order.status === 'delivered') && (
+                          <Button 
+                            variant="ghost" 
+                            size="icon"
+                            className={`h-8 w-8 ${!order.last_review_requested_at ? 'text-yellow-600 hover:text-yellow-700' : 'text-muted-foreground'}`}
+                            onClick={() => handleQuickReviewRequest(order)}
+                            title={order.last_review_requested_at ? 'Resend Review Request' : 'Request Review'}
+                          >
+                            <Star className={`h-4 w-4 ${!order.last_review_requested_at ? 'fill-yellow-500' : ''}`} />
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -1509,7 +1544,7 @@ export default function Orders() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={handlePrintReceipt}
+                      onClick={() => selectedOrder && handlePrintReceipt(selectedOrder, orderItems)}
                     >
                       <Printer className="h-4 w-4 mr-2" />
                       Print Receipt
@@ -1936,7 +1971,7 @@ export default function Orders() {
             last_review_requested_at: reviewRequestOrder.last_review_requested_at,
             customers: reviewRequestOrder.customers,
           }}
-          orderItems={orderItems.map(item => ({
+          orderItems={(selectedOrder ? orderItems : quickReviewItems).map(item => ({
             product_name: item.product_name,
             quantity: item.quantity,
             unit_price: item.unit_price,
