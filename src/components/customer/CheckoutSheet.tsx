@@ -1525,6 +1525,50 @@ export function CheckoutSheet({
                                     {getPaymentSetting('gcash_number') || 'Contact store for number'}
                                   </p>
                                 </div>
+                                
+                                {/* Upload GCash Payment Screenshot - Inside GCash section */}
+                                <div className="space-y-2 mt-3">
+                                  <Label className="flex items-center gap-2 text-primary font-semibold">
+                                    📤 Upload GCash Payment Screenshot *
+                                    {!paymentProof && (
+                                      <span className="text-xs text-destructive animate-pulse font-bold">(Required)</span>
+                                    )}
+                                  </Label>
+                                  {paymentProofPreview ? (
+                                    <div className="relative">
+                                      <img 
+                                        src={paymentProofPreview} 
+                                        alt="Payment proof" 
+                                        className="w-full h-40 object-cover rounded-lg border-2 border-green-500" 
+                                      />
+                                      <Button 
+                                        type="button" 
+                                        variant="destructive" 
+                                        size="icon" 
+                                        className="absolute top-2 right-2 h-7 w-7" 
+                                        onClick={clearPaymentProof}
+                                      >
+                                        <X className="h-3 w-3" />
+                                      </Button>
+                                      <div className="absolute bottom-2 left-2 bg-green-500 text-white text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-lg">
+                                        <Check className="h-4 w-4" />
+                                        GCash Payment Proof Uploaded
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-primary bg-primary/10 rounded-lg cursor-pointer hover:bg-primary/20 transition-all shadow-[0_0_15px_rgba(234,88,12,0.4)] animate-pulse">
+                                      <Upload className="h-8 w-8 text-primary mb-2" />
+                                      <span className="text-sm font-bold text-primary">Tap to Upload GCash Screenshot</span>
+                                      <span className="text-xs text-primary/80 mt-1">Required to place your order</span>
+                                      <input 
+                                        type="file" 
+                                        accept="image/jpeg,image/png,image/jpg" 
+                                        className="hidden" 
+                                        onChange={handlePaymentProofChange} 
+                                      />
+                                    </label>
+                                  )}
+                                </div>
                               </div>
                             )}
                           </div>
@@ -1582,6 +1626,50 @@ export function CheckoutSheet({
                                     {getPaymentSetting('bank_account_number') || 'Contact store for account'}
                                   </p>
                                 </div>
+                                
+                                {/* Upload Bank Transfer Screenshot - Inside Bank section */}
+                                <div className="space-y-2 mt-3">
+                                  <Label className="flex items-center gap-2 text-primary font-semibold">
+                                    📤 Upload Bank Transfer Screenshot *
+                                    {!paymentProof && (
+                                      <span className="text-xs text-destructive animate-pulse font-bold">(Required)</span>
+                                    )}
+                                  </Label>
+                                  {paymentProofPreview ? (
+                                    <div className="relative">
+                                      <img 
+                                        src={paymentProofPreview} 
+                                        alt="Payment proof" 
+                                        className="w-full h-40 object-cover rounded-lg border-2 border-green-500" 
+                                      />
+                                      <Button 
+                                        type="button" 
+                                        variant="destructive" 
+                                        size="icon" 
+                                        className="absolute top-2 right-2 h-7 w-7" 
+                                        onClick={clearPaymentProof}
+                                      >
+                                        <X className="h-3 w-3" />
+                                      </Button>
+                                      <div className="absolute bottom-2 left-2 bg-green-500 text-white text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-lg">
+                                        <Check className="h-4 w-4" />
+                                        Bank Transfer Proof Uploaded
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-primary bg-primary/10 rounded-lg cursor-pointer hover:bg-primary/20 transition-all shadow-[0_0_15px_rgba(234,88,12,0.4)] animate-pulse">
+                                      <Upload className="h-8 w-8 text-primary mb-2" />
+                                      <span className="text-sm font-bold text-primary">Tap to Upload Bank Screenshot</span>
+                                      <span className="text-xs text-primary/80 mt-1">Required to place your order</span>
+                                      <input 
+                                        type="file" 
+                                        accept="image/jpeg,image/png,image/jpg" 
+                                        className="hidden" 
+                                        onChange={handlePaymentProofChange} 
+                                      />
+                                    </label>
+                                  )}
+                                </div>
                               </div>
                             )}
                           </div>
@@ -1590,52 +1678,6 @@ export function CheckoutSheet({
                     </FormItem>
                   )} 
                 />
-
-                {/* Payment Proof Upload - Only for GCash/Bank */}
-                {(paymentMethod === "gcash" || paymentMethod === "bank") && (
-                  <div className="space-y-2 mt-3">
-                    <Label className="flex items-center gap-2">
-                      Upload Payment Screenshot *
-                      {!paymentProof && (
-                        <span className="text-xs text-destructive">(Required)</span>
-                      )}
-                    </Label>
-                    {paymentProofPreview ? (
-                      <div className="relative">
-                        <img 
-                          src={paymentProofPreview} 
-                          alt="Payment proof" 
-                          className="w-full h-40 object-cover rounded-lg border-2 border-green-500" 
-                        />
-                        <Button 
-                          type="button" 
-                          variant="destructive" 
-                          size="icon" 
-                          className="absolute top-2 right-2 h-7 w-7" 
-                          onClick={clearPaymentProof}
-                        >
-                          <X className="h-3 w-3" />
-                        </Button>
-                        <div className="absolute bottom-2 left-2 bg-green-500 text-white text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-lg">
-                          <Check className="h-4 w-4" />
-                          Payment Proof Uploaded
-                        </div>
-                      </div>
-                    ) : (
-                      <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-amber-400 bg-amber-50/50 rounded-lg cursor-pointer hover:bg-amber-50 transition-all animate-pulse">
-                        <Upload className="h-8 w-8 text-amber-600 mb-2" />
-                        <span className="text-sm font-medium text-amber-800">Upload Payment Screenshot</span>
-                        <span className="text-xs text-amber-600 mt-1">Required to place your order</span>
-                        <input 
-                          type="file" 
-                          accept="image/jpeg,image/png,image/jpg" 
-                          className="hidden" 
-                          onChange={handlePaymentProofChange} 
-                        />
-                      </label>
-                    )}
-                  </div>
-                )}
 
                 {/* Continue Button - Prominent when payment proof uploaded */}
                 {(paymentMethod === "cash" || paymentProof) && (
