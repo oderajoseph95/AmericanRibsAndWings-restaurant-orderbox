@@ -258,11 +258,17 @@ export function BundleWizard({
     const includedItems = includedComponents.map(comp => {
       let displayName = comp.component_product.name;
       const isPlainRice = displayName.toLowerCase().includes('plain rice');
+      let surcharge = 0;
       
-      // Clean up display names
+      // Clean up display names and handle rice upgrade
       if (isPlainRice) {
-        // If user upgraded to Java Rice, show that instead
-        displayName = (hasPlainRice && riceUpgrade === 'java') ? 'Java Rice (+₱40)' : 'Plain Rice';
+        // If user upgraded to Java Rice, show that instead and add surcharge
+        if (hasPlainRice && riceUpgrade === 'java') {
+          displayName = 'Java Rice';
+          surcharge = JAVA_RICE_UPGRADE_PRICE;
+        } else {
+          displayName = 'Plain Rice';
+        }
       } else if (displayName.toLowerCase().includes('java rice')) {
         displayName = 'Java Rice';
       } else if (displayName.toLowerCase().includes('coleslaw')) {
@@ -276,6 +282,7 @@ export function BundleWizard({
       return {
         name: displayName,
         quantity: comp.quantity || 1,
+        surcharge,
       };
     });
 

@@ -38,7 +38,7 @@ export type CartItem = {
   product: Tables<"products">;
   quantity: number;
   flavors?: CartItemFlavor[];
-  includedItems?: { name: string; quantity: number }[];
+  includedItems?: { name: string; quantity: number; surcharge?: number }[];
   lineTotal: number;
 };
 
@@ -491,14 +491,19 @@ const Order = () => {
   const handleAddFlavoredItem = (
     product: Tables<"products">,
     selectedFlavors: { id: string; name: string; quantity: number; surcharge: number; category?: string }[],
-    includedItems?: { name: string; quantity: number }[]
+    includedItems?: { name: string; quantity: number; surcharge?: number }[]
   ) => {
     // Surcharge is per distinct flavor, NOT per piece - just sum them directly
     const flavorSurcharge = selectedFlavors.reduce(
       (sum, f) => sum + f.surcharge,
       0
     );
-    const lineTotal = product.price + flavorSurcharge;
+    // Also include surcharges from includedItems (e.g., Java Rice upgrade)
+    const includedSurcharge = includedItems?.reduce(
+      (sum, item) => sum + (item.surcharge || 0),
+      0
+    ) || 0;
+    const lineTotal = product.price + flavorSurcharge + includedSurcharge;
 
     setCart([
       ...cart,
@@ -538,10 +543,15 @@ const Order = () => {
             (sum, f) => sum + f.surcharge,
             0
           ) || 0;
+          // Also include surcharges from includedItems (e.g., Java Rice upgrade)
+          const includedSurcharge = item.includedItems?.reduce(
+            (sum, i) => sum + (i.surcharge || 0),
+            0
+          ) || 0;
           return {
             ...item,
             quantity: newQty,
-            lineTotal: newQty * (item.product.price + flavorSurcharge),
+            lineTotal: newQty * (item.product.price + flavorSurcharge + includedSurcharge),
           };
         })
         .filter(Boolean) as CartItem[]
