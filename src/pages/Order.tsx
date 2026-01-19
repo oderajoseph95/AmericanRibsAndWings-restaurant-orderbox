@@ -74,10 +74,34 @@ const Order = () => {
   const [detailProduct, setDetailProduct] = useState<(Tables<"products"> & { categories: { name: string } | null; slug?: string | null; seo_title?: string | null; seo_description?: string | null }) | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
 
+  // Query for checkout SEO data
+  const { data: checkoutSeo } = useQuery({
+    queryKey: ["page-seo", "/checkout"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("page_seo")
+        .select("*")
+        .eq("page_path", "/checkout")
+        .single();
+      return data;
+    },
+    enabled: isCheckoutOpen,
+  });
+
   // Sync checkout state with sales pop context
   useEffect(() => {
     setSalesPopCheckoutOpen(isCheckoutOpen);
   }, [isCheckoutOpen, setSalesPopCheckoutOpen]);
+
+  // Dynamic page title for checkout - ONLY changes document title, nothing else
+  useEffect(() => {
+    if (isCheckoutOpen) {
+      const checkoutTitle = checkoutSeo?.title || "Checkout Food | American Ribs & Wings";
+      document.title = checkoutTitle;
+      const ogTitle = document.querySelector('meta[property="og:title"]');
+      if (ogTitle) ogTitle.setAttribute("content", checkoutTitle);
+    }
+  }, [isCheckoutOpen, checkoutSeo?.title]);
 
   // Handle recovery URL - restore abandoned cart (enterprise-grade)
   useEffect(() => {
