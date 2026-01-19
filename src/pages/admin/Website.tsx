@@ -485,6 +485,7 @@ export default function Website() {
     const labels: Record<string, string> = {
       "/": "Homepage",
       "/order": "Order Page",
+      "/checkout": "Checkout Page",
       "/my-orders": "My Orders",
       "/order-tracking": "Order Tracking",
     };

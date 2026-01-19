@@ -960,15 +960,18 @@ export default function Orders() {
           body {
             font-family: 'Courier New', monospace;
             font-size: 12px;
+            font-weight: bold;
             width: 80mm;
             padding: 5mm;
             margin: 0 auto;
+            -webkit-print-color-adjust: exact;
           }
           .center { text-align: center; }
           .right { text-align: right; }
-          .bold { font-weight: bold; }
+          .bold { font-weight: 900; }
           .divider { border-top: 1px dashed #000; margin: 8px 0; }
-          .header { font-size: 14px; font-weight: bold; }
+          .header { font-size: 14px; font-weight: 900; }
+          div, span { font-weight: bold; }
         </style>
       </head>
       <body>
