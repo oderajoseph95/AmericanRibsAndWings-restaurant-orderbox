@@ -126,12 +126,21 @@ export function CompactOrderSummary({
                   {isBundle && (item as any).includedItems && (item as any).includedItems.length > 0 && (
                     <div className="ml-4 space-y-0.5">
                       <span className="text-xs font-medium text-green-600 dark:text-green-400">Included:</span>
-                      {(item as any).includedItems.map((incl: { name: string; quantity: number }, idx: number) => (
-                        <div key={idx} className="flex justify-between text-xs text-green-600 dark:text-green-400 ml-2">
-                          <span>• {incl.quantity > 1 ? `${incl.quantity} cups ` : ''}{incl.name}</span>
-                          <span className="text-green-500 text-[10px]">Included</span>
-                        </div>
-                      ))}
+                      {(item as any).includedItems.map((incl: { name: string; quantity: number; surcharge?: number }, idx: number) => {
+                        const isPaidUpgrade = (incl.surcharge || 0) > 0;
+                        return (
+                          <div key={idx} className={`flex justify-between text-xs ${isPaidUpgrade ? 'text-primary' : 'text-green-600 dark:text-green-400'} ml-2`}>
+                            <span>
+                              <span className={isPaidUpgrade ? 'text-primary' : 'text-green-500'}>•</span> {incl.quantity > 1 ? `${incl.quantity} cups ` : ''}{incl.name}
+                            </span>
+                            {isPaidUpgrade ? (
+                              <span className="text-primary shrink-0">+₱{incl.surcharge?.toFixed(2)}</span>
+                            ) : (
+                              <span className="text-green-500 text-[10px] border border-green-500/30 bg-green-500/10 px-1 rounded shrink-0">Included</span>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
