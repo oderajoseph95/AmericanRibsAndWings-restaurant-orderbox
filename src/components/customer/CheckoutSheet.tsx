@@ -1578,6 +1578,17 @@ export function CheckoutSheet({
                                     </label>
                                   )}
                                 </div>
+                                
+                                {/* Amount to Pay Display - UX only */}
+                                <div className="bg-gradient-to-r from-primary/10 to-primary/5 border border-primary/30 rounded-lg p-3 text-center mt-3">
+                                  <p className="text-xs text-muted-foreground">Amount to Pay</p>
+                                  <p className="text-2xl font-black text-primary">
+                                    ₱{(total + (deliveryFee || 0)).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    Please pay exact amount and upload screenshot
+                                  </p>
+                                </div>
                               </div>
                             )}
                           </div>
@@ -1678,6 +1689,17 @@ export function CheckoutSheet({
                                       />
                                     </label>
                                   )}
+                                </div>
+                                
+                                {/* Amount to Pay Display - UX only */}
+                                <div className="bg-gradient-to-r from-primary/10 to-primary/5 border border-primary/30 rounded-lg p-3 text-center mt-3">
+                                  <p className="text-xs text-muted-foreground">Amount to Pay</p>
+                                  <p className="text-2xl font-black text-primary">
+                                    ₱{(total + (deliveryFee || 0)).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    Please pay exact amount and upload screenshot
+                                  </p>
                                 </div>
                               </div>
                             )}
