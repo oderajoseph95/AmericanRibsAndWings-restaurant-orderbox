@@ -1858,9 +1858,25 @@ export type Database = {
         Returns: string
       }
       generate_random_username: { Args: { role_name: string }; Returns: string }
+      get_funnel_counts: {
+        Args: { end_date: string; start_date: string }
+        Returns: Json
+      }
       get_order_tracking: { Args: { p_order_id: string }; Returns: Json }
       get_orders_by_contact: {
         Args: { p_email?: string; p_phone?: string }
+        Returns: Json
+      }
+      get_top_added_to_cart: {
+        Args: { end_date: string; limit_count?: number; start_date: string }
+        Returns: Json
+      }
+      get_top_categories: {
+        Args: { end_date: string; limit_count?: number; start_date: string }
+        Returns: Json
+      }
+      get_top_viewed_products: {
+        Args: { end_date: string; limit_count?: number; start_date: string }
         Returns: Json
       }
       get_user_id_by_email: { Args: { p_email: string }; Returns: string }

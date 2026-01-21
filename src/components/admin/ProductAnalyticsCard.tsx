@@ -44,89 +44,59 @@ export function ProductAnalyticsCard({ dateFilter, customDateRange }: ProductAna
     }
   }, [dateFilter, customDateRange]);
 
-  // Top Viewed Products
+  // Top Viewed Products - using RPC for accurate counts (bypasses 1000 row limit)
   const { data: topViewed, isLoading: loadingViewed } = useQuery({
     queryKey: ["product-analytics", "top-viewed", dateFilter, dateRange.start.toISOString(), dateRange.end.toISOString()],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("analytics_events")
-        .select("event_data")
-        .eq("event_type", "view_product")
-        .gte("created_at", dateRange.start.toISOString())
-        .lte("created_at", dateRange.end.toISOString());
-
-      if (error) throw error;
-
-      const counts: Record<string, AnalyticsItem> = {};
-      data?.forEach((e) => {
-        const eventData = e.event_data as { product_id?: string; product_name?: string } | null;
-        const productId = eventData?.product_id;
-        const productName = eventData?.product_name;
-        if (productId) {
-          if (!counts[productId]) counts[productId] = { id: productId, name: productName || "Unknown", count: 0 };
-          counts[productId].count++;
-        }
+      const { data, error } = await supabase.rpc("get_top_viewed_products", {
+        start_date: dateRange.start.toISOString(),
+        end_date: dateRange.end.toISOString(),
+        limit_count: 5,
       });
 
-      return Object.values(counts).sort((a, b) => b.count - a.count).slice(0, 5);
+      if (error) throw error;
+      return ((data as any[]) || []).map((item: any) => ({
+        id: item.id,
+        name: item.name || "Unknown",
+        count: Number(item.count) || 0,
+      }));
     },
   });
 
-  // Most Added to Cart
+  // Most Added to Cart - using RPC for accurate counts
   const { data: topAddedToCart, isLoading: loadingCart } = useQuery({
     queryKey: ["product-analytics", "top-added-cart", dateFilter, dateRange.start.toISOString(), dateRange.end.toISOString()],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("analytics_events")
-        .select("event_data")
-        .eq("event_type", "add_to_cart")
-        .gte("created_at", dateRange.start.toISOString())
-        .lte("created_at", dateRange.end.toISOString());
-
-      if (error) throw error;
-
-      const counts: Record<string, AnalyticsItem> = {};
-      data?.forEach((e) => {
-        const eventData = e.event_data as { product_id?: string; product_name?: string } | null;
-        const productId = eventData?.product_id;
-        const productName = eventData?.product_name;
-        if (productId) {
-          if (!counts[productId]) counts[productId] = { id: productId, name: productName || "Unknown", count: 0 };
-          counts[productId].count++;
-        }
+      const { data, error } = await supabase.rpc("get_top_added_to_cart", {
+        start_date: dateRange.start.toISOString(),
+        end_date: dateRange.end.toISOString(),
+        limit_count: 5,
       });
 
-      return Object.values(counts).sort((a, b) => b.count - a.count).slice(0, 5);
+      if (error) throw error;
+      return ((data as any[]) || []).map((item: any) => ({
+        id: item.id,
+        name: item.name || "Unknown",
+        count: Number(item.count) || 0,
+      }));
     },
   });
 
-  // Top Categories (from view_product AND add_to_cart events)
+  // Top Categories - using RPC for accurate counts
   const { data: topCategories, isLoading: loadingCategories } = useQuery({
     queryKey: ["product-analytics", "top-categories", dateFilter, dateRange.start.toISOString(), dateRange.end.toISOString()],
     queryFn: async () => {
-      // Get both view_product and add_to_cart events for category data
-      const { data, error } = await supabase
-        .from("analytics_events")
-        .select("event_data")
-        .in("event_type", ["view_product", "add_to_cart"])
-        .gte("created_at", dateRange.start.toISOString())
-        .lte("created_at", dateRange.end.toISOString());
-
-      if (error) throw error;
-
-      const counts: Record<string, number> = {};
-      data?.forEach((e) => {
-        const eventData = e.event_data as { category?: string; category_name?: string } | null;
-        const category = eventData?.category || eventData?.category_name;
-        if (category && category !== "Uncategorized") {
-          counts[category] = (counts[category] || 0) + 1;
-        }
+      const { data, error } = await supabase.rpc("get_top_categories", {
+        start_date: dateRange.start.toISOString(),
+        end_date: dateRange.end.toISOString(),
+        limit_count: 5,
       });
 
-      return Object.entries(counts)
-        .map(([name, count]) => ({ name, count }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 5);
+      if (error) throw error;
+      return ((data as any[]) || []).map((item: any) => ({
+        name: item.name || "Unknown",
+        count: Number(item.count) || 0,
+      }));
     },
   });
 
