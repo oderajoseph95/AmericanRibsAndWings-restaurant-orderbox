@@ -82,39 +82,23 @@ export function ConversionFunnelCard({ dateFilter, customDateRange }: Conversion
     };
   }, [queryClient]);
 
-  // Fetch analytics events
+  // Fetch analytics events using RPC for accurate counts (bypasses 1000 row limit)
   const { data: funnelData } = useQuery({
     queryKey: ["conversion-funnel", dateFilter, dateRange.start.toISOString(), dateRange.end.toISOString()],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("analytics_events")
-        .select("event_type, session_id")
-        .gte("created_at", dateRange.start.toISOString())
-        .lte("created_at", dateRange.end.toISOString());
+      const { data, error } = await supabase.rpc("get_funnel_counts", {
+        start_date: dateRange.start.toISOString(),
+        end_date: dateRange.end.toISOString(),
+      });
 
       if (error) throw error;
 
-      // Count unique sessions per event type
-      const eventSessions: Record<string, Set<string>> = {
-        page_view: new Set(),
-        view_product: new Set(),
-        add_to_cart: new Set(),
-        checkout_start: new Set(),
-        checkout_complete: new Set(),
-      };
-
-      data?.forEach((event) => {
-        if (event.session_id && eventSessions[event.event_type]) {
-          eventSessions[event.event_type].add(event.session_id);
-        }
-      });
-
       return {
-        visits: eventSessions.page_view.size,
-        viewProduct: eventSessions.view_product.size,
-        addToCart: eventSessions.add_to_cart.size,
-        checkoutStart: eventSessions.checkout_start.size,
-        checkoutComplete: eventSessions.checkout_complete.size,
+        visits: (data as any)?.visits || 0,
+        viewProduct: (data as any)?.view_product || 0,
+        addToCart: (data as any)?.add_to_cart || 0,
+        checkoutStart: (data as any)?.checkout_start || 0,
+        checkoutComplete: (data as any)?.checkout_complete || 0,
       };
     },
   });
