@@ -26,7 +26,14 @@ export function usePersistedCart() {
         
         // Check if cart is still valid (not expired)
         if (now - parsed.savedAt < expiryMs && parsed.items.length > 0) {
-          setCart(parsed.items);
+          // CRITICAL: Recalculate lineTotal values to prevent stale/incorrect totals
+          const recalculatedItems = parsed.items.map(item => ({
+            ...item,
+            lineTotal: (item.product.price * item.quantity) 
+              + (item.flavors?.reduce((s, f) => s + (f.surcharge || 0), 0) || 0)
+              + (item.includedItems?.reduce((s, i) => s + (i.surcharge || 0), 0) || 0)
+          }));
+          setCart(recalculatedItems);
           
           // Check if we should show welcome back message (once per session)
           const alreadyShown = sessionStorage.getItem(WELCOME_BACK_KEY);
