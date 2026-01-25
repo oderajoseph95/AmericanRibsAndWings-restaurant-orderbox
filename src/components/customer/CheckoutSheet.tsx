@@ -726,12 +726,30 @@ export function CheckoutSheet({
       toast.error("Please upload payment proof for this payment method.");
       return;
     }
-    if (data.orderType === "delivery" && deliveryFee === null) {
-      toast.error("Please wait for delivery fee calculation or check your address.");
+    if (data.orderType === "delivery" && (deliveryFee === null || deliveryFee === 0)) {
+      toast.error("Please wait for delivery fee calculation to complete.");
       return;
     }
     setIsSubmitting(true);
     try {
+      // CRITICAL: Recalculate subtotal from source data to prevent stale lineTotal issues
+      const calculatedSubtotal = cart.reduce((sum, item) => {
+        const basePrice = item.quantity * item.product.price;
+        const flavorSurcharge = item.flavors?.reduce((s, f) => s + (f.surcharge || 0), 0) || 0;
+        const includedSurcharge = item.includedItems?.reduce((s, i) => s + (i.surcharge || 0), 0) || 0;
+        return sum + basePrice + flavorSurcharge + includedSurcharge;
+      }, 0);
+      
+      const calculatedGrandTotal = calculatedSubtotal + (deliveryFee || 0);
+      
+      // Log warning if calculated differs from prop (debugging aid)
+      if (Math.abs(calculatedSubtotal - total) > 0.01) {
+        console.warn(
+          `Cart total mismatch detected: prop=${total}, calculated=${calculatedSubtotal}`,
+          { cart, difference: total - calculatedSubtotal }
+        );
+      }
+
       // Use secure RPC function for customer creation
       const { data: customerId, error: customerError } = await supabase.rpc('create_checkout_customer', {
         p_name: data.name.trim(),
@@ -748,8 +766,8 @@ export function CheckoutSheet({
       const { data: orderResult, error: orderError } = await supabase.rpc('create_checkout_order', {
         p_customer_id: customerId,
         p_order_type: data.orderType,
-        p_subtotal: total,
-        p_total_amount: grandTotal,
+        p_subtotal: calculatedSubtotal,
+        p_total_amount: calculatedGrandTotal,
         p_delivery_address: deliveryAddress,
         p_delivery_fee: deliveryFee || 0,
         p_delivery_distance_km: deliveryDistance,
