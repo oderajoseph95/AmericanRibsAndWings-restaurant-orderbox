@@ -17,6 +17,7 @@ export interface NotificationMetadata {
   driver_name?: string;
   driver_id?: string;
   driver_phone?: string;
+  employee_name?: string;
   payout_amount?: number;
   amount?: number;
   payment_method?: string;
