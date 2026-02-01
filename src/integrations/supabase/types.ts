@@ -814,6 +814,45 @@ export type Database = {
         }
         Relationships: []
       }
+      employees: {
+        Row: {
+          created_at: string | null
+          date_hired: string | null
+          email: string
+          employee_id: string | null
+          id: string
+          is_active: boolean | null
+          name: string
+          phone: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          date_hired?: string | null
+          email: string
+          employee_id?: string | null
+          id?: string
+          is_active?: boolean | null
+          name: string
+          phone?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          date_hired?: string | null
+          email?: string
+          employee_id?: string | null
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          phone?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       flavors: {
         Row: {
           archived_at: string | null
@@ -1903,7 +1942,7 @@ export type Database = {
         | "manual_deduct"
         | "order_approved"
         | "order_cancelled"
-      app_role: "owner" | "manager" | "cashier" | "driver"
+      app_role: "owner" | "manager" | "cashier" | "driver" | "employee"
       delivery_photo_type: "pickup" | "delivery" | "return"
       driver_availability: "offline" | "online" | "busy" | "unavailable"
       flavor_type: "all_time" | "special"
@@ -2055,7 +2094,7 @@ export const Constants = {
         "order_approved",
         "order_cancelled",
       ],
-      app_role: ["owner", "manager", "cashier", "driver"],
+      app_role: ["owner", "manager", "cashier", "driver", "employee"],
       delivery_photo_type: ["pickup", "delivery", "return"],
       driver_availability: ["offline", "online", "busy", "unavailable"],
       flavor_type: ["all_time", "special"],

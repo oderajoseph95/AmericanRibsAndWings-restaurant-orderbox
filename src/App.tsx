@@ -34,6 +34,10 @@ import DriverDashboard from "./pages/driver/Dashboard";
 import DriverOrders from "./pages/driver/Orders";
 import DriverProfile from "./pages/driver/Profile";
 import DriverEarnings from "./pages/driver/Earnings";
+import EmployeeAuth from "./pages/employee/Auth";
+import EmployeeDashboard from "./pages/employee/Dashboard";
+import EmployeeProtectedRoute from "./components/employee/EmployeeProtectedRoute";
+import EmployeeLayout from "./layouts/EmployeeLayout";
 import Payouts from "./pages/admin/Payouts";
 import Logs from "./pages/admin/Logs";
 import Users from "./pages/admin/Users";
@@ -41,6 +45,7 @@ import EmailTemplates from "./pages/admin/EmailTemplates";
 import Sms from "./pages/admin/Sms";
 import AbandonedCheckouts from "./pages/admin/AbandonedCheckouts";
 import Sitemap from "./pages/admin/Sitemap";
+import Employees from "./pages/admin/Employees";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -95,10 +100,24 @@ const App = () => (
                   <Route path="email-templates" element={<EmailTemplates />} />
                   <Route path="sms" element={<Sms />} />
                   <Route path="abandoned-checkouts" element={<AbandonedCheckouts />} />
+                  <Route path="employees" element={<Employees />} />
                   <Route path="sitemap" element={<Sitemap />} />
                   <Route path="users" element={<Users />} />
                   <Route path="logs" element={<Logs />} />
                   <Route path="settings" element={<Settings />} />
+                </Route>
+
+                {/* Employee Routes */}
+                <Route path="/employee/auth" element={<EmployeeAuth />} />
+                <Route
+                  path="/employee"
+                  element={
+                    <EmployeeProtectedRoute>
+                      <EmployeeLayout />
+                    </EmployeeProtectedRoute>
+                  }
+                >
+                  <Route index element={<EmployeeDashboard />} />
                 </Route>
 
                 {/* Driver Routes */}

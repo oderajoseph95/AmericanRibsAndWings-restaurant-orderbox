@@ -345,6 +345,7 @@ export default function Settings() {
     manager: 'bg-blue-500/20 text-blue-700 border-blue-500/30',
     cashier: 'bg-green-500/20 text-green-700 border-green-500/30',
     driver: 'bg-amber-500/20 text-amber-700 border-amber-500/30',
+    employee: 'bg-teal-500/20 text-teal-700 border-teal-500/30',
   };
 
   if (role !== 'owner') {

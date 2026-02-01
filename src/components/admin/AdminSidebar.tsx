@@ -50,6 +50,7 @@ const navItems = [
   { title: 'Stock', url: '/admin/stock', icon: BoxesIcon, roles: ['owner', 'manager', 'cashier'] },
   { title: 'Customers', url: '/admin/customers', icon: Users, roles: ['owner', 'manager', 'cashier'] },
   { title: 'Abandoned Carts', url: '/admin/abandoned-checkouts', icon: ShoppingBasket, roles: ['owner', 'manager'] },
+  { title: 'Employees', url: '/admin/employees', icon: UserCog, roles: ['owner', 'manager'] },
   { title: 'Drivers', url: '/admin/drivers', icon: Truck, roles: ['owner', 'manager'] },
   { title: 'Payouts', url: '/admin/payouts', icon: Wallet, roles: ['owner', 'manager'] },
   { title: 'Reports', url: '/admin/reports', icon: BarChart3, roles: ['owner', 'manager'] },
