@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
 import { useAuth } from '@/contexts/AuthContext';
 import { sendEmailNotification } from '@/hooks/useEmailNotifications';
+import { sendSmsNotification } from '@/hooks/useSmsNotifications';
 import type { Database } from '@/integrations/supabase/types';
 
 type ReservationStatus = Database['public']['Enums']['reservation_status'];
@@ -165,6 +166,38 @@ export default function ReservationDetail() {
           }
         }).catch(err => {
           console.error('Email notification error:', err);
+        });
+      }
+
+      // Send customer SMS notification (always - phone is required)
+      if (reservation?.phone && (newStatus === 'confirmed' || newStatus === 'cancelled')) {
+        const smsType = newStatus === 'confirmed' ? 'reservation_confirmed' : 'reservation_cancelled';
+        
+        // Format date and time for SMS (shorter format)
+        const smsFormattedDate = format(new Date(reservation.reservation_date), 'MMM d');
+        const [smsHours, smsMinutes] = reservation.reservation_time.split(':');
+        const smsTimeDate = new Date();
+        smsTimeDate.setHours(parseInt(smsHours), parseInt(smsMinutes));
+        const smsFormattedTime = format(smsTimeDate, 'h:mm a');
+        
+        // Send SMS (fire and forget - don't block status update)
+        sendSmsNotification({
+          type: smsType,
+          recipientPhone: reservation.phone,
+          reservationId: reservation.id,
+          reservationCode: confirmationCode || reservation.confirmation_code || reservation.reservation_code,
+          customerName: reservation.name,
+          reservationDate: smsFormattedDate,
+          reservationTime: smsFormattedTime,
+          pax: reservation.pax,
+        }).then(result => {
+          if (!result.success) {
+            console.error('Failed to send reservation SMS:', result.error);
+          } else {
+            console.log('Reservation SMS sent successfully');
+          }
+        }).catch(err => {
+          console.error('SMS notification error:', err);
         });
       }
     },

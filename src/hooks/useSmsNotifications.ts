@@ -13,6 +13,8 @@ export type SmsType =
   | "order_completed"
   | "review_request"
   | "reservation_received"
+  | "reservation_confirmed"
+  | "reservation_cancelled"
   | "test";
 
 export interface SmsNotificationPayload {
