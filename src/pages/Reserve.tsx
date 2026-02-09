@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, CalendarDays, Clock, MapPin, Info } from "lucide-react";
@@ -21,6 +21,7 @@ interface ConfirmationData {
 
 export default function Reserve() {
   useVisitorPresence("/reserve");
+  const navigate = useNavigate();
   const { opensAt, closesAt, isLoading: storeStatusLoading } = useStoreStatus();
   const [isConfirmed, setIsConfirmed] = useState(false);
   const [confirmationData, setConfirmationData] = useState<ConfirmationData | null>(null);
@@ -61,10 +62,8 @@ export default function Reserve() {
       {/* Header */}
       <header className="sticky top-0 z-40 bg-card border-b border-border">
         <div className="container px-4 h-16 flex items-center gap-4">
-          <Button variant="ghost" size="icon" asChild>
-            <Link to="/">
-              <ArrowLeft className="h-5 w-5" />
-            </Link>
+          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+            <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
             <h1 className="font-bold text-lg">Reserve a Table</h1>

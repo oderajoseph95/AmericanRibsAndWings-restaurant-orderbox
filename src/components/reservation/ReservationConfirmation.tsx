@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { CheckCircle2, CalendarDays, Clock, Users, ArrowLeft, RotateCcw } from "lucide-react";
@@ -21,6 +21,7 @@ export function ReservationConfirmation({
   time,
   onNewReservation,
 }: ReservationConfirmationProps) {
+  const navigate = useNavigate();
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <SEOHead 
@@ -32,10 +33,8 @@ export function ReservationConfirmation({
       {/* Header */}
       <header className="sticky top-0 z-40 bg-card border-b border-border">
         <div className="container px-4 h-16 flex items-center gap-4">
-          <Button variant="ghost" size="icon" asChild>
-            <Link to="/">
-              <ArrowLeft className="h-5 w-5" />
-            </Link>
+          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+            <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
             <h1 className="font-bold text-lg">Reservation Submitted</h1>
