@@ -2202,8 +2202,20 @@ export type Database = {
         Returns: string
       }
       lookup_reservation: {
-        Args: { p_code: string; p_phone: string }
-        Returns: Json
+        Args: { p_phone: string; p_reservation_code: string }
+        Returns: {
+          created_at: string
+          email: string
+          id: string
+          name: string
+          notes: string
+          pax: number
+          phone: string
+          reservation_code: string
+          reservation_date: string
+          reservation_time: string
+          status: Database["public"]["Enums"]["reservation_status"]
+        }[]
       }
       normalize_phone_for_match: { Args: { phone: string }; Returns: string }
     }

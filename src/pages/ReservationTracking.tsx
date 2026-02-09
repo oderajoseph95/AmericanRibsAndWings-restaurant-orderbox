@@ -152,7 +152,7 @@ export default function ReservationTracking() {
 
     try {
       const { data, error: rpcError } = await supabase.rpc("lookup_reservation", {
-        p_code: code.trim(),
+        p_reservation_code: code.trim(),
         p_phone: phone.trim(),
       });
 
