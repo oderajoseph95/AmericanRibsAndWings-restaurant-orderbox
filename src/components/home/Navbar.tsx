@@ -34,6 +34,7 @@ export function Navbar() {
     { name: "Menu", href: "#menu" },
     { name: "About", href: "#about" },
     { name: "Location", href: "#location" },
+    { name: "Reserve", href: "/reservenow" },
   ];
 
   // Cart calculations
