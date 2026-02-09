@@ -1550,6 +1550,7 @@ export type Database = {
           completed_by: string | null
           confirmation_code: string | null
           created_at: string | null
+          customer_id: string | null
           email: string | null
           id: string
           idempotency_hash: string | null
@@ -1573,6 +1574,7 @@ export type Database = {
           completed_by?: string | null
           confirmation_code?: string | null
           created_at?: string | null
+          customer_id?: string | null
           email?: string | null
           id?: string
           idempotency_hash?: string | null
@@ -1596,6 +1598,7 @@ export type Database = {
           completed_by?: string | null
           confirmation_code?: string | null
           created_at?: string | null
+          customer_id?: string | null
           email?: string | null
           id?: string
           idempotency_hash?: string | null
@@ -1612,7 +1615,15 @@ export type Database = {
           status_changed_by?: string | null
           updated_at?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "reservations_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       sales_pop_config: {
         Row: {
@@ -2112,22 +2123,41 @@ export type Database = {
         }
         Returns: string
       }
-      create_reservation: {
-        Args: {
-          p_email?: string
-          p_name: string
-          p_notes?: string
-          p_pax?: number
-          p_phone: string
-          p_preorder_items?: Json
-          p_reservation_date?: string
-          p_reservation_time?: string
-        }
-        Returns: {
-          id: string
-          reservation_code: string
-        }[]
-      }
+      create_reservation:
+        | {
+            Args: {
+              p_email?: string
+              p_name: string
+              p_notes?: string
+              p_pax?: number
+              p_phone: string
+              p_preorder_items?: Json
+              p_reservation_date?: string
+              p_reservation_time?: string
+            }
+            Returns: {
+              id: string
+              reservation_code: string
+            }[]
+          }
+        | {
+            Args: {
+              p_email: string
+              p_idempotency_hash?: string
+              p_name: string
+              p_notes?: string
+              p_pax: number
+              p_phone: string
+              p_preorder_items?: Json
+              p_reservation_date: string
+              p_reservation_time: string
+            }
+            Returns: {
+              is_duplicate: boolean
+              reservation_code: string
+              reservation_id: string
+            }[]
+          }
       generate_random_username: { Args: { role_name: string }; Returns: string }
       get_funnel_counts: {
         Args: { end_date: string; start_date: string }
@@ -2175,6 +2205,7 @@ export type Database = {
         Args: { p_code: string; p_phone: string }
         Returns: Json
       }
+      normalize_phone_for_match: { Args: { phone: string }; Returns: string }
     }
     Enums: {
       adjustment_type:

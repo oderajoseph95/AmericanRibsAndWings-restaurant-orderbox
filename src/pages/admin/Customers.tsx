@@ -23,7 +23,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
-import { Plus, Pencil, Trash2, Search, Loader2, Eye, RefreshCw, MapPin, ArrowUpDown } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, Loader2, Eye, RefreshCw, MapPin, ArrowUpDown, CalendarDays, Package } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { format } from 'date-fns';
 import type { Tables } from '@/integrations/supabase/types';
@@ -116,6 +116,23 @@ export default function Customers() {
         .order('created_at', { ascending: false })
         .limit(10);
       if (error) throw error;
+      return data;
+    },
+    enabled: !!selectedCustomer,
+  });
+
+  // Fetch reservations for selected customer
+  const { data: customerReservations = [] } = useQuery({
+    queryKey: ['customer-reservations', selectedCustomer?.id],
+    queryFn: async () => {
+      if (!selectedCustomer) return [];
+      const { data, error } = await supabase
+        .from('reservations')
+        .select('*')
+        .eq('customer_id', selectedCustomer.id)
+        .order('reservation_date', { ascending: false })
+        .limit(10);
+      if (error) return [];
       return data;
     },
     enabled: !!selectedCustomer,
@@ -675,8 +692,12 @@ export default function Customers() {
                   </div>
                 )}
 
+                {/* Recent Orders Section */}
                 <div>
-                  <h4 className="font-medium mb-3">Recent Orders</h4>
+                  <h4 className="font-medium mb-3 flex items-center gap-2">
+                    <Package className="h-4 w-4" />
+                    Recent Orders ({customerOrders.length})
+                  </h4>
                   {customerOrders.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No orders yet</p>
                   ) : (
@@ -702,6 +723,42 @@ export default function Customers() {
                               className="text-xs capitalize"
                             >
                               {order.status?.replace('_', ' ')}
+                            </Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Reservations Section */}
+                <div>
+                  <h4 className="font-medium mb-3 flex items-center gap-2">
+                    <CalendarDays className="h-4 w-4" />
+                    Reservations ({customerReservations.length})
+                  </h4>
+                  {customerReservations.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No reservations</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {customerReservations.map((res) => (
+                        <div
+                          key={res.id}
+                          className="flex items-center justify-between p-3 bg-muted rounded-lg"
+                        >
+                          <div>
+                            <p className="font-mono text-sm">{res.reservation_code}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {format(new Date(res.reservation_date), 'MMM d, yyyy')} at {res.reservation_time}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm">{res.pax} guests</p>
+                            <Badge
+                              variant="outline"
+                              className="text-xs capitalize"
+                            >
+                              {res.status?.replace('_', ' ')}
                             </Badge>
                           </div>
                         </div>

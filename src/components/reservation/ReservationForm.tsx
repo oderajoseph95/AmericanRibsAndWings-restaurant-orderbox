@@ -271,7 +271,7 @@ export function ReservationForm({ onSuccess, storeHours }: ReservationFormProps)
       
       // Call success callback with all details
       onSuccess({
-        id: reservation.id,
+        id: reservation.reservation_id,
         reservationCode: reservation.reservation_code,
         name: name.trim(),
         phone: normalizePhone(phone),
