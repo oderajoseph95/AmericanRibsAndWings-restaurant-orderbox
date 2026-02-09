@@ -1,12 +1,14 @@
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNow } from 'date-fns';
-import { ArrowLeft, CalendarDays, Users, Phone, Mail, MessageSquare, Clock, Hash } from 'lucide-react';
+import { ArrowLeft, CalendarDays, Users, Phone, Mail, MessageSquare, Clock, Hash, Check, X, CheckCircle, UserX, Loader2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { toast } from 'sonner';
+import { logAdminAction } from '@/lib/adminLogger';
 import type { Database } from '@/integrations/supabase/types';
 
 type ReservationStatus = Database['public']['Enums']['reservation_status'];
@@ -35,6 +37,7 @@ const statusLabels: Record<ReservationStatus, string> = {
 
 export default function ReservationDetail() {
   const { id } = useParams<{ id: string }>();
+  const queryClient = useQueryClient();
 
   const { data: reservation, isLoading, error } = useQuery({
     queryKey: ['admin-reservation', id],
@@ -49,6 +52,42 @@ export default function ReservationDetail() {
       return data;
     },
     enabled: !!id,
+  });
+
+  const updateStatusMutation = useMutation({
+    mutationFn: async ({ newStatus }: { newStatus: ReservationStatus }) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      const { error } = await supabase
+        .from('reservations')
+        .update({ 
+          status: newStatus,
+          status_changed_at: new Date().toISOString(),
+          status_changed_by: user?.id || null,
+        })
+        .eq('id', id!);
+      
+      if (error) throw error;
+
+      // Log admin action
+      await logAdminAction({
+        action: 'status_change',
+        entityType: 'reservation',
+        entityId: id,
+        entityName: reservation?.reservation_code,
+        oldValues: { status: reservation?.status },
+        newValues: { status: newStatus },
+        details: `Changed reservation status from ${reservation?.status} to ${newStatus}`,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-reservation', id] });
+      queryClient.invalidateQueries({ queryKey: ['admin-reservations'] });
+      toast.success('Reservation status updated');
+    },
+    onError: (error: Error) => {
+      toast.error('Failed to update status: ' + error.message);
+    },
   });
 
   const formatTime = (time: string) => {
@@ -251,11 +290,82 @@ export default function ReservationDetail() {
         </CardContent>
       </Card>
 
+      {/* Status Actions */}
+      {reservation.status !== 'completed' && 
+       reservation.status !== 'cancelled' && 
+       reservation.status !== 'no_show' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Actions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-3">
+              {reservation.status === 'pending' && (
+                <>
+                  <Button
+                    onClick={() => updateStatusMutation.mutate({ newStatus: 'confirmed' })}
+                    disabled={updateStatusMutation.isPending}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    {updateStatusMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <Check className="h-4 w-4 mr-2" />
+                    )}
+                    Confirm Reservation
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={() => updateStatusMutation.mutate({ newStatus: 'cancelled' })}
+                    disabled={updateStatusMutation.isPending}
+                  >
+                    {updateStatusMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <X className="h-4 w-4 mr-2" />
+                    )}
+                    Reject
+                  </Button>
+                </>
+              )}
+              {reservation.status === 'confirmed' && (
+                <>
+                  <Button
+                    onClick={() => updateStatusMutation.mutate({ newStatus: 'completed' })}
+                    disabled={updateStatusMutation.isPending}
+                    className="bg-emerald-600 hover:bg-emerald-700"
+                  >
+                    {updateStatusMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                    )}
+                    Mark Completed
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => updateStatusMutation.mutate({ newStatus: 'no_show' })}
+                    disabled={updateStatusMutation.isPending}
+                  >
+                    {updateStatusMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <UserX className="h-4 w-4 mr-2" />
+                    )}
+                    Mark No-Show
+                  </Button>
+                </>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Metadata */}
-      <div className="text-sm text-muted-foreground">
-        Created {formatCreatedAt(reservation.created_at || '')}
-        {reservation.updated_at && reservation.updated_at !== reservation.created_at && (
-          <span> · Updated {formatCreatedAt(reservation.updated_at)}</span>
+      <div className="text-sm text-muted-foreground space-y-1">
+        <p>Created {formatCreatedAt(reservation.created_at || '')}</p>
+        {reservation.status_changed_at && (
+          <p>Status changed {formatCreatedAt(reservation.status_changed_at)}</p>
         )}
       </div>
     </div>
