@@ -1,148 +1,88 @@
 
-# Plan: Fix Email/SMS Templates, Logs & Auto-Sync for Reservations
+# Plan: Fix Reservation Function Ambiguity & Phone Lookup Issues
 
 ## Problems Identified
 
-### Problem 1: Missing Reservation Email Templates
-The `email_templates` table has **no reservation templates**:
-- Currently has: order templates (new_order, order_approved, etc.) and payout templates
-- Missing: `new_reservation_customer`, `new_reservation_admin`, `reservation_confirmed_customer`, `reservation_confirmed_admin`, `reservation_cancelled_customer`, `reservation_cancelled_admin`, `reservation_reminder_customer`
+### Problem 1: Duplicate `create_reservation` Functions
+**Error**: "Could not choose the best candidate function between: public.create_reservation(...)"
 
-The edge function HAS reservation support (code is there), but the database doesn't have the templates for admins to customize.
+The database has **two versions** of `create_reservation` with overlapping signatures:
+- Version 1: 8 parameters (without `p_idempotency_hash`)
+- Version 2: 9 parameters (with `p_idempotency_hash`)
 
-### Problem 2: Missing Reservation SMS Templates
-The `sms_templates` table has only 1 reservation template (`reservation_received`):
-- Missing: `reservation_confirmed`, `reservation_cancelled`, `reservation_cancelled_by_customer`, `reservation_reminder`
+When the frontend calls with 8 parameters, PostgreSQL can't decide which to use because both have the same first 8 parameters with defaults.
 
-### Problem 3: Templates Page Doesn't Show Reservation Variables
-The EmailTemplates page and SMS page don't include reservation-specific variables in their help sections:
-- Missing: `{{reservation_code}}`, `{{reservation_date}}`, `{{reservation_time}}`, `{{pax}}`
-
-### Problem 4: SMS Status Not Auto-Syncing
-Currently the user has to click "Sync Status" manually to update SMS delivery statuses from Semaphore API. There's NO cron job for `sync-sms-status`. The existing auto-sync only refreshes locally cached data (every 30s) - it doesn't call the Semaphore API to get actual delivery status updates.
+### Problem 2: Reservation Lookup Phone Mismatch
+- Stored phone: `639214080286` (international format)
+- User enters: `09214080286` (local format)
+- The `lookup_reservation` function normalizes user input to local format (`09...`), but the phone comparison logic may not correctly match the stored international format.
 
 ---
 
 ## Solution
 
-### Part 1: Add Missing Reservation Email Templates (Database)
+### Part 1: Drop the Duplicate Function (Database Migration)
 
-Insert the following email templates:
-
-| Type | Name | For |
-|------|------|-----|
-| `new_reservation_customer` | Reservation Received (Customer) | Customer confirmation |
-| `new_reservation_admin` | New Reservation Alert (Admin) | Admin notification |
-| `reservation_confirmed_customer` | Reservation Confirmed (Customer) | Customer confirmation |
-| `reservation_confirmed_admin` | Reservation Confirmed (Admin) | Admin notification |
-| `reservation_cancelled_customer` | Reservation Cancelled (Customer) | Customer notification |
-| `reservation_cancelled_admin` | Reservation Cancelled (Admin) | Admin notification |
-| `reservation_reminder_customer` | Reservation Reminder (Customer) | Reminder email |
-
-### Part 2: Add Missing Reservation SMS Templates (Database)
-
-Insert the following SMS templates:
-
-| Type | Name |
-|------|------|
-| `reservation_confirmed` | Reservation Confirmed |
-| `reservation_cancelled` | Reservation Cancelled |
-| `reservation_cancelled_by_customer` | Reservation Cancelled by Customer |
-| `reservation_reminder` | Reservation Reminder |
-
-### Part 3: Add Reservation Variables to UI Help Sections
-
-**File: `src/pages/admin/EmailTemplates.tsx`**
-
-Add to `variablesList`:
-```typescript
-{ variable: '{{reservation_code}}', description: 'Reservation code (e.g., ARW-RSV-1234)', category: 'Reservation' },
-{ variable: '{{reservation_date}}', description: 'Reservation date (e.g., Feb 17, 2026)', category: 'Reservation' },
-{ variable: '{{reservation_time}}', description: 'Reservation time (e.g., 6:00 PM)', category: 'Reservation' },
-{ variable: '{{pax}}', description: 'Number of guests', category: 'Reservation' },
-```
-
-**File: `src/pages/admin/Sms.tsx`**
-
-Add to `smsVariables`:
-```typescript
-{ variable: '{{reservation_code}}', description: 'Reservation code' },
-{ variable: '{{reservation_date}}', description: 'Reservation date' },
-{ variable: '{{reservation_time}}', description: 'Reservation time' },
-{ variable: '{{pax}}', description: 'Number of guests' },
-```
-
-### Part 4: Add Type Labels for Reservation Templates in UI
-
-**File: `src/pages/admin/EmailTemplates.tsx`** - Add to `getEmailTypeLabel`:
-```typescript
-new_reservation: { label: 'New Reservation', color: 'bg-purple-500/20 text-purple-700' },
-reservation_confirmed: { label: 'Reservation Confirmed', color: 'bg-green-500/20 text-green-700' },
-reservation_cancelled: { label: 'Reservation Cancelled', color: 'bg-red-500/20 text-red-700' },
-reservation_cancelled_by_customer: { label: 'Cancelled by Customer', color: 'bg-gray-500/20 text-gray-700' },
-reservation_reminder: { label: 'Reservation Reminder', color: 'bg-amber-500/20 text-amber-700' },
-```
-
-**File: `src/pages/admin/Sms.tsx`** - Add to `getTypeLabel`:
-```typescript
-reservation_received: { label: 'Reservation Received', color: 'bg-purple-500/20 text-purple-700' },
-reservation_confirmed: { label: 'Reservation Confirmed', color: 'bg-green-500/20 text-green-700' },
-reservation_cancelled: { label: 'Reservation Cancelled', color: 'bg-red-500/20 text-red-700' },
-reservation_cancelled_by_customer: { label: 'Cancelled by Customer', color: 'bg-gray-500/20 text-gray-700' },
-reservation_reminder: { label: 'Reservation Reminder', color: 'bg-amber-500/20 text-amber-700' },
-```
-
-### Part 5: Create Cron Job for SMS Status Sync
-
-Add a new cron job to automatically sync SMS statuses every 5 minutes:
+Remove the older version that doesn't have `p_idempotency_hash`. This leaves only ONE function:
 
 ```sql
-SELECT cron.schedule(
-  'sync-sms-status',
-  '*/5 * * * *',
-  $$
-  SELECT net.http_post(
-    url:='https://saxwbdwmuzkmxztagfot.supabase.co/functions/v1/sync-sms-status',
-    headers:='{"Content-Type": "application/json", "Authorization": "Bearer <anon_key>"}'::jsonb,
-    body:='{"syncAll": true}'::jsonb
-  ) as request_id;
-  $$
+-- Drop the old function signature (without idempotency_hash)
+DROP FUNCTION IF EXISTS public.create_reservation(
+  text, text, text, integer, date, time without time zone, text, jsonb
 );
 ```
 
-### Part 6: Add sync-sms-status to config.toml
+### Part 2: Ensure Remaining Function Handles Missing Parameter
 
-Add the edge function config:
-```toml
-[functions.sync-sms-status]
-verify_jwt = false
+The remaining function should accept NULL for `p_idempotency_hash` and generate it internally (which it already does). No changes needed here - the function already has `p_idempotency_hash` with a DEFAULT.
+
+### Part 3: Fix Frontend to NOT Pass idempotency_hash
+
+The frontend should not pass this parameter - the database function will generate it. Currently the form doesn't pass it anyway, so once we drop the old function, it will work.
+
+### Part 4: Fix `lookup_reservation` Phone Matching
+
+Update the phone matching logic to handle both formats properly:
+
+```sql
+-- Improve phone matching to handle 63 prefix stored in DB
+AND (
+  -- Direct match after stripping non-digits
+  regexp_replace(r.phone, '[^0-9]', '', 'g') = v_normalized_phone
+  -- Last 10 digits match (handles 63 vs 0 prefix)
+  OR RIGHT(regexp_replace(r.phone, '[^0-9]', '', 'g'), 10) = RIGHT(v_normalized_phone, 10)
+  -- If DB has 63 prefix and we have 0 prefix
+  OR ('63' || RIGHT(v_normalized_phone, 10)) = regexp_replace(r.phone, '[^0-9]', '', 'g')
+)
 ```
+
+### Part 5: Fix `cancel_reservation_by_customer` Phone Matching
+
+Apply the same phone normalization fix to the cancellation function to ensure consistency.
 
 ---
 
 ## Files to Modify
 
-| File | Changes |
-|------|---------|
-| Database Migration | Add reservation email templates, SMS templates, and cron job |
-| `supabase/config.toml` | Add `sync-sms-status` function config |
-| `src/pages/admin/EmailTemplates.tsx` | Add reservation variables to help section + type labels |
-| `src/pages/admin/Sms.tsx` | Add reservation variables to help section + type labels |
+| Type | Action | Description |
+|------|--------|-------------|
+| Database Migration | **Create** | Drop duplicate function, update phone matching in lookup/cancel functions |
 
 ---
 
 ## Summary
 
-| Issue | Fix |
-|-------|-----|
-| Missing reservation email templates | Add 7 new email templates for reservations |
-| Missing reservation SMS templates | Add 4 new SMS templates for reservations |
-| Templates UI missing reservation variables | Add `{{reservation_code}}`, `{{reservation_date}}`, `{{reservation_time}}`, `{{pax}}` |
-| SMS status not auto-syncing | Add cron job to call `sync-sms-status` every 5 minutes |
-| Logs not showing reservation types | Add type labels for reservation email/SMS types |
+| Problem | Root Cause | Fix |
+|---------|-----------|-----|
+| "Could not choose best candidate function" | Two `create_reservation` functions with overlapping signatures | Drop the old function without `p_idempotency_hash` |
+| "Reservation not found" when tracking | Phone stored as `639...` but searched as `09...` | Update phone matching to compare last 10 digits |
+| Cancel loop/error | Same phone mismatch issue | Same phone matching fix |
+
+---
+
+## Expected Result
 
 After this fix:
-- Admins can customize all reservation email/SMS templates
-- Email/SMS logs will properly display reservation-related entries with correct badges
-- SMS delivery statuses will auto-sync from Semaphore API every 5 minutes (no manual clicking!)
-- Template variable help sections will include reservation-specific variables
+- Reservations will create successfully (only one function, no ambiguity)
+- Tracking will find reservations regardless of phone format entered
+- Cancellation will work for any valid phone format
