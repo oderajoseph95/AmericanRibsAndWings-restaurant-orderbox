@@ -1,151 +1,377 @@
 
 
-# ISSUE R1.1 - Reservation Page Shell & Routing
+# ISSUE R1.3 - Reservation Submission & Confirmation Trigger
 
 ## Overview
 
-Create a public reservation entry page at `/reserve` that serves as the foundation for all reservation-related flows. This is a **shell only** - no form logic, validation, or submission handling.
+Turn validated reservation form data into a real reservation record with a unique reference code, display a confirmation screen, and trigger SMS/email notifications to customers and admins.
 
 ---
 
 ## Technical Implementation
 
-### 1. Create the Reservation Page
+### 1. Database Schema - Create `reservations` Table
 
-**File:** `src/pages/Reserve.tsx`
+**SQL Migration:**
 
-A new page component following the established patterns from `MyOrders.tsx` and `Index.tsx`:
+```sql
+-- Create reservation_status enum
+CREATE TYPE reservation_status AS ENUM ('pending', 'confirmed', 'cancelled', 'completed', 'no_show');
 
-```tsx
-import { Link } from "react-router-dom";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, CalendarDays, Clock, MapPin, Info } from "lucide-react";
-import { SEOHead } from "@/components/SEOHead";
-import { Footer } from "@/components/home/Footer";
-import { useStoreStatus } from "@/hooks/useStoreStatus";
-import { STORE_NAME, STORE_ADDRESS_LINE1, STORE_ADDRESS_LINE3 } from "@/lib/constants";
-import { useVisitorPresence } from "@/hooks/useVisitorPresence";
+-- Create reservations table
+CREATE TABLE reservations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  reservation_code TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  email TEXT,
+  pax INTEGER NOT NULL CHECK (pax > 0 AND pax <= 20),
+  reservation_date DATE NOT NULL,
+  reservation_time TIME NOT NULL,
+  notes TEXT,
+  status reservation_status DEFAULT 'pending' NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
 
-export default function Reserve() {
-  useVisitorPresence("/reserve");
-  const { opensAt, closesAt, isLoading: storeStatusLoading } = useStoreStatus();
+-- Enable RLS
+ALTER TABLE reservations ENABLE ROW LEVEL SECURITY;
 
-  return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <SEOHead 
-        pagePath="/reserve" 
-        fallbackTitle="Reserve a Table | American Ribs & Wings"
-        fallbackDescription="Reserve your table at American Ribs & Wings. Choose your date, time, and number of guests."
-      />
-      
-      {/* Header */}
-      <header className="sticky top-0 z-40 bg-card border-b border-border">
-        <div className="container px-4 h-16 flex items-center gap-4">
-          <Button variant="ghost" size="icon" asChild>
-            <Link to="/">
-              <ArrowLeft className="h-5 w-5" />
-            </Link>
-          </Button>
-          <div>
-            <h1 className="font-bold text-lg">Reserve a Table</h1>
-            <p className="text-xs text-muted-foreground">{STORE_NAME}</p>
-          </div>
-        </div>
-      </header>
+-- RLS Policies
+CREATE POLICY "Public can insert reservations" ON reservations
+  FOR INSERT WITH CHECK (status = 'pending');
 
-      {/* Main Content */}
-      <main className="flex-1 container px-4 py-6 max-w-2xl mx-auto">
-        {/* Page Header */}
-        <div className="text-center mb-8">
-          <CalendarDays className="h-12 w-12 text-primary mx-auto mb-4" />
-          <h2 className="text-2xl font-bold mb-2">Reserve a Table</h2>
-          <p className="text-muted-foreground">
-            Reserve your table in advance. We'll confirm your reservation via SMS.
-          </p>
-        </div>
+CREATE POLICY "Public can view own reservation by code" ON reservations
+  FOR SELECT USING (true);
 
-        {/* Form Placeholder Container */}
-        <Card className="mb-6">
-          <CardContent className="pt-6">
-            <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-8 text-center">
-              <CalendarDays className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
-              <p className="text-muted-foreground text-sm">
-                Reservation form coming soon
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+CREATE POLICY "Admins can view all reservations" ON reservations
+  FOR SELECT USING (is_admin(auth.uid()));
 
-        {/* Store Info Section */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Info className="h-4 w-4 text-primary" />
-              Store Information
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Address */}
-            <div className="flex items-start gap-3">
-              <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
-              <div className="text-sm">
-                <p className="font-medium">{STORE_NAME}</p>
-                <p className="text-muted-foreground">{STORE_ADDRESS_LINE1}</p>
-                <p className="text-muted-foreground">{STORE_ADDRESS_LINE3}</p>
-              </div>
-            </div>
-            
-            {/* Hours */}
-            {!storeStatusLoading && opensAt && closesAt && (
-              <div className="flex items-start gap-3">
-                <Clock className="h-4 w-4 text-muted-foreground mt-0.5" />
-                <div className="text-sm">
-                  <p className="font-medium">Operating Hours</p>
-                  <p className="text-muted-foreground">{opensAt} - {closesAt}</p>
-                </div>
-              </div>
-            )}
+CREATE POLICY "Admins can update reservations" ON reservations
+  FOR UPDATE USING (is_admin(auth.uid()));
 
-            {/* Confirmation Note */}
-            <div className="bg-muted/50 rounded-lg p-3 text-xs text-muted-foreground">
-              <p>Reservations are subject to confirmation. You will receive an SMS once your reservation is confirmed.</p>
-            </div>
-          </CardContent>
-        </Card>
-      </main>
+CREATE POLICY "Owner can delete reservations" ON reservations
+  FOR DELETE USING (has_role(auth.uid(), 'owner'::app_role));
 
-      {/* Footer */}
-      <Footer />
-    </div>
-  );
-}
+-- Updated_at trigger
+CREATE TRIGGER update_reservations_updated_at
+  BEFORE UPDATE ON reservations
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- Enable realtime
+ALTER PUBLICATION supabase_realtime ADD TABLE reservations;
 ```
 
-Key features:
-- Follows `MyOrders.tsx` layout pattern (sticky header with back button, centered content)
-- Uses existing theme tokens and components
-- Mobile-first responsive design
-- SEO-ready with `SEOHead` component
-- Includes visitor presence tracking
-- Read-only store info from constants and `useStoreStatus` hook
-- Dashed placeholder container clearly indicates "form coming soon"
-- No CTAs that pretend to work
+**Reservation Code Generation Function:**
+
+```sql
+-- Generate human-readable reservation code (ARW-RSV-XXXX)
+CREATE OR REPLACE FUNCTION generate_reservation_code()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  NEW.reservation_code := 'ARW-RSV-' || LPAD(
+    FLOOR(RANDOM() * 10000)::TEXT, 
+    4, 
+    '0'
+  );
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER set_reservation_code
+  BEFORE INSERT ON reservations
+  FOR EACH ROW
+  EXECUTE FUNCTION generate_reservation_code();
+```
+
+**Secure RPC Function for Submission:**
+
+```sql
+-- Secure function to create reservation (bypasses RLS)
+CREATE OR REPLACE FUNCTION create_reservation(
+  p_name TEXT,
+  p_phone TEXT,
+  p_email TEXT DEFAULT NULL,
+  p_pax INTEGER,
+  p_reservation_date DATE,
+  p_reservation_time TIME,
+  p_notes TEXT DEFAULT NULL
+)
+RETURNS TABLE(id UUID, reservation_code TEXT)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_reservation_id UUID;
+  v_code TEXT;
+  v_attempts INTEGER := 0;
+BEGIN
+  -- Validate required fields
+  IF p_name IS NULL OR TRIM(p_name) = '' THEN
+    RAISE EXCEPTION 'Name is required';
+  END IF;
+  
+  IF p_phone IS NULL OR TRIM(p_phone) = '' THEN
+    RAISE EXCEPTION 'Phone is required';
+  END IF;
+  
+  IF p_pax < 1 OR p_pax > 20 THEN
+    RAISE EXCEPTION 'Party size must be between 1 and 20';
+  END IF;
+  
+  -- Generate unique code with retry
+  LOOP
+    v_code := 'ARW-RSV-' || LPAD(FLOOR(RANDOM() * 10000)::TEXT, 4, '0');
+    
+    -- Check if code exists
+    IF NOT EXISTS (SELECT 1 FROM reservations WHERE reservation_code = v_code) THEN
+      EXIT;
+    END IF;
+    
+    v_attempts := v_attempts + 1;
+    IF v_attempts > 10 THEN
+      RAISE EXCEPTION 'Failed to generate unique reservation code';
+    END IF;
+  END LOOP;
+  
+  -- Insert reservation
+  INSERT INTO reservations (
+    reservation_code,
+    name,
+    phone,
+    email,
+    pax,
+    reservation_date,
+    reservation_time,
+    notes,
+    status
+  ) VALUES (
+    v_code,
+    TRIM(p_name),
+    TRIM(p_phone),
+    NULLIF(TRIM(p_email), ''),
+    p_pax,
+    p_reservation_date,
+    p_reservation_time,
+    NULLIF(TRIM(p_notes), ''),
+    'pending'
+  )
+  RETURNING reservations.id INTO v_reservation_id;
+  
+  RETURN QUERY SELECT v_reservation_id, v_code;
+END;
+$$;
+```
 
 ---
 
-### 2. Add Route to App.tsx
+### 2. SMS Notification Type - Add Reservation Type
 
-**File:** `src/App.tsx`
+**Update `src/hooks/useSmsNotifications.ts`:**
 
-Add the `/reserve` route alongside other public routes:
+Add new SMS type for reservations:
+
+```typescript
+export type SmsType = 
+  | "order_received"
+  | ... existing types ...
+  | "reservation_received"  // NEW
+  | "test";
+
+export interface SmsNotificationPayload {
+  type: SmsType;
+  recipientPhone?: string;
+  reservationId?: string;        // NEW
+  reservationCode?: string;      // NEW
+  reservationDate?: string;      // NEW
+  reservationTime?: string;      // NEW
+  pax?: number;                  // NEW
+  customerName?: string;
+  ... existing fields ...
+}
+```
+
+**Update Edge Function `send-sms-notification/index.ts`:**
+
+Add reservation SMS handling:
+
+```typescript
+// In SmsPayload interface - add new fields
+reservationId?: string;
+reservationCode?: string;
+reservationDate?: string;
+reservationTime?: string;
+pax?: number;
+
+// In replaceVariables - add new replacements
+result = result.replace(/\{\{reservation_code\}\}/g, payload.reservationCode || "");
+result = result.replace(/\{\{reservation_date\}\}/g, payload.reservationDate || "");
+result = result.replace(/\{\{reservation_time\}\}/g, payload.reservationTime || "");
+result = result.replace(/\{\{pax\}\}/g, String(payload.pax || ""));
+
+// In getDefaultMessage - add reservation type
+reservation_received: `American Ribs & Wings: Reservation ${payload.reservationCode} received for ${payload.pax} guests on ${payload.reservationDate} at ${payload.reservationTime}. We'll confirm via SMS shortly.`,
+```
+
+---
+
+### 3. Email Notification Type - Add Reservation Type
+
+**Update `src/hooks/useEmailNotifications.ts`:**
+
+Add new email type:
+
+```typescript
+export type EmailType = 
+  | "new_order"
+  | ... existing types ...
+  | "new_reservation"  // NEW
+  | "test_email";
+
+export interface EmailNotificationPayload {
+  type: EmailType;
+  reservationId?: string;        // NEW
+  reservationCode?: string;      // NEW
+  reservationDate?: string;      // NEW
+  reservationTime?: string;      // NEW
+  pax?: number;                  // NEW
+  ... existing fields ...
+}
+```
+
+**Update Edge Function `send-email-notification/index.ts`:**
+
+Add reservation email handling (admin notification only - customer email not required per spec):
+
+```typescript
+// Add to EmailPayload interface
+reservationId?: string;
+reservationCode?: string;
+reservationDate?: string;
+reservationTime?: string;
+pax?: number;
+
+// Add new email template case in main handler
+case 'new_reservation':
+  subject = `New Reservation ${payload.reservationCode} - ${payload.pax} guests`;
+  html = generateReservationEmailHtml(payload);
+  break;
+```
+
+---
+
+### 4. Create Reservation Form Component
+
+**File:** `src/components/reservation/ReservationForm.tsx`
+
+Form component with submission logic:
 
 ```tsx
-// Add import at top
-import Reserve from "./pages/Reserve";
+// Key functionality:
+// - Accept validated form data from parent
+// - Call create_reservation RPC on submit
+// - Trigger SMS and email notifications
+// - Call onSuccess callback with reservation details
+// - Handle errors with retry capability
+// - Show loading state during submission
 
-// Add route after /my-orders (around line 77)
-<Route path="/reserve" element={<Reserve />} />
+interface ReservationFormProps {
+  onSuccess: (reservation: { id: string; code: string; ... }) => void;
+  storeHours: { opensAt: string; closesAt: string };
+}
+
+// Submission flow:
+// 1. Validate all fields
+// 2. Call supabase.rpc('create_reservation', {...})
+// 3. Fire notifications via Promise.allSettled
+// 4. Call onSuccess with reservation data
+// 5. Parent handles redirect to confirmation
+```
+
+---
+
+### 5. Create Reservation Confirmation Component
+
+**File:** `src/components/reservation/ReservationConfirmation.tsx`
+
+Confirmation screen following OrderConfirmation.tsx pattern:
+
+```tsx
+interface ReservationConfirmationProps {
+  reservationCode: string;
+  name: string;
+  pax: number;
+  date: string;
+  time: string;
+  onNewReservation: () => void;
+}
+
+// UI Structure:
+// - Success icon (green checkmark)
+// - "Reservation Submitted" heading
+// - Reservation code (prominent, large font)
+// - Date & time summary
+// - Party size
+// - "We'll confirm your reservation via SMS shortly" message
+// - Back to Home button
+// - Make Another Reservation button
+```
+
+---
+
+### 6. Update Reserve Page
+
+**File:** `src/pages/Reserve.tsx`
+
+Replace placeholder with form and handle confirmation state:
+
+```tsx
+// State management:
+const [isConfirmed, setIsConfirmed] = useState(false);
+const [confirmationData, setConfirmationData] = useState(null);
+
+// Conditional rendering:
+if (isConfirmed && confirmationData) {
+  return <ReservationConfirmation {...confirmationData} />;
+}
+
+// Otherwise render form:
+return (
+  <div>
+    {/* Header */}
+    <main>
+      <ReservationForm 
+        onSuccess={(data) => {
+          setConfirmationData(data);
+          setIsConfirmed(true);
+        }}
+        storeHours={{ opensAt, closesAt }}
+      />
+      {/* Store Info */}
+    </main>
+    <Footer />
+  </div>
+);
+```
+
+---
+
+### 7. Insert Default SMS Template
+
+**SQL:**
+
+```sql
+INSERT INTO sms_templates (type, content, is_active)
+VALUES (
+  'reservation_received',
+  'American Ribs & Wings: Reservation {{reservation_code}} received for {{pax}} guests on {{reservation_date}} at {{reservation_time}}. We will confirm via SMS shortly.',
+  true
+)
+ON CONFLICT DO NOTHING;
 ```
 
 ---
@@ -154,62 +380,112 @@ import Reserve from "./pages/Reserve";
 
 | File | Change |
 |------|--------|
-| `src/pages/Reserve.tsx` | **Create** - New reservation page shell |
-| `src/App.tsx` | Add `/reserve` route |
+| **Database** | Create `reservations` table, enum, RPC function |
+| **Database** | Insert SMS template for `reservation_received` |
+| `src/components/reservation/ReservationForm.tsx` | **Create** - Form with submission logic |
+| `src/components/reservation/ReservationConfirmation.tsx` | **Create** - Confirmation screen |
+| `src/pages/Reserve.tsx` | Replace placeholder, add state management |
+| `src/hooks/useSmsNotifications.ts` | Add `reservation_received` type |
+| `src/hooks/useEmailNotifications.ts` | Add `new_reservation` type |
+| `supabase/functions/send-sms-notification/index.ts` | Handle reservation SMS |
+| `supabase/functions/send-email-notification/index.ts` | Handle reservation admin email |
+
+---
+
+## Reservation Code Format
+
+Format: `ARW-RSV-XXXX`
+
+Examples:
+- `ARW-RSV-4832`
+- `ARW-RSV-0917`
+- `ARW-RSV-7291`
+
+Properties:
+- Short and memorable
+- Unique per reservation
+- Easy to share via SMS
+- Includes brand prefix (ARW)
+
+---
+
+## Notification Flow
+
+**On successful submission:**
+
+1. **SMS to Customer:**
+   - Message: "Reservation ARW-RSV-4832 received for 4 guests on Feb 14, 2025 at 7:00 PM. We will confirm via SMS shortly."
+
+2. **SMS to Admin Backup Numbers** (if enabled in settings)
+
+3. **Email to Admin:**
+   - Subject: "New Reservation ARW-RSV-4832 - 4 guests"
+   - Contains: Customer name, phone, date, time, pax, notes
+
+---
+
+## Error Handling
+
+**Submission Failures:**
+
+- Show clear error toast message
+- Keep form data intact (no reset)
+- Enable retry with same data
+- Log error to console for debugging
+
+**Example:**
+```tsx
+try {
+  const result = await supabase.rpc('create_reservation', {...});
+  if (result.error) throw result.error;
+  // Success path
+} catch (error) {
+  toast.error(error.message || "Failed to submit reservation. Please try again.");
+  // Form data preserved, user can retry
+}
+```
+
+---
+
+## Duplicate Prevention
+
+**On confirmation screen load:**
+
+- Clear form state
+- URL does not change (stays on /reserve)
+- Refresh shows confirmation (not form)
+- "Make Another Reservation" resets to form
 
 ---
 
 ## What This Creates
 
-- **Route:** `/reserve` - Public, no authentication required
-- **Page Layout:**
-  - Sticky header with back button and title
-  - Page heading with icon, title, and helper text
-  - Dashed placeholder container for future form
-  - Store info card (name, address, hours)
-  - Confirmation note about SMS
-  - Standard footer
+- Reservation record in database
+- Unique human-readable reservation code
+- Confirmation screen with all details
+- SMS notification to customer + admin
+- Email notification to admin
 
 ---
 
 ## What This Does NOT Create
 
-- No form fields
-- No date/time pickers
-- No validation logic
-- No submission handling
-- No email/SMS notifications
-- No reservation codes
-- No admin views
-- No analytics events
-
----
-
-## Accessibility & Responsiveness
-
-- Title visible without scrolling on mobile
-- Content centered with max-width constraint
-- No horizontal overflow
-- Placeholder container adapts to screen width
-- All text uses existing theme tokens
-
----
-
-## SEO Setup
-
-- Page title: "Reserve a Table | American Ribs & Wings"
-- Meta description: "Reserve your table at American Ribs & Wings. Choose your date, time, and number of guests."
-- Uses existing `SEOHead` component with fallbacks
-- Ready for `page_seo` table override if admin wants to customize
+- Admin approval workflow
+- Reservation editing
+- Menu pre-orders
+- Capacity enforcement
+- Walk-in merging
+- Cancellation flow
 
 ---
 
 ## Result
 
 After implementation:
-- `/reserve` loads correctly on desktop, tablet, and mobile
-- Page uses existing site theme and components
-- Placeholder clearly communicates "form coming soon"
-- Store info displayed for customer reference
-- Ready for R1.2 to add form logic
+- Customer submits valid form at `/reserve`
+- Reservation is created with code `ARW-RSV-XXXX`
+- Customer sees confirmation screen immediately
+- SMS sent: "Reservation ARW-RSV-4832 received..."
+- Admin notified via email
+- No duplicate reservations on page refresh
 
