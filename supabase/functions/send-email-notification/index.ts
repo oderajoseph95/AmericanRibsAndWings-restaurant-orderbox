@@ -164,6 +164,7 @@ function getTriggerEventLabel(type: string, orderType?: string): string {
     new_reservation: 'New Reservation',
     reservation_confirmed: 'Reservation Confirmed',
     reservation_cancelled: 'Reservation Cancelled',
+    reservation_cancelled_by_customer: 'Reservation Cancelled by Customer',
     reservation_reminder: 'Reservation Reminder',
     test_email: 'Test Email',
   };
@@ -482,6 +483,7 @@ function getEmailTypeLabel(type: string): string {
     new_reservation: 'New Reservation',
     reservation_confirmed: 'Reservation Confirmed',
     reservation_cancelled: 'Reservation Cancelled',
+    reservation_cancelled_by_customer: 'Reservation Cancelled by Customer',
     reservation_reminder: 'Reservation Reminder',
   };
   return labels[type] || type.replace(/_/g, ' ');
@@ -640,6 +642,7 @@ function getDefaultSubject(type: string, orderNumber?: string, payload?: EmailPa
     review_request: `⭐ We'd love your feedback! - Order #${orderNumber}`,
     reservation_confirmed: `✅ Your Reservation is Confirmed! - ${payload?.reservationCode || ''}`,
     reservation_cancelled: `Reservation Update - ${payload?.reservationCode || ''}`,
+    reservation_cancelled_by_customer: `Reservation Cancelled - ${payload?.reservationCode || ''}`,
     reservation_reminder: `🍽️ Reminder: Your ARW Reservation – ${payload?.reservationDate || ''} at ${payload?.reservationTime || ''}`,
   };
   return subjects[type] || `Order #${orderNumber} Update`;
@@ -1130,6 +1133,40 @@ function getDefaultTemplate(payload: EmailPayload): string {
           </div>
 
           <p>We apologize for any inconvenience. Please contact us if you would like to book a different time.</p>
+          <p><strong>Contact:</strong> ${BUSINESS_PHONE}</p>
+        </div>
+      `;
+      break;
+
+    case 'reservation_cancelled_by_customer':
+      content = `
+        <div class="content">
+          <h2>Reservation Cancelled</h2>
+          <p>Hi ${customerName},</p>
+          <p>Your reservation has been successfully cancelled as requested.</p>
+          
+          <div class="order-box" style="background: #fef3c7; border-color: #fde68a;">
+            <div class="order-number" style="color: #92400e;">${payload.reservationCode || ''}</div>
+            <span class="status-badge" style="background: #fed7aa; color: #c2410c;">Cancelled</span>
+          </div>
+
+          <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;">
+            <h3 style="margin: 0 0 15px; color: #374151;">📅 Cancelled Reservation</h3>
+            <table style="width: 100%;">
+              <tr><td style="padding: 5px 0; color: #6b7280; width: 100px;">Date:</td><td>${payload.reservationDate || ''}</td></tr>
+              <tr><td style="padding: 5px 0; color: #6b7280;">Time:</td><td>${payload.reservationTime || ''}</td></tr>
+              <tr><td style="padding: 5px 0; color: #6b7280;">Party Size:</td><td>${payload.pax || 0} ${(payload.pax || 0) === 1 ? 'guest' : 'guests'}</td></tr>
+            </table>
+          </div>
+
+          <p>Thank you for letting us know. If you change your mind, feel free to make a new reservation!</p>
+          
+          <div style="text-align: center; margin: 25px 0;">
+            <a href="https://arwfloridablanca.shop/reserve" style="background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
+              Book Again
+            </a>
+          </div>
+
           <p><strong>Contact:</strong> ${BUSINESS_PHONE}</p>
         </div>
       `;

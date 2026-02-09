@@ -15,6 +15,7 @@ export type SmsType =
   | "reservation_received"
   | "reservation_confirmed"
   | "reservation_cancelled"
+  | "reservation_cancelled_by_customer"
   | "reservation_reminder"
   | "test";
 

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
-import { ArrowLeft, Calendar, Clock, Users, ShoppingBag, AlertCircle, CheckCircle2, XCircle, HelpCircle, MapPin, Phone, Search } from "lucide-react";
+import { ArrowLeft, Calendar, Clock, Users, ShoppingBag, AlertCircle, CheckCircle2, XCircle, HelpCircle, MapPin, Phone, Search, Ban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,8 +12,21 @@ import { Footer } from "@/components/home/Footer";
 import { supabase } from "@/integrations/supabase/client";
 import { STORE_NAME, STORE_ADDRESS_LINE1, STORE_ADDRESS_LINE2, STORE_ADDRESS_LINE3, STORE_PHONE } from "@/lib/constants";
 import { trackAnalyticsEvent } from "@/hooks/useAnalytics";
+import { sendSmsNotification } from "@/hooks/useSmsNotifications";
+import { sendEmailNotification } from "@/hooks/useEmailNotifications";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
 
-type ReservationStatus = "pending" | "confirmed" | "cancelled" | "completed" | "no_show";
+type ReservationStatus = "pending" | "confirmed" | "cancelled" | "cancelled_by_customer" | "completed" | "no_show";
 
 interface ReservationData {
   reservation_code: string;
@@ -55,6 +68,12 @@ const statusConfig: Record<ReservationStatus, {
     icon: <XCircle className="h-5 w-5" />,
     message: "Unfortunately, this reservation was not approved. Please contact the store.",
   },
+  cancelled_by_customer: {
+    label: "Cancelled by You",
+    className: "bg-orange-100 text-orange-800 border-orange-200",
+    icon: <Ban className="h-5 w-5" />,
+    message: "You cancelled this reservation. Thank you for letting us know.",
+  },
   completed: {
     label: "Completed",
     className: "bg-emerald-100 text-emerald-800 border-emerald-200",
@@ -73,9 +92,14 @@ export default function ReservationTracking() {
   const [code, setCode] = useState("");
   const [phone, setPhone] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [reservation, setReservation] = useState<ReservationData | null>(null);
   const [lookupAttempted, setLookupAttempted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Check if cancellation is allowed (only for pending or confirmed)
+  const canCancel = reservation && (reservation.status === "pending" || reservation.status === "confirmed");
 
   const handleLookup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -116,6 +140,84 @@ export default function ReservationTracking() {
       setReservation(null);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleCancelReservation = async () => {
+    if (!reservation) return;
+    
+    setIsCancelling(true);
+    setShowCancelDialog(false);
+
+    try {
+      const { data, error: rpcError } = await supabase.rpc("cancel_reservation_by_customer", {
+        p_code: code.trim(),
+        p_phone: phone.trim(),
+      });
+
+      if (rpcError) {
+        throw rpcError;
+      }
+
+      const result = data as { 
+        success: boolean; 
+        error?: string; 
+        message?: string;
+        reservation_code?: string;
+        customer_name?: string;
+        customer_phone?: string;
+        customer_email?: string;
+        pax?: number;
+        reservation_date?: string;
+        reservation_time?: string;
+      };
+
+      if (result.success) {
+        // Update local state
+        setReservation(prev => prev ? { ...prev, status: "cancelled_by_customer" } : null);
+        
+        toast.success("Reservation cancelled successfully");
+        
+        trackAnalyticsEvent("reservation_cancelled_by_customer", {
+          reservation_code: reservation.reservation_code,
+        });
+
+        // Send confirmation notifications (fire and forget)
+        const formattedDate = format(new Date(reservation.reservation_date), "MMM d");
+        const formattedTime = formatReservationTime(reservation.reservation_time);
+
+        // Send SMS
+        sendSmsNotification({
+          type: "reservation_cancelled_by_customer",
+          recipientPhone: result.customer_phone,
+          reservationCode: result.reservation_code,
+          customerName: result.customer_name,
+          reservationDate: formattedDate,
+          reservationTime: formattedTime,
+          pax: result.pax,
+        }).catch(err => console.error("Failed to send cancellation SMS:", err));
+
+        // Send email if available
+        if (result.customer_email) {
+          sendEmailNotification({
+            type: "reservation_cancelled_by_customer",
+            recipientEmail: result.customer_email,
+            reservationCode: result.reservation_code,
+            customerName: result.customer_name,
+            reservationDate: format(new Date(reservation.reservation_date), "MMMM d, yyyy"),
+            reservationTime: formattedTime,
+            pax: result.pax,
+          }).catch(err => console.error("Failed to send cancellation email:", err));
+        }
+      } else {
+        // Show error message
+        toast.error(result.message || "Unable to cancel reservation");
+      }
+    } catch (err) {
+      console.error("Cancel error:", err);
+      toast.error("Something went wrong. Please try again.");
+    } finally {
+      setIsCancelling(false);
     }
   };
 
@@ -385,6 +487,28 @@ export default function ReservationTracking() {
               </CardContent>
             </Card>
 
+            {/* Cancel Reservation Button - only show for pending or confirmed */}
+            {canCancel && (
+              <Card className="border-destructive/20 bg-destructive/5">
+                <CardContent className="pt-4 pb-4">
+                  <div className="text-center space-y-3">
+                    <p className="text-sm text-muted-foreground">
+                      Need to cancel? Please do so at least 2 hours before your reservation time.
+                    </p>
+                    <Button 
+                      variant="destructive" 
+                      className="w-full"
+                      onClick={() => setShowCancelDialog(true)}
+                      disabled={isCancelling}
+                    >
+                      <Ban className="h-4 w-4 mr-2" />
+                      {isCancelling ? "Cancelling..." : "Cancel Reservation"}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Check Another */}
             <div className="pt-4">
               <Button variant="outline" className="w-full" onClick={handleReset}>
@@ -423,6 +547,32 @@ export default function ReservationTracking() {
           </Card>
         )}
       </main>
+
+      {/* Cancel Confirmation Dialog */}
+      <AlertDialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel Reservation?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to cancel this reservation? This action cannot be undone.
+              {reservation && (
+                <span className="block mt-2 font-medium text-foreground">
+                  {formatReservationDate(reservation.reservation_date)} at {formatReservationTime(reservation.reservation_time)} for {reservation.pax} {reservation.pax === 1 ? "guest" : "guests"}
+                </span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep Reservation</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleCancelReservation}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Yes, Cancel
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Footer */}
       <Footer />

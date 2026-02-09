@@ -55,6 +55,7 @@ const statusColors: Record<ReservationStatus, string> = {
   pending: 'bg-yellow-500/20 text-yellow-700 border-yellow-500/30',
   confirmed: 'bg-green-500/20 text-green-700 border-green-500/30',
   cancelled: 'bg-red-500/20 text-red-700 border-red-500/30',
+  cancelled_by_customer: 'bg-orange-500/20 text-orange-700 border-orange-500/30',
   completed: 'bg-emerald-500/20 text-emerald-700 border-emerald-500/30',
   no_show: 'bg-gray-500/20 text-gray-700 border-gray-500/30',
 };
@@ -63,6 +64,7 @@ const statusLabels: Record<ReservationStatus, string> = {
   pending: 'Pending',
   confirmed: 'Confirmed',
   cancelled: 'Cancelled',
+  cancelled_by_customer: 'Cancelled by Customer',
   completed: 'Completed',
   no_show: 'No Show',
 };
@@ -238,7 +240,7 @@ export default function ReservationDetail() {
           console.error('Error scheduling reminders:', reminderError);
           // Don't fail the status update if reminder scheduling fails
         }
-      } else if ((newStatus === 'cancelled' || newStatus === 'no_show') && reservation) {
+      } else if ((newStatus === 'cancelled' || newStatus === 'cancelled_by_customer' || newStatus === 'no_show') && reservation) {
         // Cancel pending reminders when reservation is cancelled or marked no-show
         try {
           const { error: cancelError } = await supabase
