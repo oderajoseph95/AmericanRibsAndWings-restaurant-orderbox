@@ -7,11 +7,18 @@ export const DEFAULT_RESERVATION_SETTINGS = {
   store_close: '21:00',
   max_pax_per_slot: 40,
   slot_duration_minutes: 30,
-  reminder_first_hours: 24,
-  reminder_second_hours: 3,
   reminders_enabled: true,
   cancellation_cutoff_hours: 2,
   no_show_grace_minutes: 30,
+  // 6 reminder intervals: 12h, 6h, 3h, 1h, 30min, 15min
+  reminder_intervals: [
+    { hours: 12, type: '12h' },
+    { hours: 6, type: '6h' },
+    { hours: 3, type: '3h' },
+    { hours: 1, type: '1h' },
+    { minutes: 30, type: '30min' },
+    { minutes: 15, type: '15min' },
+  ],
 };
 
 export type ReservationSettingsType = typeof DEFAULT_RESERVATION_SETTINGS;

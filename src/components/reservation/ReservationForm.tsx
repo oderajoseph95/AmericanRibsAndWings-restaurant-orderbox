@@ -230,7 +230,42 @@ export function ReservationForm({ onSuccess, storeHours }: ReservationFormProps)
       const reservation = data[0];
       console.log("Reservation created:", reservation);
       
-      // Call success callback (R1.4: No notifications - just state creation)
+      // Send notifications (fire and forget - don't block UI)
+      // SMS notification to customer
+      supabase.functions.invoke("send-sms-notification", {
+        body: {
+          type: "reservation_received",
+          recipientPhone: normalizePhone(phone),
+          reservationCode: reservation.reservation_code,
+          customerName: name.trim(),
+          reservationDate: displayDate,
+          reservationTime: time,
+          pax: pax,
+        },
+      }).then(res => {
+        if (res.error) console.error("SMS notification error:", res.error);
+        else console.log("Reservation SMS sent");
+      }).catch(err => console.error("SMS notification failed:", err));
+      
+      // Email notification if customer provided email
+      if (email.trim()) {
+        supabase.functions.invoke("send-email-notification", {
+          body: {
+            type: "new_reservation",
+            recipientEmail: email.trim(),
+            reservationCode: reservation.reservation_code,
+            customerName: name.trim(),
+            reservationDate: displayDate,
+            reservationTime: time,
+            pax: pax,
+          },
+        }).then(res => {
+          if (res.error) console.error("Email notification error:", res.error);
+          else console.log("Reservation email sent");
+        }).catch(err => console.error("Email notification failed:", err));
+      }
+      
+      // Call success callback
       onSuccess({
         id: reservation.id,
         name: name.trim(),

@@ -1,0 +1,2 @@
+-- Fix function overload: drop the old 7-parameter version that conflicts with the 8-parameter version
+DROP FUNCTION IF EXISTS public.create_reservation(text, text, text, integer, date, time without time zone, text);
