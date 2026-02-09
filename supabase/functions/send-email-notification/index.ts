@@ -1106,6 +1106,15 @@ function getDefaultTemplate(payload: EmailPayload): string {
             <p style="margin: 5px 0 0;">${BUSINESS_ADDRESS}</p>
             <p style="margin: 5px 0 0; color: #6b7280;">${BUSINESS_PHONE}</p>
           </div>
+
+          <div style="text-align: center; margin: 25px 0;">
+            <a href="https://arwfloridablanca.lovable.app/reserve/track?code=${payload.reservationCode || ''}" style="background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
+              📱 Track Your Reservation
+            </a>
+          </div>
+          <p style="text-align: center; color: #6b7280; font-size: 13px;">
+            Save the PDF ticket to present on arrival
+          </p>
         </div>
       `;
       break;
@@ -1140,6 +1149,15 @@ function getDefaultTemplate(payload: EmailPayload): string {
             <p style="margin: 5px 0 0;">${BUSINESS_ADDRESS}</p>
             <p style="margin: 5px 0 0; color: #6b7280;">${BUSINESS_PHONE}</p>
           </div>
+
+          <div style="text-align: center; margin: 25px 0;">
+            <a href="https://arwfloridablanca.lovable.app/reserve/track?code=${payload.reservationCode || ''}" style="background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
+              📱 View & Download Ticket
+            </a>
+          </div>
+          <p style="text-align: center; color: #6b7280; font-size: 13px;">
+            Save the PDF ticket to present on arrival
+          </p>
 
           <p style="margin-top: 20px; color: #6b7280;">
             Please arrive on time. If you need to make any changes, contact us at ${BUSINESS_PHONE}.
@@ -1236,6 +1254,15 @@ function getDefaultTemplate(payload: EmailPayload): string {
             <p style="margin: 5px 0 0;">${BUSINESS_ADDRESS}</p>
             <p style="margin: 5px 0 0; color: #6b7280;">${BUSINESS_PHONE}</p>
           </div>
+
+          <div style="text-align: center; margin: 25px 0;">
+            <a href="https://arwfloridablanca.lovable.app/reserve/track?code=${payload.reservationCode || ''}" style="background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
+              📱 Track Your Reservation
+            </a>
+          </div>
+          <p style="text-align: center; color: #6b7280; font-size: 13px;">
+            Save the PDF ticket to present on arrival
+          </p>
 
           <p style="margin-top: 20px; color: #374151; text-align: center; font-size: 16px;">
             <strong>We look forward to seeing you! 🎉</strong>

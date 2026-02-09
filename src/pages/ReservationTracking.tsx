@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
-import { ArrowLeft, Calendar, Clock, Users, ShoppingBag, AlertCircle, CheckCircle2, XCircle, HelpCircle, MapPin, Phone, Search, Ban } from "lucide-react";
+import { ArrowLeft, Calendar, Clock, Users, ShoppingBag, AlertCircle, CheckCircle2, XCircle, HelpCircle, MapPin, Phone, Search, Ban, Download } from "lucide-react";
+import { ReservationTicket } from "@/components/reservation/ReservationTicket";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -517,6 +518,28 @@ export default function ReservationTracking() {
                     No pre-orders selected
                   </p>
                 )}
+              </CardContent>
+            </Card>
+
+            {/* Download Ticket Card */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Download className="h-4 w-4" />
+                  Download Ticket
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ReservationTicket
+                  reservationCode={reservation.reservation_code}
+                  name={reservation.name}
+                  pax={reservation.pax}
+                  date={formatReservationDate(reservation.reservation_date)}
+                  time={formatReservationTime(reservation.reservation_time)}
+                />
+                <p className="text-xs text-muted-foreground text-center mt-3">
+                  Present this ticket on arrival
+                </p>
               </CardContent>
             </Card>
 
