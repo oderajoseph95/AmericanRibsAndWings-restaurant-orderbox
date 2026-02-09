@@ -1,4 +1,5 @@
-
+🟢 ISSUE R5.2 — Reservation Completion Control — **COMPLETE**
+🟢 ISSUE R5.3 — Reservation Timeline & Status History — **COMPLETE**
 
 # ISSUE R5.3 — Reservation Timeline & Status History (Admin)
 

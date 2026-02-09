@@ -15,6 +15,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { sendEmailNotification } from '@/hooks/useEmailNotifications';
 import { sendSmsNotification } from '@/hooks/useSmsNotifications';
 import { useReservationSettings, DEFAULT_RESERVATION_SETTINGS } from '@/hooks/useReservationSettings';
+import { ReservationTimeline, type TimelineEvent } from '@/components/admin/ReservationTimeline';
 import type { Database } from '@/integrations/supabase/types';
 
 type ReservationStatus = Database['public']['Enums']['reservation_status'];
@@ -482,6 +483,139 @@ export default function ReservationDetail() {
       return data?.display_name || data?.username || 'Admin';
     },
     enabled: !!reservation?.completed_by,
+  });
+
+  // Query for timeline events - R5.3
+  const { data: timelineEvents = [], isLoading: timelineLoading, error: timelineError } = useQuery({
+    queryKey: ['reservation-timeline', id],
+    queryFn: async () => {
+      if (!reservation) return [];
+      
+      // 1. Get admin logs for this reservation
+      const { data: adminLogs, error: logsError } = await supabase
+        .from('admin_logs')
+        .select('id, action, created_at, display_name, details, old_values, new_values')
+        .eq('entity_type', 'reservation')
+        .eq('entity_id', id!)
+        .order('created_at', { ascending: true });
+      
+      if (logsError) throw logsError;
+      
+      // 2. Get system notifications for this reservation (for reminders and auto-closures)
+      const { data: notifications, error: notifError } = await supabase
+        .from('reservation_notifications')
+        .select('id, created_at, channel, message_type, trigger_type')
+        .eq('reservation_id', id!)
+        .order('created_at', { ascending: true });
+      
+      if (notifError) throw notifError;
+      
+      // 3. Build unified timeline
+      const events: TimelineEvent[] = [];
+      
+      // Add reservation creation event
+      if (reservation?.created_at) {
+        events.push({
+          id: 'creation',
+          timestamp: reservation.created_at,
+          eventType: 'created',
+          triggerSource: 'customer',
+        });
+      }
+      
+      // Map admin logs to timeline events
+      adminLogs?.forEach(log => {
+        let eventType: TimelineEvent['eventType'] | null = null;
+        let details: string | undefined;
+        
+        // Parse action type
+        if (log.action === 'reservation_checked_in') {
+          eventType = 'checked_in';
+        } else if (log.action === 'reservation_completed') {
+          eventType = 'completed';
+        } else if (log.action === 'status_change') {
+          const newStatus = (log.new_values as Record<string, unknown>)?.status;
+          if (newStatus === 'confirmed') {
+            eventType = 'confirmed';
+          } else if (newStatus === 'cancelled') {
+            eventType = 'rejected';
+          } else if (newStatus === 'no_show') {
+            eventType = 'no_show';
+          }
+        } else if (log.action === 'resend_email' || log.action === 'resend_sms') {
+          eventType = 'notification_sent';
+          details = log.action === 'resend_email' ? 'Email resent' : 'SMS resent';
+        }
+        
+        if (eventType) {
+          events.push({
+            id: log.id,
+            timestamp: log.created_at || new Date().toISOString(),
+            eventType,
+            triggerSource: 'admin',
+            adminName: log.display_name || undefined,
+            details,
+          });
+        }
+      });
+      
+      // Map system notifications (reminders and auto-closures only)
+      notifications?.forEach(notif => {
+        // Skip check_in and completed from notifications - they're already in admin_logs
+        if (notif.message_type === 'check_in' || notif.message_type === 'completed') {
+          return;
+        }
+        
+        let eventType: TimelineEvent['eventType'] | null = null;
+        let details: string | undefined;
+        
+        if (notif.message_type === 'no_show_auto_closure') {
+          eventType = 'no_show';
+          details = 'Auto-closed due to no-show';
+        } else if (notif.message_type?.includes('reminder')) {
+          eventType = 'reminder_sent';
+          // Extract reminder type from message_type (e.g., "reminder_24h" → "24h reminder")
+          const match = notif.message_type.match(/reminder_(\d+h?)/);
+          if (match) {
+            details = `${match[1]} reminder`;
+          }
+        }
+        
+        if (eventType) {
+          events.push({
+            id: notif.id,
+            timestamp: notif.created_at || new Date().toISOString(),
+            eventType,
+            triggerSource: 'system',
+            details,
+          });
+        }
+      });
+      
+      // Add customer cancellation if applicable
+      if (reservation.status === 'cancelled_by_customer' && reservation.status_changed_at) {
+        // Check if this wasn't logged in admin_logs
+        const hasCancellationLog = adminLogs?.some(
+          log => log.action === 'status_change' && 
+                 (log.new_values as Record<string, unknown>)?.status === 'cancelled_by_customer'
+        );
+        
+        if (!hasCancellationLog) {
+          events.push({
+            id: 'customer-cancellation',
+            timestamp: reservation.status_changed_at,
+            eventType: 'cancelled_by_customer',
+            triggerSource: 'customer',
+          });
+        }
+      }
+      
+      // Sort by timestamp ascending (oldest first)
+      return events.sort((a, b) => 
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
+    },
+    enabled: !!id && !!reservation,
   });
 
   // Mutation for adding notes
@@ -1095,6 +1229,13 @@ export default function ReservationDetail() {
           )}
         </CardContent>
       </Card>
+
+      {/* Timeline - R5.3 */}
+      <ReservationTimeline 
+        events={timelineEvents}
+        isLoading={timelineLoading}
+        error={timelineError}
+      />
 
       {/* Internal Notes */}
       <Card>
