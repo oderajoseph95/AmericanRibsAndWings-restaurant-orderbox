@@ -1544,6 +1544,8 @@ export type Database = {
       }
       reservations: {
         Row: {
+          checked_in_at: string | null
+          checked_in_by: string | null
           confirmation_code: string | null
           created_at: string | null
           email: string | null
@@ -1563,6 +1565,8 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          checked_in_at?: string | null
+          checked_in_by?: string | null
           confirmation_code?: string | null
           created_at?: string | null
           email?: string | null
@@ -1582,6 +1586,8 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          checked_in_at?: string | null
+          checked_in_by?: string | null
           confirmation_code?: string | null
           created_at?: string | null
           email?: string | null
@@ -2208,6 +2214,7 @@ export type Database = {
       reservation_status:
         | "pending"
         | "confirmed"
+        | "checked_in"
         | "cancelled"
         | "completed"
         | "no_show"
@@ -2368,6 +2375,7 @@ export const Constants = {
       reservation_status: [
         "pending",
         "confirmed",
+        "checked_in",
         "cancelled",
         "completed",
         "no_show",

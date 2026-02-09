@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 
-type ReservationStatus = "pending" | "confirmed" | "cancelled" | "cancelled_by_customer" | "completed" | "no_show";
+type ReservationStatus = "pending" | "confirmed" | "checked_in" | "cancelled" | "cancelled_by_customer" | "completed" | "no_show";
 
 interface ReservationData {
   reservation_code: string;
@@ -60,6 +60,13 @@ const statusConfig: Record<ReservationStatus, {
     message: "Your reservation is pending confirmation. You'll receive an update soon.",
   },
   confirmed: {
+    label: "Confirmed",
+    className: "bg-green-100 text-green-800 border-green-200",
+    icon: <CheckCircle2 className="h-5 w-5" />,
+    message: "Your reservation is confirmed. We look forward to seeing you!",
+  },
+  // checked_in displays same as confirmed for customers (internal-only state)
+  checked_in: {
     label: "Confirmed",
     className: "bg-green-100 text-green-800 border-green-200",
     icon: <CheckCircle2 className="h-5 w-5" />,
@@ -101,7 +108,7 @@ export default function ReservationTracking() {
   const [lookupAttempted, setLookupAttempted] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Check if cancellation is allowed (only for pending or confirmed)
+  // Check if cancellation is allowed (only for pending or confirmed, not checked_in since customer is present)
   const canCancel = reservation && (reservation.status === "pending" || reservation.status === "confirmed");
 
   const handleLookup = async (e: React.FormEvent) => {
