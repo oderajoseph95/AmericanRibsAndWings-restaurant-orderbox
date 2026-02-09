@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { SalesPopContextProvider } from "@/contexts/SalesPopContext";
 import { SalesPopProvider } from "@/components/home/SalesPopProvider";
+import { ValentineHearts } from "@/components/home/ValentineHearts";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import DriverProtectedRoute from "@/components/driver/DriverProtectedRoute";
 import AuthPage from "./pages/Auth";
@@ -66,6 +67,7 @@ const App = () => (
         <AuthProvider>
           <SalesPopContextProvider>
             <SalesPopProvider>
+              <ValentineHearts />
               <Routes>
                 <Route path="/" element={<Index />} />
                 <Route path="/order" element={<Order />} />
