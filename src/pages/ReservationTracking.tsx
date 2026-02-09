@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
 import { ArrowLeft, Calendar, Clock, Users, ShoppingBag, AlertCircle, CheckCircle2, XCircle, HelpCircle, MapPin, Phone, Search, Ban } from "lucide-react";
@@ -45,6 +45,18 @@ interface PreorderItem {
   quantity: number;
   price?: number;
 }
+
+// Fun loading messages for reservation lookup
+const loadingMessages = [
+  { text: "Checking with Chef...", emoji: "👨‍🍳" },
+  { text: "Asking Ma'am...", emoji: "👩‍💼" },
+  { text: "Checking with Princess...", emoji: "👸" },
+  { text: "Wait a bit...", emoji: "⏳" },
+  { text: "Checking with Boss...", emoji: "🧑‍💼" },
+  { text: "Looking through the book...", emoji: "📖" },
+  { text: "Almost there...", emoji: "🎯" },
+  { text: "Running to the back...", emoji: "🏃" },
+];
 
 const statusConfig: Record<ReservationStatus, {
   label: string;
@@ -106,6 +118,21 @@ export default function ReservationTracking() {
   const [reservation, setReservation] = useState<ReservationData | null>(null);
   const [lookupAttempted, setLookupAttempted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
+
+  // Rotate loading messages during search
+  useEffect(() => {
+    if (!isLoading) {
+      setLoadingMessageIndex(0);
+      return;
+    }
+    
+    const interval = setInterval(() => {
+      setLoadingMessageIndex((prev) => (prev + 1) % loadingMessages.length);
+    }, 1800);
+    
+    return () => clearInterval(interval);
+  }, [isLoading]);
 
   // Check if cancellation is allowed (only for pending or confirmed, not checked_in since customer is present)
   const canCancel = reservation && (reservation.status === "pending" || reservation.status === "confirmed");
@@ -294,7 +321,35 @@ export default function ReservationTracking() {
 
       {/* Main Content */}
       <main className="flex-1 container px-4 py-6 max-w-md mx-auto">
-        {!reservation && !lookupAttempted ? (
+        {isLoading ? (
+          /* Loading State with Fun Messages */
+          <Card className="text-center py-12">
+            <CardContent className="space-y-6">
+              {/* Animated emoji */}
+              <div className="text-6xl animate-bounce">
+                {loadingMessages[loadingMessageIndex].emoji}
+              </div>
+              
+              {/* Rotating message */}
+              <div className="space-y-2">
+                <p className="text-lg font-medium text-primary">
+                  {loadingMessages[loadingMessageIndex].text}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Finding your reservation...
+                </p>
+              </div>
+              
+              {/* Progress indicator */}
+              <div className="w-48 h-1.5 bg-muted rounded-full mx-auto overflow-hidden">
+                <div 
+                  className="h-full bg-primary rounded-full animate-pulse" 
+                  style={{ width: '70%' }} 
+                />
+              </div>
+            </CardContent>
+          </Card>
+        ) : !reservation && !lookupAttempted ? (
           /* Lookup Form */
           <Card>
             <CardHeader className="pb-4">
@@ -337,7 +392,7 @@ export default function ReservationTracking() {
             </CardContent>
           </Card>
         ) : lookupAttempted && !reservation ? (
-          /* Not Found State */
+          /* Not Found State - only shows AFTER loading completes */
           <Card className="text-center py-8">
             <CardContent className="space-y-4">
               <div className="mx-auto w-16 h-16 rounded-full bg-muted flex items-center justify-center">
