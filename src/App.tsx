@@ -17,6 +17,7 @@ import OrderTracking from "./pages/OrderTracking";
 import ThankYou from "./pages/ThankYou";
 import MyOrders from "./pages/MyOrders";
 import Reserve from "./pages/Reserve";
+import ReservationTracking from "./pages/ReservationTracking";
 import AdminLayout from "./layouts/AdminLayout";
 import DriverLayout from "./layouts/DriverLayout";
 import Dashboard from "./pages/admin/Dashboard";
@@ -79,6 +80,7 @@ const App = () => (
                 <Route path="/thank-you/:orderId" element={<ThankYou />} />
                 <Route path="/my-orders" element={<MyOrders />} />
                 <Route path="/reserve" element={<Reserve />} />
+                <Route path="/reserve/track/:confirmationCode" element={<ReservationTracking />} />
                 <Route path="/auth" element={<AuthPage />} />
                 <Route path="/no-access" element={<NoAccess />} />
                 
