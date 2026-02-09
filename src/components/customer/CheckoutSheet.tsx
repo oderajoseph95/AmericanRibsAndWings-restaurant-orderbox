@@ -1126,7 +1126,7 @@ export function CheckoutSheet({
                                 form.setValue("pickupTime", undefined);
                                 setDatePopoverOpen(false);
                               }} 
-                              disabled={date => isBefore(date, startOfDay(new Date())) || isBefore(addDays(new Date(), 3), date)} 
+                            disabled={date => isBefore(date, startOfDay(new Date())) || isBefore(addDays(new Date(), 30), date)}
                               initialFocus 
                               className={cn("p-3 pointer-events-auto")} 
                             />
@@ -1310,7 +1310,7 @@ export function CheckoutSheet({
                                   setDeliveryDatePopoverOpen(false);
                                   setShowDeliveryDatePicker(false);
                                 }} 
-                                disabled={date => isBefore(date, startOfDay(new Date())) || isBefore(addDays(new Date(), 3), date)} 
+                                disabled={date => isBefore(date, startOfDay(new Date())) || isBefore(addDays(new Date(), 30), date)} 
                                 initialFocus 
                                 className={cn("p-3 pointer-events-auto")} 
                               />

@@ -36,7 +36,8 @@ import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
 import { RefundDialog } from '@/components/admin/RefundDialog';
 import { ReviewRequestModal } from '@/components/admin/ReviewRequestModal';
-import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package, MoreHorizontal, Link, Share2, Copy, User, AlertTriangle, ChevronDown, Trash2, Camera, Upload, RefreshCw, Mail, Star, Printer } from 'lucide-react';
+import { OrderEditDialog } from '@/components/admin/OrderEditDialog';
+import { Search, Eye, Clock, CheckCircle, XCircle, Loader2, Image, ExternalLink, Truck, ChefHat, Package, MoreHorizontal, Link, Share2, Copy, User, AlertTriangle, ChevronDown, Trash2, Camera, Upload, RefreshCw, Mail, Star, Printer, Pencil } from 'lucide-react';
 import { sendPushNotification } from '@/hooks/usePushNotifications';
 import { createAdminNotification } from '@/hooks/useAdminNotifications';
 import { createDriverNotification } from '@/hooks/useDriverNotifications';
@@ -126,6 +127,7 @@ export default function Orders() {
   const [reviewRequestOrder, setReviewRequestOrder] = useState<Order | null>(null);
   const [quickReviewItems, setQuickReviewItems] = useState<OrderItem[]>([]);
   const [printingOrderId, setPrintingOrderId] = useState<string | null>(null);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
   const ITEMS_PER_PAGE = 10;
   const queryClient = useQueryClient();
 
@@ -1619,6 +1621,14 @@ export default function Orders() {
                     <Button
                       variant="outline"
                       size="sm"
+                      onClick={() => setEditDialogOpen(true)}
+                    >
+                      <Pencil className="h-4 w-4 mr-2" />
+                      Edit Order
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={() => handleCopyTrackingLink(selectedOrder.id)}
                     >
                       <Copy className="h-4 w-4 mr-2" />
@@ -2156,6 +2166,20 @@ export default function Orders() {
           onSuccess={() => {
             queryClient.invalidateQueries({ queryKey: ['orders'] });
             setReviewRequestOrder(null);
+          }}
+        />
+      )}
+
+      {/* Order Edit Dialog */}
+      {selectedOrder && (
+        <OrderEditDialog
+          open={editDialogOpen}
+          onOpenChange={setEditDialogOpen}
+          order={selectedOrder}
+          orderItems={orderItems}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ['orders'] });
+            queryClient.invalidateQueries({ queryKey: ['order-items', selectedOrder.id] });
           }}
         />
       )}
