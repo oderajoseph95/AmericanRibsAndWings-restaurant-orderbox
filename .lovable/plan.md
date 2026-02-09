@@ -1,80 +1,151 @@
 
 
-# ISSUE R4.5 — Reservation No-Show Handling & Auto-Closure
+# ISSUE R4.6 — Reservation Analytics (Admin-Only)
 
 ## Overview
 
-Create an automated system that marks confirmed reservations as `no_show` after a 30-minute grace period has elapsed. This job runs on a cron schedule, releases capacity automatically, logs all transitions, and notifies admins.
+Create a read-only analytics dashboard for reservation performance at `/admin/reservations/analytics`. This dashboard will provide owners and managers with visibility into reservation patterns, no-show rates, peak times, and pax distribution - all using reservation records only (no sales or payment data).
 
 ---
 
 ## Current State Analysis
 
 ### Existing Infrastructure
-- **Reservation Status Enum**: Already includes `no_show` value
-- **Reservation Table**: Has `status_changed_at`, `status_changed_by` columns for tracking
-- **Cron Jobs**: Already have `pg_cron` extension enabled for `send-reservation-reminders` (runs every 15 min)
-- **Edge Functions Pattern**: `send-reservation-reminder` provides a template for scheduled jobs
-- **Capacity System (R4.2)**: Only counts `pending` and `confirmed` — `no_show` is automatically excluded
-- **Reminder Cancellation**: Already cancels pending reminders when status becomes `no_show`
+- **Reservation Status Enum**: `pending`, `confirmed`, `cancelled`, `cancelled_by_customer`, `completed`, `no_show`
+- **Reservations Table**: Contains `pax`, `reservation_date`, `reservation_time`, `status`, `created_at`
+- **Reports Page Pattern**: `src/pages/admin/Reports.tsx` provides excellent template with date filters, tabs, cards, and recharts
+- **RPC Pattern**: `get_funnel_counts` shows how to create server-side aggregation functions
+- **Role-Based Access**: Reports page already restricts access to owner/manager roles
+- **Admin Sidebar**: Easy to add new navigation item
 
-### Key Architecture Decision
-Following the existing pattern from R4.1, I'll create:
-1. A dedicated **Edge Function** (`process-no-shows`) that scans and marks eligible reservations
-2. A **pg_cron job** that calls this function every 5 minutes
-3. **Audit logging** to `reservation_notifications` table
+### Key Architectural Decisions
+1. **Server-side Aggregation**: Use PostgreSQL RPC function to bypass 1000 row limit and ensure accuracy
+2. **Follow Reports.tsx Pattern**: Reuse existing UI patterns for consistency
+3. **No New Route in Sidebar**: Link from Reservations list page to reduce sidebar clutter
+4. **Read-Only**: No actions, just metrics display
 
 ---
 
 ## Technical Implementation
 
-### 1. Create Edge Function: `process-no-shows`
+### 1. Database Changes - Create RPC Function
 
-This function will:
-- Query for confirmed reservations where `reservation_date + reservation_time + 30 min` has passed
-- Update status to `no_show`
-- Cancel any pending reminders
-- Log to `reservation_notifications` for audit
-- Create admin notifications
-
-**Logic Flow:**
-```
-Query reservations WHERE:
-  - status = 'confirmed'
-  - (reservation_date + reservation_time + 30 minutes) < NOW() (in Asia/Manila timezone)
-  
-For each eligible reservation:
-  1. UPDATE status = 'no_show', status_changed_at = NOW(), status_changed_by = 'system_no_show_job'
-  2. UPDATE reservation_reminders SET status = 'cancelled' WHERE status = 'pending'
-  3. INSERT into reservation_notifications (audit log)
-  4. INSERT into admin_notifications (for admin visibility)
-```
-
-### 2. Database Migration
-
-Add a new cron job calling the edge function:
+Create `get_reservation_analytics` function that aggregates reservation data server-side:
 
 ```sql
-SELECT cron.schedule(
-  'process-reservation-no-shows',
-  '*/5 * * * *',  -- Every 5 minutes
-  $$
-  SELECT net.http_post(
-    url:='https://saxwbdwmuzkmxztagfot.supabase.co/functions/v1/process-no-shows',
-    headers:='{"Content-Type": "application/json", "Authorization": "Bearer [ANON_KEY]"}'::jsonb,
-    body:='{}'::jsonb
-  ) as request_id;
-  $$
-);
+CREATE OR REPLACE FUNCTION get_reservation_analytics(
+  start_date DATE,
+  end_date DATE
+)
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  result JSON;
+BEGIN
+  SELECT json_build_object(
+    -- Core counts
+    'total', (SELECT COUNT(*) FROM reservations WHERE reservation_date >= start_date AND reservation_date <= end_date),
+    'pending', (SELECT COUNT(*) FROM reservations WHERE status = 'pending' AND reservation_date >= start_date AND reservation_date <= end_date),
+    'confirmed', (SELECT COUNT(*) FROM reservations WHERE status = 'confirmed' AND reservation_date >= start_date AND reservation_date <= end_date),
+    'cancelled', (SELECT COUNT(*) FROM reservations WHERE status = 'cancelled' AND reservation_date >= start_date AND reservation_date <= end_date),
+    'cancelled_by_customer', (SELECT COUNT(*) FROM reservations WHERE status = 'cancelled_by_customer' AND reservation_date >= start_date AND reservation_date <= end_date),
+    'completed', (SELECT COUNT(*) FROM reservations WHERE status = 'completed' AND reservation_date >= start_date AND reservation_date <= end_date),
+    'no_show', (SELECT COUNT(*) FROM reservations WHERE status = 'no_show' AND reservation_date >= start_date AND reservation_date <= end_date),
+    
+    -- Pax stats
+    'total_pax', (SELECT COALESCE(SUM(pax), 0) FROM reservations WHERE reservation_date >= start_date AND reservation_date <= end_date),
+    'avg_pax', (SELECT COALESCE(AVG(pax), 0) FROM reservations WHERE reservation_date >= start_date AND reservation_date <= end_date),
+    'min_pax', (SELECT COALESCE(MIN(pax), 0) FROM reservations WHERE reservation_date >= start_date AND reservation_date <= end_date),
+    'max_pax', (SELECT COALESCE(MAX(pax), 0) FROM reservations WHERE reservation_date >= start_date AND reservation_date <= end_date),
+    
+    -- Pax distribution buckets
+    'pax_1_2', (SELECT COUNT(*) FROM reservations WHERE pax BETWEEN 1 AND 2 AND reservation_date >= start_date AND reservation_date <= end_date),
+    'pax_3_4', (SELECT COUNT(*) FROM reservations WHERE pax BETWEEN 3 AND 4 AND reservation_date >= start_date AND reservation_date <= end_date),
+    'pax_5_6', (SELECT COUNT(*) FROM reservations WHERE pax BETWEEN 5 AND 6 AND reservation_date >= start_date AND reservation_date <= end_date),
+    'pax_7_plus', (SELECT COUNT(*) FROM reservations WHERE pax >= 7 AND reservation_date >= start_date AND reservation_date <= end_date),
+    
+    -- Day of week distribution (0 = Sunday, 6 = Saturday)
+    'day_distribution', (
+      SELECT COALESCE(json_agg(row_to_json(t)), '[]'::json)
+      FROM (
+        SELECT 
+          EXTRACT(DOW FROM reservation_date)::int as day_of_week,
+          COUNT(*) as count
+        FROM reservations
+        WHERE reservation_date >= start_date AND reservation_date <= end_date
+        GROUP BY EXTRACT(DOW FROM reservation_date)
+        ORDER BY day_of_week
+      ) t
+    ),
+    
+    -- Hourly distribution
+    'hour_distribution', (
+      SELECT COALESCE(json_agg(row_to_json(t)), '[]'::json)
+      FROM (
+        SELECT 
+          EXTRACT(HOUR FROM reservation_time)::int as hour,
+          COUNT(*) as count
+        FROM reservations
+        WHERE reservation_date >= start_date AND reservation_date <= end_date
+        GROUP BY EXTRACT(HOUR FROM reservation_time)
+        ORDER BY hour
+      ) t
+    ),
+    
+    -- Daily trend
+    'daily_trend', (
+      SELECT COALESCE(json_agg(row_to_json(t)), '[]'::json)
+      FROM (
+        SELECT 
+          reservation_date::text as date,
+          COUNT(*) as count
+        FROM reservations
+        WHERE reservation_date >= start_date AND reservation_date <= end_date
+        GROUP BY reservation_date
+        ORDER BY reservation_date
+      ) t
+    )
+  ) INTO result;
+  
+  RETURN result;
+END;
+$$;
 ```
 
-### 3. supabase/config.toml Update
+### 2. Route Changes
 
-Add configuration for the new edge function:
-```toml
-[functions.process-no-shows]
-verify_jwt = false
+Add new route in `App.tsx`:
+```tsx
+<Route path="reservations/analytics" element={<ReservationAnalytics />} />
 ```
+
+**Note**: Route is nested under admin, resulting in `/admin/reservations/analytics`
+
+### 3. Create New Page: `src/pages/admin/ReservationAnalytics.tsx`
+
+New analytics page following the Reports.tsx pattern:
+
+**Features:**
+- Date range filter (last 30 days default, custom date picker)
+- Status multi-select filter
+- Summary cards (Total, Confirmed, No-Show, Completion Rate)
+- Status breakdown pie chart
+- Peak days bar chart (Mon-Sun)
+- Peak hours bar chart (hourly buckets)
+- Pax distribution pie chart
+- Daily trend line chart
+
+**Role-Based Access:**
+- Owner: Full access
+- Manager: View-only (same content)
+- Cashier/Employee/Driver: Denied (redirect to access denied)
+
+### 4. Add Link from Reservations List
+
+Update `src/pages/admin/Reservations.tsx` to add an "Analytics" button in the header area that links to `/admin/reservations/analytics`.
 
 ---
 
@@ -82,167 +153,153 @@ verify_jwt = false
 
 | File | Action | Description |
 |------|--------|-------------|
-| `supabase/functions/process-no-shows/index.ts` | CREATE | Edge function to scan and mark no-shows |
-| **Database Migration** | CREATE | Add pg_cron job for every 5 minutes |
-| `supabase/config.toml` | MODIFY | Add process-no-shows function config |
+| **Database Migration** | CREATE | Create `get_reservation_analytics` RPC function |
+| `src/pages/admin/ReservationAnalytics.tsx` | CREATE | New analytics dashboard page |
+| `src/App.tsx` | MODIFY | Add route for `/admin/reservations/analytics` |
+| `src/pages/admin/Reservations.tsx` | MODIFY | Add "Analytics" button in header |
 
 ---
 
-## Edge Function Structure
+## UI Components Structure
+
+### Summary Cards Row (4 cards)
+```
+┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
+│ Total           │ │ Confirmed       │ │ No-Show         │ │ Completion Rate │
+│ Reservations    │ │                 │ │                 │ │                 │
+│                 │ │                 │ │                 │ │                 │
+│      42         │ │      35         │ │      3          │ │     83.3%       │
+└─────────────────┘ └─────────────────┘ └─────────────────┘ └─────────────────┘
+```
+
+### Derived Rates Card
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Key Rates                                                                   │
+│                                                                             │
+│  No-Show Rate: 8.5%    Confirmation Rate: 83%    Cancellation Rate: 12%     │
+│  (no_show/confirmed)   (confirmed/total)         (cancelled*/total)         │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Status Breakdown Pie Chart
+```
+┌─────────────────────────────────────────┐
+│ Reservations by Status                  │
+│                                         │
+│        [Pie Chart showing:              │
+│         - Pending (yellow)              │
+│         - Confirmed (green)             │
+│         - Completed (emerald)           │
+│         - Cancelled (red)               │
+│         - Cancelled by Customer (orange)│
+│         - No-Show (gray)]               │
+└─────────────────────────────────────────┘
+```
+
+### Peak Days Bar Chart
+```
+┌─────────────────────────────────────────┐
+│ Reservations by Day of Week             │
+│                                         │
+│ Mon ████████████ 15                     │
+│ Tue █████████ 12                        │
+│ Wed ██████ 8                            │
+│ Thu ████████ 10                         │
+│ Fri ███████████████ 18                  │
+│ Sat ████████████████████ 25             │
+│ Sun █████████████ 16                    │
+└─────────────────────────────────────────┘
+```
+
+### Peak Hours Bar Chart
+```
+┌─────────────────────────────────────────┐
+│ Reservations by Time Slot               │
+│                                         │
+│ [Bar chart showing hourly distribution] │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+### Pax Distribution
+```
+┌─────────────────────────────────────────┐
+│ Party Size Distribution                 │
+│                                         │
+│  1-2: 25%   3-4: 45%   5-6: 20%  7+: 10%│
+│                                         │
+│       [Horizontal bar or pie chart]     │
+└─────────────────────────────────────────┘
+```
+
+### Daily Trend
+```
+┌─────────────────────────────────────────┐
+│ Reservation Volume Over Time            │
+│                                         │
+│ [Line chart showing daily reservation   │
+│  count over selected date range]        │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+---
+
+## Metrics Calculations
+
+| Metric | Formula |
+|--------|---------|
+| Total Reservations | COUNT(*) |
+| No-Show Rate | (no_show / confirmed) * 100 |
+| Confirmation Rate | (confirmed / total) * 100 |
+| Cancellation Rate | ((cancelled + cancelled_by_customer) / total) * 100 |
+| Completion Rate | (completed / (confirmed - cancelled*)) * 100 |
+| Average Pax | AVG(pax) |
+
+---
+
+## Filter Controls
+
+### Date Range Selector
+- Default: Last 30 days
+- Quick presets: 7 days, 14 days, 30 days
+- Custom date picker for specific range
+
+### Status Filter (Optional, Multi-Select)
+- All statuses (default)
+- Specific status selection
+
+---
+
+## Access Control Implementation
 
 ```typescript
-// supabase/functions/process-no-shows/index.ts
+// In ReservationAnalytics.tsx
+const { role } = useAuth();
 
-// 1. Query confirmed reservations past grace period
-const gracePeriodMinutes = 30;
-
-// Calculate cutoff: NOW() - 30 minutes = reservation datetime threshold
-// Any confirmed reservation with datetime before cutoff should be marked no_show
-
-// 2. For each eligible reservation:
-//    - Update status to 'no_show'
-//    - Set status_changed_at = now()
-//    - Set status_changed_by = 'system_no_show_job'
-//    - Cancel pending reminders
-//    - Log to reservation_notifications
-//    - Create admin notification
-
-// 3. Return summary: { processed: N, successful: N, results: [...] }
+// Only owner and manager can access
+if (role !== 'owner' && role !== 'manager') {
+  return (
+    <div className="min-h-[400px] flex flex-col items-center justify-center gap-4 text-center">
+      <ShieldX className="h-16 w-16 text-muted-foreground" />
+      <h2 className="text-2xl font-bold">Access Denied</h2>
+      <p className="text-muted-foreground max-w-md">
+        You don't have permission to view reservation analytics.
+      </p>
+    </div>
+  );
+}
 ```
 
 ---
 
-## Grace Period Calculation
+## Performance Considerations
 
-The 30-minute grace period is calculated as:
-
-```sql
--- Reservation datetime in Philippines timezone
-reservation_datetime = (reservation_date || ' ' || reservation_time)::TIMESTAMP AT TIME ZONE 'Asia/Manila'
-
--- Grace cutoff = reservation_datetime + 30 minutes
-grace_cutoff = reservation_datetime + INTERVAL '30 minutes'
-
--- Mark as no_show if: NOW() > grace_cutoff
--- i.e., reservation_datetime < NOW() - INTERVAL '30 minutes'
-```
-
-**Example:**
-- Reservation at 7:00 PM → Grace until 7:30 PM
-- At 7:31 PM → Status becomes `no_show`
-
----
-
-## Audit Logging
-
-All auto-closures are logged to `reservation_notifications`:
-
-```typescript
-await supabase.from('reservation_notifications').insert({
-  reservation_id: reservation.id,
-  channel: 'system',
-  recipient: 'internal',
-  status: 'sent',
-  trigger_type: 'automatic',
-  message_type: 'no_show_auto_closure',
-});
-```
-
-This provides:
-- Timestamp of auto-closure
-- System-generated flag (trigger_type = 'automatic')
-- Traceable history in admin notification log
-
----
-
-## Admin Notifications
-
-Admins receive a notification entry for each no-show:
-
-```typescript
-await supabase.from('admin_notifications').insert({
-  user_id: adminUserId,
-  title: 'Reservation marked as No-Show',
-  message: `${reservation.name} - ${formattedDate} at ${formattedTime} - ${reservation.pax} guests`,
-  type: 'reservation',
-  metadata: {
-    reservation_code: reservation.confirmation_code || reservation.reservation_code,
-    customer_name: reservation.name,
-    action_url: `/admin/reservations/${reservation.id}`,
-  },
-});
-```
-
----
-
-## Capacity Release
-
-**No changes needed** — the existing capacity system (R4.2) only counts reservations with status `pending` or `confirmed`:
-
-```sql
-WHERE status IN ('pending', 'confirmed')
-```
-
-When status changes to `no_show`, the reservation is automatically excluded from capacity calculations.
-
----
-
-## Safety Features
-
-### Idempotency
-- The function only processes reservations where `status = 'confirmed'`
-- Once marked `no_show`, the reservation won't be selected again
-- No duplicate transitions possible
-
-### Error Handling
-- Each reservation is processed independently
-- Failures are logged but don't block other reservations
-- Function returns summary with success/failure counts
-
-### Status Protection
-- `no_show` is terminal — no customer reversal possible
-- Only admins can manually override if needed (existing behavior)
-
----
-
-## Edge Cases
-
-| Case | Handling |
-|------|----------|
-| Reservation already cancelled | Not selected (status filter) |
-| Completed reservation | Not selected (status filter) |
-| Multiple runs in quick succession | Idempotent — no duplicates |
-| Function failure | Logged, retried on next cron run |
-| Timezone edge cases | All calculations in Asia/Manila |
-
----
-
-## ReservationDetail Admin View
-
-No code changes needed — the existing UI already:
-- Displays `no_show` status with appropriate styling
-- Shows `status_changed_at` timestamp
-- Shows `status_changed_by` (will show "system_no_show_job")
-- Displays notification history from `reservation_notifications`
-
----
-
-## Notification Policy
-
-Per the spec:
-- **Customers**: No notification (avoid confrontation/abuse)
-- **Admins**: Notification entry created for visibility
-- **Audit**: Full logging to `reservation_notifications`
-
----
-
-## Testing Scenarios
-
-1. **Fresh no-show**: Confirmed reservation 31+ min past time → Marked no_show
-2. **Within grace**: Confirmed reservation 29 min past time → No change
-3. **Already processed**: Reservation already no_show → Skipped
-4. **Cancelled**: Cancelled reservation past time → Not affected
-5. **Multiple runs**: Same reservations eligible → Only first run marks them
+1. **Server-Side Aggregation**: All calculations done in PostgreSQL via RPC function
+2. **Indexed Queries**: Uses existing indexes on `reservation_date` and `status`
+3. **No Heavy Client Processing**: Chart data pre-aggregated server-side
+4. **No Pagination Needed**: Aggregated data only, not raw records
 
 ---
 
@@ -250,29 +307,31 @@ Per the spec:
 
 | Criteria | Implementation |
 |----------|----------------|
-| Confirmed reservations auto-close as No-Show | Edge function with 30-min grace check |
-| Grace period is respected | Datetime calculation with INTERVAL |
-| Capacity is released | Status excluded from capacity query |
-| Admin sees the transition clearly | status_changed_by = 'system_no_show_job' |
-| No duplicate transitions | Status filter ensures single processing |
-| No customer notification | No SMS/email triggered |
-| Full audit trail | reservation_notifications + admin_notifications |
+| Metrics match raw reservation data | Server-side RPC aggregation |
+| No-show rate is accurate | `no_show / confirmed * 100` |
+| Filters work correctly | Date range + status filters |
+| Access is role-restricted | Owner/Manager only |
+| UI is stable and readable | Following Reports.tsx pattern |
+| Read-only display | No action buttons |
+| No sales/payment data | Only reservation table used |
 
 ---
 
 ## What This Creates
 
-1. `process-no-shows` Edge Function (idempotent batch processor)
-2. pg_cron job running every 5 minutes
-3. System-initiated status transitions with audit trail
-4. Admin notifications for visibility
+1. `get_reservation_analytics` RPC function (server-side aggregation)
+2. `/admin/reservations/analytics` page with full dashboard
+3. Navigation link from Reservations list page
+4. Role-based access control (owner/manager only)
 
 ---
 
 ## What This Does NOT Create
 
-- Customer notifications
-- Penalties or blacklisting
-- Manual override UI
-- Deposit/payment enforcement
+- Sales or revenue metrics
+- Customer PII beyond aggregates
+- Comparison to previous periods (V2)
+- Data exports (V2)
+- Predictions or forecasting
+- Any write/edit capabilities
 
