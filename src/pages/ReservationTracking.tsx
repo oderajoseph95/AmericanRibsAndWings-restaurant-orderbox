@@ -1,17 +1,29 @@
-import { Link, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { Link } from "react-router-dom";
 import { format } from "date-fns";
-import { ArrowLeft, Calendar, Clock, Users, ShoppingBag, AlertCircle, CheckCircle2, XCircle, HelpCircle } from "lucide-react";
+import { ArrowLeft, Calendar, Clock, Users, ShoppingBag, AlertCircle, CheckCircle2, XCircle, HelpCircle, MapPin, Phone, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { SEOHead } from "@/components/SEOHead";
 import { Footer } from "@/components/home/Footer";
 import { supabase } from "@/integrations/supabase/client";
-import { STORE_NAME } from "@/lib/constants";
+import { STORE_NAME, STORE_ADDRESS_LINE1, STORE_ADDRESS_LINE2, STORE_ADDRESS_LINE3, STORE_PHONE } from "@/lib/constants";
+import { trackAnalyticsEvent } from "@/hooks/useAnalytics";
 
 type ReservationStatus = "pending" | "confirmed" | "cancelled" | "completed" | "no_show";
+
+interface ReservationData {
+  reservation_code: string;
+  name: string;
+  pax: number;
+  reservation_date: string;
+  reservation_time: string;
+  status: ReservationStatus;
+  preorder_items: PreorderItem[] | null;
+}
 
 interface PreorderItem {
   name: string;
@@ -21,42 +33,36 @@ interface PreorderItem {
 
 const statusConfig: Record<ReservationStatus, {
   label: string;
-  variant: "default" | "secondary" | "destructive" | "outline";
   className: string;
   icon: React.ReactNode;
   message: string;
 }> = {
   pending: {
     label: "Pending Confirmation",
-    variant: "secondary",
     className: "bg-yellow-100 text-yellow-800 border-yellow-200",
     icon: <HelpCircle className="h-5 w-5" />,
-    message: "Your reservation is awaiting confirmation. You will receive an SMS once confirmed.",
+    message: "Your reservation is pending confirmation. You'll receive an update soon.",
   },
   confirmed: {
     label: "Confirmed",
-    variant: "default",
     className: "bg-green-100 text-green-800 border-green-200",
     icon: <CheckCircle2 className="h-5 w-5" />,
-    message: "Please arrive on time. Present your confirmation code if asked.",
+    message: "Your reservation is confirmed. We look forward to seeing you!",
   },
   cancelled: {
     label: "Not Approved",
-    variant: "destructive",
     className: "bg-red-100 text-red-800 border-red-200",
     icon: <XCircle className="h-5 w-5" />,
-    message: "Your reservation was not approved. Please contact the store.",
+    message: "Unfortunately, this reservation was not approved. Please contact the store.",
   },
   completed: {
     label: "Completed",
-    variant: "default",
     className: "bg-emerald-100 text-emerald-800 border-emerald-200",
     icon: <CheckCircle2 className="h-5 w-5" />,
     message: "Thank you for dining with us!",
   },
   no_show: {
     label: "No Show",
-    variant: "secondary",
     className: "bg-gray-100 text-gray-800 border-gray-200",
     icon: <AlertCircle className="h-5 w-5" />,
     message: "This reservation was marked as no-show.",
@@ -64,25 +70,62 @@ const statusConfig: Record<ReservationStatus, {
 };
 
 export default function ReservationTracking() {
-  const { confirmationCode } = useParams<{ confirmationCode: string }>();
+  const [code, setCode] = useState("");
+  const [phone, setPhone] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [reservation, setReservation] = useState<ReservationData | null>(null);
+  const [lookupAttempted, setLookupAttempted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const { data: reservation, isLoading, error } = useQuery({
-    queryKey: ["reservation-tracking", confirmationCode],
-    queryFn: async () => {
-      if (!confirmationCode) return null;
-      
-      // Case-insensitive lookup by confirmation_code
-      const { data, error } = await supabase
-        .from("reservations")
-        .select("*")
-        .ilike("confirmation_code", confirmationCode)
-        .maybeSingle();
+  const handleLookup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!code.trim() || !phone.trim()) {
+      setError("Please enter both reservation code and phone number.");
+      return;
+    }
 
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!confirmationCode,
-  });
+    setIsLoading(true);
+    setError(null);
+    setLookupAttempted(true);
+
+    try {
+      const { data, error: rpcError } = await supabase.rpc("lookup_reservation", {
+        p_code: code.trim(),
+        p_phone: phone.trim(),
+      });
+
+      if (rpcError) {
+        throw rpcError;
+      }
+
+      if (data) {
+        setReservation(data as unknown as ReservationData);
+        trackAnalyticsEvent("reservation_lookup_success", {
+          reservation_code: code.trim(),
+        });
+      } else {
+        setReservation(null);
+        trackAnalyticsEvent("reservation_lookup_failed", {
+          attempted_code: code.trim(),
+        });
+      }
+    } catch (err) {
+      console.error("Lookup error:", err);
+      setError("Something went wrong. Please try again.");
+      setReservation(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleReset = () => {
+    setReservation(null);
+    setLookupAttempted(false);
+    setError(null);
+    setCode("");
+    setPhone("");
+  };
 
   // Format date for display
   const formatReservationDate = (dateString: string) => {
@@ -116,16 +159,15 @@ export default function ReservationTracking() {
     return [];
   };
 
-  const status = reservation?.status as ReservationStatus | undefined;
-  const statusInfo = status ? statusConfig[status] : null;
-  const preorderItems = parsePreorderItems(reservation?.preorder_items);
+  const statusInfo = reservation?.status ? statusConfig[reservation.status] : null;
+  const preorderItems = reservation ? parsePreorderItems(reservation.preorder_items) : [];
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <SEOHead
         pagePath="/reserve/track"
-        fallbackTitle="Reservation Status | American Ribs & Wings"
-        fallbackDescription="Check your reservation status at American Ribs & Wings."
+        fallbackTitle="Check Reservation Status | American Ribs & Wings"
+        fallbackDescription="Look up and verify your reservation status at American Ribs & Wings."
       />
 
       {/* Header */}
@@ -137,7 +179,7 @@ export default function ReservationTracking() {
             </Link>
           </Button>
           <div>
-            <h1 className="font-bold text-lg">Reservation Status</h1>
+            <h1 className="font-bold text-lg">Check Reservation Status</h1>
             <p className="text-xs text-muted-foreground">{STORE_NAME}</p>
           </div>
         </div>
@@ -145,14 +187,50 @@ export default function ReservationTracking() {
 
       {/* Main Content */}
       <main className="flex-1 container px-4 py-6 max-w-md mx-auto">
-        {isLoading ? (
-          <div className="space-y-4">
-            <Skeleton className="h-32 w-full" />
-            <Skeleton className="h-48 w-full" />
-            <Skeleton className="h-24 w-full" />
-          </div>
-        ) : error || !reservation ? (
-          /* Error / Not Found State */
+        {!reservation && !lookupAttempted ? (
+          /* Lookup Form */
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Search className="h-5 w-5" />
+                Find Your Reservation
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleLookup} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="code">Reservation Code</Label>
+                  <Input
+                    id="code"
+                    placeholder="e.g. ARW-RSV-1234"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.toUpperCase())}
+                    className="uppercase"
+                    disabled={isLoading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="phone">Phone Number</Label>
+                  <Input
+                    id="phone"
+                    type="tel"
+                    placeholder="e.g. 09171234567"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    disabled={isLoading}
+                  />
+                </div>
+                {error && (
+                  <p className="text-sm text-destructive">{error}</p>
+                )}
+                <Button type="submit" className="w-full" disabled={isLoading}>
+                  {isLoading ? "Checking..." : "Check Status"}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        ) : lookupAttempted && !reservation ? (
+          /* Not Found State */
           <Card className="text-center py-8">
             <CardContent className="space-y-4">
               <div className="mx-auto w-16 h-16 rounded-full bg-muted flex items-center justify-center">
@@ -161,15 +239,14 @@ export default function ReservationTracking() {
               <div>
                 <h2 className="text-xl font-bold mb-2">Reservation Not Found</h2>
                 <p className="text-muted-foreground text-sm">
-                  We couldn't find a reservation with this code. Please check your SMS or email for the correct code.
+                  We couldn't find a reservation with those details. Please check your code and phone number.
                 </p>
               </div>
-              <Button asChild>
-                <Link to="/">Back to Home</Link>
-              </Button>
+              <Button onClick={handleReset}>Try Again</Button>
             </CardContent>
           </Card>
-        ) : (
+        ) : reservation ? (
+          /* Reservation Details */
           <div className="space-y-4">
             {/* Status Card */}
             <Card>
@@ -202,8 +279,19 @@ export default function ReservationTracking() {
                 <div className="bg-muted/50 rounded-lg p-3 text-center">
                   <p className="text-xs text-muted-foreground mb-1">Confirmation Code</p>
                   <p className="font-mono font-bold text-lg tracking-wide">
-                    {reservation.confirmation_code || reservation.reservation_code}
+                    {reservation.reservation_code}
                   </p>
+                </div>
+
+                {/* Name */}
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                    <Users className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Name</p>
+                    <p className="font-medium">{reservation.name}</p>
+                  </div>
                 </div>
 
                 {/* Date */}
@@ -270,13 +358,69 @@ export default function ReservationTracking() {
               </CardContent>
             </Card>
 
-            {/* Back to Home */}
+            {/* Store Contact Card */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Need Help?</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-start gap-3">
+                  <MapPin className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+                  <div className="text-sm">
+                    <p className="font-medium">{STORE_NAME}</p>
+                    <p className="text-muted-foreground">{STORE_ADDRESS_LINE1}</p>
+                    <p className="text-muted-foreground">{STORE_ADDRESS_LINE2}</p>
+                    <p className="text-muted-foreground">{STORE_ADDRESS_LINE3}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Phone className="h-5 w-5 text-muted-foreground" />
+                  <a 
+                    href={`tel:${STORE_PHONE}`} 
+                    className="text-sm font-medium text-primary hover:underline"
+                  >
+                    {STORE_PHONE.replace(/(\d{4})(\d{3})(\d{4})/, "$1 $2 $3")}
+                  </a>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Check Another */}
             <div className="pt-4">
-              <Button variant="outline" className="w-full" asChild>
-                <Link to="/">Back to Home</Link>
+              <Button variant="outline" className="w-full" onClick={handleReset}>
+                Check Another Reservation
               </Button>
             </div>
           </div>
+        ) : null}
+
+        {/* Store Contact - shown only on lookup form */}
+        {!reservation && !lookupAttempted && (
+          <Card className="mt-4">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Need Help?</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-start gap-3">
+                <MapPin className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <p className="font-medium">{STORE_NAME}</p>
+                  <p className="text-muted-foreground">{STORE_ADDRESS_LINE1}</p>
+                  <p className="text-muted-foreground">{STORE_ADDRESS_LINE2}</p>
+                  <p className="text-muted-foreground">{STORE_ADDRESS_LINE3}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <Phone className="h-5 w-5 text-muted-foreground" />
+                <a 
+                  href={`tel:${STORE_PHONE}`} 
+                  className="text-sm font-medium text-primary hover:underline"
+                >
+                  {STORE_PHONE.replace(/(\d{4})(\d{3})(\d{4})/, "$1 $2 $3")}
+                </a>
+              </div>
+            </CardContent>
+          </Card>
         )}
       </main>
 

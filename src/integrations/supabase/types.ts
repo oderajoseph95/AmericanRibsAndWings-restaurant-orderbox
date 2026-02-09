@@ -2163,6 +2163,10 @@ export type Database = {
         Args: { p_email: string; p_phone: string; p_user_id: string }
         Returns: string
       }
+      lookup_reservation: {
+        Args: { p_code: string; p_phone: string }
+        Returns: Json
+      }
     }
     Enums: {
       adjustment_type:

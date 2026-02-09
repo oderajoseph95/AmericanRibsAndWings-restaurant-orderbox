@@ -80,7 +80,7 @@ const App = () => (
                 <Route path="/thank-you/:orderId" element={<ThankYou />} />
                 <Route path="/my-orders" element={<MyOrders />} />
                 <Route path="/reserve" element={<Reserve />} />
-                <Route path="/reserve/track/:confirmationCode" element={<ReservationTracking />} />
+                <Route path="/reserve/track" element={<ReservationTracking />} />
                 <Route path="/auth" element={<AuthPage />} />
                 <Route path="/no-access" element={<NoAccess />} />
                 
