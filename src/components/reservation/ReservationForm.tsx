@@ -18,10 +18,14 @@ import { DEFAULT_RESERVATION_SETTINGS } from "@/hooks/useReservationSettings";
 interface ReservationFormProps {
   onSuccess: (reservation: {
     id: string;
+    reservationCode: string;
     name: string;
+    phone: string;
+    email: string | null;
     pax: number;
     date: string;
     time: string;
+    notes: string | null;
   }) => void;
   storeHours: {
     opensAt: string | null;
@@ -265,13 +269,17 @@ export function ReservationForm({ onSuccess, storeHours }: ReservationFormProps)
         }).catch(err => console.error("Email notification failed:", err));
       }
       
-      // Call success callback
+      // Call success callback with all details
       onSuccess({
         id: reservation.id,
+        reservationCode: reservation.reservation_code,
         name: name.trim(),
+        phone: normalizePhone(phone),
+        email: email.trim() || null,
         pax: pax,
         date: displayDate,
         time: time,
+        notes: notes.trim() || null,
       });
       
     } catch (error: any) {
