@@ -53,6 +53,7 @@ type Order = Tables<'orders'> & {
 
 type OrderItem = Tables<'order_items'> & {
   order_item_flavors: Tables<'order_item_flavors'>[];
+  products: { product_type: string | null } | null;
 };
 
 type PaymentProof = Tables<'payment_proofs'>;
@@ -243,12 +244,33 @@ export default function Orders() {
       if (!selectedOrder) return [];
       const { data, error } = await supabase
         .from('order_items')
-        .select('*, order_item_flavors(*)')
+        .select('*, order_item_flavors(*), products(product_type)')
         .eq('order_id', selectedOrder.id);
       if (error) throw error;
       return data as OrderItem[];
     },
     enabled: !!selectedOrder,
+  });
+
+  // Get bundle product IDs from order items
+  const bundleProductIds = orderItems
+    .filter(item => item.products?.product_type === 'bundle' && item.product_id)
+    .map(item => item.product_id!);
+
+  // Fetch bundle components (included items) for bundle products
+  const { data: bundleComponents = [] } = useQuery({
+    queryKey: ['bundle-components-admin', bundleProductIds],
+    queryFn: async () => {
+      if (bundleProductIds.length === 0) return [];
+      const { data, error } = await supabase
+        .from('bundle_components')
+        .select('*, component_product:products!bundle_components_component_product_id_fkey(name)')
+        .in('bundle_product_id', bundleProductIds)
+        .eq('has_flavor_selection', false);
+      if (error) throw error;
+      return data;
+    },
+    enabled: bundleProductIds.length > 0,
   });
 
   // Fetch payment proofs for selected order
@@ -1572,30 +1594,66 @@ export default function Orders() {
                 <div className="space-y-2">
                   <h4 className="font-medium">Items</h4>
                   <div className="space-y-2">
-                    {orderItems.map((item) => (
-                      <div key={item.id} className="space-y-1 p-2 bg-muted rounded">
-                        <div className="flex justify-between text-sm">
-                          <span>
-                            {item.quantity}x {item.product_name}
-                          </span>
-                          <span>₱{item.line_total?.toFixed(2) || item.subtotal.toFixed(2)}</span>
-                        </div>
-                        {item.order_item_flavors.length > 0 && (
-                          <div className="pl-4 text-xs text-muted-foreground">
-                            {item.order_item_flavors.map((f, idx) => (
-                              <div key={idx} className="flex justify-between">
-                                <span>
-                                  {f.flavor_name} {f.surcharge_applied > 0 ? `(Special flavor for ${f.quantity} wings)` : `(Free flavor for ${f.quantity} wings)`}
-                                </span>
-                                {f.surcharge_applied > 0 && (
-                                  <span>+₱{f.surcharge_applied.toFixed(2)}</span>
-                                )}
-                              </div>
-                            ))}
+                    {orderItems.map((item) => {
+                      const isBundle = item.products?.product_type === 'bundle';
+                      const itemInclusions = isBundle 
+                        ? bundleComponents.filter(bc => bc.bundle_product_id === item.product_id)
+                        : [];
+                      
+                      return (
+                        <div key={item.id} className="space-y-1 p-2 bg-muted rounded">
+                          <div className="flex justify-between text-sm">
+                            <span>
+                              {item.quantity}x {item.product_name}
+                            </span>
+                            <span>₱{item.line_total?.toFixed(2) || item.subtotal.toFixed(2)}</span>
                           </div>
-                        )}
-                      </div>
-                    ))}
+                          {item.order_item_flavors.length > 0 && (
+                            <div className="pl-4 text-xs text-muted-foreground">
+                              {item.order_item_flavors.map((f, idx) => (
+                                <div key={idx} className="flex justify-between">
+                                  <span>
+                                    {f.flavor_name} {f.surcharge_applied > 0 ? `(Special flavor for ${f.quantity} wings)` : `(Free flavor for ${f.quantity} wings)`}
+                                  </span>
+                                  {f.surcharge_applied > 0 && (
+                                    <span>+₱{f.surcharge_applied.toFixed(2)}</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {/* Included items for bundles */}
+                          {isBundle && itemInclusions.length > 0 && (
+                            <div className="pl-4 space-y-0.5 mt-1">
+                              <span className="text-xs font-medium text-green-600 dark:text-green-400">Included in this meal:</span>
+                              {itemInclusions.map((incl, idx) => {
+                                let displayName = (incl.component_product as any)?.name || '';
+                                // Apply same display name mappings as BundleWizard
+                                if (displayName.toLowerCase().includes('java rice')) {
+                                  displayName = `${incl.quantity} cups Java Rice`;
+                                } else if (displayName.toLowerCase().includes('coleslaw')) {
+                                  displayName = 'Coleslaw';
+                                } else if (displayName.toLowerCase().includes('fries')) {
+                                  displayName = 'Fries';
+                                } else if (displayName.toLowerCase().includes('wine')) {
+                                  displayName = 'Red Wine';
+                                } else if (displayName.toLowerCase().includes('cake')) {
+                                  displayName = 'Bento Cake';
+                                }
+                                return (
+                                  <div key={idx} className="flex justify-between text-xs text-green-600 dark:text-green-400">
+                                    <span>• {displayName}</span>
+                                    <span className="text-[10px] border border-green-500/30 bg-green-500/10 px-1 rounded">
+                                      Included
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
