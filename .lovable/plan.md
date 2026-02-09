@@ -1,257 +1,262 @@
 
 
-# Plan: Extend Pickup/Delivery Dates + Admin Order Editing
+# Plan: Enhance ReserveNow Page with Gallery, Hero Button, Back Navigation Fix & Hyped FOMO Section
 
 ## Overview
 
-This plan addresses two requests:
-1. **Extend pickup/delivery date window to 30 days** (currently 3 days)
-2. **Add admin ability to edit orders** (pickup/delivery date, time, line items, customer info)
+This plan addresses 4 improvements:
+1. Add the same 2-row scrolling gallery component from homepage to /reservenow page (below hero)
+2. Add "Reserve a Table" button to homepage hero alongside Order Now and View Menu
+3. Fix back button on reservation tracking to go to /reservenow instead of homepage
+4. Transform the FOMO section into a dynamic, exciting live feed with scrolling comments, blinking elements, and more visual urgency
 
 ---
 
-## Part 1: Extend Pickup/Delivery Date Window to 30 Days
+## Issue #1: Add Scrolling Gallery to ReserveNow Page
 
 ### Current State
-In `src/components/customer/CheckoutSheet.tsx`, date selection is limited by this logic:
-
-**Line 1129 (Pickup Date Calendar):**
-```typescript
-disabled={date => isBefore(date, startOfDay(new Date())) || isBefore(addDays(new Date(), 3), date)}
-```
-
-**Line 1313 (Delivery Date Calendar):**
-```typescript
-disabled={date => isBefore(date, startOfDay(new Date())) || isBefore(addDays(new Date(), 3), date)}
-```
-
-Both currently limit to **today + 3 days**.
+- The homepage has a beautiful 2-row scrolling gallery component (`Gallery.tsx`)
+- ReserveNow page only has a single-row faded background gallery in the hero
 
 ### Solution
-Change `addDays(new Date(), 3)` to `addDays(new Date(), 30)` in both locations.
+Import and add the Gallery component below the hero section, creating continuity with the homepage experience.
 
-### Files to Modify
+### File Changes
+**`src/pages/ReserveNow.tsx`**
+- Import the Gallery component from `@/components/home/Gallery`
+- Add `<Gallery />` after the hero section and before the FOMO section
+
+---
+
+## Issue #2: Add "Reserve a Table" Button to Homepage Hero
+
+### Current State
+- Homepage hero has 2 CTAs: "Order Now" (primary) and "View Menu" (outline/opens modal)
+
+### Solution
+Add a third button "Reserve a Table" that routes to /reservenow. Layout will be:
+- Mobile: 3 stacked buttons
+- Desktop: 3 side-by-side buttons
+
+### File Changes
+**`src/components/home/Hero.tsx`**
+- Import `CalendarPlus` icon from lucide-react
+- Add third button after "View Menu" with outline styling that links to `/reservenow`
+
+```tsx
+<Button 
+  asChild
+  variant="outline" 
+  size="lg"
+  className="border-white/30 bg-white/10 text-white hover:bg-white/20 text-base px-6 py-5 rounded-full"
+>
+  <Link to="/reservenow">
+    <CalendarPlus className="mr-2 h-5 w-5" />
+    Reserve a Table
+  </Link>
+</Button>
+```
+
+---
+
+## Issue #3: Fix Back Navigation on Reservation Tracking
+
+### Current State
+- Back button on `/reserve/track` links to `/` (homepage)
+- User came from `/reservenow` so clicking back should return there
+
+### Solution
+Change the back button link from `/` to `/reservenow` to maintain user flow continuity.
+
+### File Changes
+**`src/pages/ReservationTracking.tsx`** (Line 285)
+- Change `<Link to="/">` to `<Link to="/reservenow">`
+
+---
+
+## Issue #4: Transform FOMO Section into Exciting Live Feed
+
+### Current State
+The FOMO section is static and boring:
+- Single card showing one message at a time
+- Small, quiet "Tables filling fast" indicator
+- Fade transition every 10-20 seconds
+
+### New Design
+Transform into an exciting, YouTube Live Chat-style scrolling feed with:
+
+1. **Live Feed Container**
+   - Vertical scrolling list of 5-6 visible messages
+   - New messages appear at bottom and push up
+   - Each message has slide-in animation
+   - Auto-generates new message every 3-5 seconds
+
+2. **Urgency Banner**
+   - Large, prominent "TABLES FILLING FAST" banner
+   - Blinking/pulsing animation with fire emojis
+   - Reserve button integrated right there
+
+3. **Visual Enhancements**
+   - Gradient background matching brand colors
+   - Floating/animated decorative elements
+   - Emojis and icons for visual excitement
+
+### Technical Implementation
+
+**New Animation Keyframes** (add to `src/index.css`):
+```css
+@keyframes scroll-up-fade {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+}
+
+@keyframes slide-in-right {
+  0% {
+    opacity: 0;
+    transform: translateX(50px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes urgency-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.9;
+  }
+}
+
+@keyframes blink-urgent {
+  0%, 50%, 100% {
+    opacity: 1;
+  }
+  25%, 75% {
+    opacity: 0.4;
+  }
+}
+```
+
+**ReserveNow.tsx FOMO Section Redesign**:
+
+```
+Visual Layout:
+┌─────────────────────────────────────────────────────────────────┐
+│  🔴 LIVE                                             RESERVE NOW │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │ 👤 Maria reserved for 4 • Saturday        [slide up]       │ │
+│  │ 👤 John booked 6 guests • Tomorrow        [slide up]       │ │
+│  │ 👤 Anna reserved for 2 • Friday           [slide up]       │ │
+│  │ 👤 Miguel booked 3 guests • Sunday        [slide up]       │ │
+│  │ 👤 *NEW MESSAGE SLIDING IN*               [slide in]       │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  🔥🔥 TABLES FILLING FAST THIS WEEKEND 🔥🔥                 │ │
+│  │       [RESERVE YOUR TABLE NOW]                              │ │
+│  │         (button - large, pulsing)                           │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key State Management**:
+```typescript
+// Maintain array of messages (visible feed)
+const [fomoMessages, setFomoMessages] = useState<ReservationFomoMessage[]>([]);
+const MAX_VISIBLE_MESSAGES = 6;
+
+// Generate new message every 3-5 seconds
+useEffect(() => {
+  // Initial batch of 4 messages
+  const initial = Array.from({ length: 4 }, () => generateFomoMessage());
+  setFomoMessages(initial);
+  
+  const addMessage = () => {
+    setFomoMessages(prev => {
+      const newMessages = [...prev, generateFomoMessage()];
+      // Keep only last MAX_VISIBLE_MESSAGES
+      return newMessages.slice(-MAX_VISIBLE_MESSAGES);
+    });
+  };
+  
+  const interval = setInterval(addMessage, getRandomBetween(3000, 5000));
+  return () => clearInterval(interval);
+}, []);
+```
+
+---
+
+## Files to Modify
+
 | File | Change |
 |------|--------|
-| `src/components/customer/CheckoutSheet.tsx` | Update 2 calendar `disabled` props from 3 to 30 days |
-
----
-
-## Part 2: Admin Order Editing Capability
-
-### Current State
-The admin order detail panel (`src/pages/admin/Orders.tsx`) currently displays order information in **read-only mode**:
-- Pickup/delivery date/time shown as formatted text
-- Line items shown as a list
-- Customer info shown as text
-- No inline editing capability
-
-### Solution
-Create a comprehensive **Order Edit Dialog** component that allows admins to:
-1. Edit pickup date and time (for pickup orders)
-2. Edit delivery date and time (for delivery orders)
-3. Edit line items (quantity, remove items)
-4. Edit customer information (name, phone, email)
-5. Edit internal notes (already exists)
-6. Edit delivery address (for delivery orders)
-
-### Implementation Approach
-
-#### A. Create New Component: `OrderEditDialog.tsx`
-
-New file: `src/components/admin/OrderEditDialog.tsx`
-
-**Features:**
-- Modal dialog triggered by "Edit Order" button in order detail sheet
-- Tabs or sections for different editable areas:
-  - **Schedule Tab**: Date/time pickers for pickup or delivery
-  - **Items Tab**: List of line items with quantity adjustment and remove option
-  - **Customer Tab**: Editable name, phone, email fields
-  - **Delivery Tab** (if delivery order): Editable address
-
-**Schedule Editing:**
-- Date picker allowing today to 30 days in future
-- Time picker using same slot generation logic as checkout
-- Different fields based on order type (pickup vs delivery)
-
-**Line Items Editing:**
-- Display each item with current quantity
-- +/- buttons to adjust quantity
-- Remove button with confirmation
-- Auto-recalculate subtotal and total when items change
-
-**Customer Info Editing:**
-- Editable fields for name, phone, email
-- Phone validation (Philippine format)
-- Update linked customer record
-
-#### B. Add Edit Button to Order Detail Sheet
-
-In `src/pages/admin/Orders.tsx`, add an "Edit Order" button at the top of the order detail sheet that opens the edit dialog.
-
-**Placement:** Near the order header, visible for all active orders
-
-#### C. Add Edit Mutations
-
-Create mutations for:
-1. `updateOrderSchedule` - Update pickup_date, pickup_time, delivery_date, delivery_time
-2. `updateOrderItems` - Update item quantities, remove items, recalculate totals
-3. `updateOrderCustomer` - Update customer name, phone, email
-
-#### D. Logging & Audit Trail
-
-All edits will be logged via `logAdminAction()` with:
-- Old values
-- New values
-- Details of what was changed
+| `src/pages/ReserveNow.tsx` | Add Gallery component, redesign FOMO section with live feed |
+| `src/components/home/Hero.tsx` | Add "Reserve a Table" button |
+| `src/pages/ReservationTracking.tsx` | Change back button link from `/` to `/reservenow` |
+| `src/index.css` | Add new animation keyframes for live feed effects |
 
 ---
 
 ## Technical Details
 
-### File Changes Summary
-
-| File | Action | Description |
-|------|--------|-------------|
-| `src/components/customer/CheckoutSheet.tsx` | MODIFY | Change date limit from 3 to 30 days in 2 locations |
-| `src/components/admin/OrderEditDialog.tsx` | CREATE | New comprehensive order editing dialog |
-| `src/pages/admin/Orders.tsx` | MODIFY | Add Edit button and integrate OrderEditDialog |
-
-### OrderEditDialog Component Structure
-
-```typescript
-interface OrderEditDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  order: Order;
-  orderItems: OrderItem[];
-  onSuccess: () => void;
-}
-
-// Sections/Tabs:
-// 1. Schedule - pickup/delivery date & time
-// 2. Items - line items with quantity edit
-// 3. Customer - name, phone, email
-// 4. Delivery - address (if delivery order)
+### Live Feed Message Component
+Each message in the scrolling feed will be styled as a compact card:
+```tsx
+<div className="flex items-center gap-3 bg-white/10 backdrop-blur-sm rounded-lg px-4 py-2 animate-slide-in-right">
+  <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+    <User className="h-4 w-4 text-primary" />
+  </div>
+  <div className="flex-1">
+    <span className="font-semibold">{name}</span>
+    <span className="text-muted-foreground"> reserved for </span>
+    <span className="font-semibold">{pax}</span>
+  </div>
+  <span className="text-sm text-muted-foreground">{dateLabel}</span>
+</div>
 ```
 
-### Database Updates
-
-**For Schedule Changes:**
-```sql
-UPDATE orders SET 
-  pickup_date = ?, pickup_time = ? -- or delivery_date, delivery_time
-WHERE id = ?
+### Urgency Banner
+```tsx
+<div className="bg-gradient-to-r from-red-500 via-orange-500 to-red-500 rounded-xl p-6 text-center animate-urgency-pulse">
+  <div className="flex items-center justify-center gap-2 text-white text-xl md:text-2xl font-bold mb-4 animate-blink-urgent">
+    <Flame className="h-6 w-6" />
+    <span>TABLES FILLING FAST THIS WEEKEND</span>
+    <Flame className="h-6 w-6" />
+  </div>
+  <Button size="lg" className="bg-white text-primary hover:bg-white/90 font-bold px-8 py-6 rounded-full shadow-xl animate-bounce-slow">
+    <CalendarPlus className="mr-2 h-5 w-5" />
+    RESERVE YOUR TABLE NOW
+  </Button>
+</div>
 ```
-
-**For Line Item Changes:**
-```sql
--- Update quantity
-UPDATE order_items SET quantity = ?, subtotal = ?, line_total = ? WHERE id = ?
-
--- Delete item
-DELETE FROM order_items WHERE id = ?
-
--- Recalculate order totals
-UPDATE orders SET subtotal = ?, total_amount = ? WHERE id = ?
-```
-
-**For Customer Changes:**
-```sql
-UPDATE customers SET name = ?, phone = ?, email = ? WHERE id = ?
-```
-
-### UI/UX Design
-
-**Edit Button Location:**
-- In the order detail sheet header, next to the status badge
-- Icon: Pencil (Edit) icon
-- Label: "Edit Order"
-
-**Dialog Layout:**
-```
-┌─────────────────────────────────────────────────┐
-│  Edit Order #ORD-20260209-ABC123                │
-├─────────────────────────────────────────────────┤
-│  [Schedule] [Items] [Customer] [Delivery?]      │
-├─────────────────────────────────────────────────┤
-│                                                 │
-│  Schedule Tab Content:                          │
-│  ┌─────────────────────────────────────────┐   │
-│  │ Pickup/Delivery Date:  [Date Picker]    │   │
-│  │ Pickup/Delivery Time:  [Time Select]    │   │
-│  └─────────────────────────────────────────┘   │
-│                                                 │
-├─────────────────────────────────────────────────┤
-│              [Cancel]  [Save Changes]           │
-└─────────────────────────────────────────────────┘
-```
-
-**Items Tab Layout:**
-```
-┌─────────────────────────────────────────────────┐
-│  Line Items                                     │
-├─────────────────────────────────────────────────┤
-│  Babyback Ribs (1 Slab)         ₱649           │
-│  [-] 2 [+]  Subtotal: ₱1,298    [Remove]       │
-│                                                 │
-│  Chicken Wings (6pcs)            ₱199          │
-│  [-] 1 [+]  Subtotal: ₱199      [Remove]       │
-├─────────────────────────────────────────────────┤
-│  New Subtotal: ₱1,497                          │
-│  Delivery Fee: ₱60                             │
-│  New Total: ₱1,557                             │
-└─────────────────────────────────────────────────┘
-```
-
-### Time Slot Generation
-
-Reuse existing time slot generation functions from checkout:
-- Pickup: 11 AM - 9 PM (15-min intervals)
-- Delivery: 12 PM - 8 PM (15-min intervals)
-
-For admin editing, we can allow past times on the selected date (flexibility for corrections).
-
-### Validation Rules
-
-1. **Date Range**: Today to 30 days in future
-2. **Time Slots**: Within operating hours
-3. **Quantity**: Minimum 1, maximum reasonable limit
-4. **Phone**: Philippine format validation
-5. **Email**: Standard email validation
-
-### Notifications After Edit
-
-When significant changes are made (date/time changes), optionally:
-- Send customer notification about updated schedule
-- Log the change for audit purposes
 
 ---
 
-## Safety & Backwards Compatibility
+## Summary of Changes
 
-1. **No database schema changes required** - All fields already exist in orders and order_items tables
-2. **Existing checkout flow unchanged** - Only extending date range
-3. **Existing order display unchanged** - Only adding edit capability
-4. **All changes logged** - Full audit trail via admin_logs
-
----
-
-## Acceptance Criteria
-
-### Part 1: Extended Date Range
-- Customers can select pickup dates up to 30 days in the future
-- Customers can select delivery dates up to 30 days in the future
-- Today remains the minimum date
-
-### Part 2: Admin Order Editing
-- Admin can click "Edit Order" button on any order
-- Admin can change pickup/delivery date and time
-- Admin can adjust line item quantities
-- Admin can remove line items (with confirmation)
-- Admin can edit customer name, phone, email
-- Admin can edit delivery address (for delivery orders)
-- All changes are logged with old/new values
-- Totals auto-recalculate when items change
-- Toast notifications confirm successful saves
+1. **Gallery on ReserveNow**: Add the existing Gallery component after hero section
+2. **Hero Reserve Button**: Add third CTA button linking to /reservenow with calendar icon
+3. **Back Navigation Fix**: Simple link change from `/` to `/reservenow`
+4. **FOMO Live Feed**: 
+   - Multiple stacked messages in a scrolling container
+   - New messages slide in from right every 3-5 seconds
+   - Old messages fade up and out
+   - Large blinking urgency banner with fire emojis
+   - Prominent reserve button with pulsing animation
+   - "LIVE" indicator badge
+   - Overall exciting, social-proof driven design
 
