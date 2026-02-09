@@ -1,227 +1,234 @@
 
-## Employee Portal – Phase 1 (Shell & Access)
+# Valentine Group Meals Implementation Plan
 
-### Overview
-Create a dedicated Employee Portal where staff can log in and later view payslips, timesheets, and announcements. This phase focuses on structure, roles, and access control only.
+## Overview
 
----
-
-### Database Changes
-
-#### 1. Add `employee` to `app_role` enum
-```sql
-ALTER TYPE app_role ADD VALUE 'employee';
-```
-
-#### 2. Create `employees` table
-```sql
-CREATE TABLE public.employees (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  name text NOT NULL,
-  email text NOT NULL,
-  phone text,
-  employee_id text,
-  date_hired date,
-  is_active boolean DEFAULT true,
-  created_at timestamptz DEFAULT now(),
-  updated_at timestamptz DEFAULT now(),
-  UNIQUE(user_id),
-  UNIQUE(email)
-);
-
--- Enable RLS
-ALTER TABLE public.employees ENABLE ROW LEVEL SECURITY;
-
--- RLS Policies
-CREATE POLICY "Admins can view all employees"
-  ON public.employees FOR SELECT
-  USING (is_admin(auth.uid()));
-
-CREATE POLICY "Employees can view own record"
-  ON public.employees FOR SELECT
-  USING (user_id = auth.uid());
-
-CREATE POLICY "Owner/Manager can insert employees"
-  ON public.employees FOR INSERT
-  WITH CHECK (has_role(auth.uid(), 'owner') OR has_role(auth.uid(), 'manager'));
-
-CREATE POLICY "Owner/Manager can update employees"
-  ON public.employees FOR UPDATE
-  USING (has_role(auth.uid(), 'owner') OR has_role(auth.uid(), 'manager'));
-
-CREATE POLICY "Owner/Manager can delete employees"
-  ON public.employees FOR DELETE
-  USING (has_role(auth.uid(), 'owner') OR has_role(auth.uid(), 'manager'));
-
--- Trigger for updated_at
-CREATE TRIGGER update_employees_updated_at
-  BEFORE UPDATE ON public.employees
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-```
+This plan adds 4 Valentine Group Meals to the existing "Groups" category, using the **exact same architecture** as ARW Group Meals 1 & 2. No code changes are needed to the BundleWizard, Cart, Checkout, or other components - they already fully support this structure.
 
 ---
 
-### Backend (Edge Function)
+## Phase 1: Create Bundle-Only Component Products (₱0 price)
 
-#### 3. Create `create-employee-auth` edge function
-Similar pattern to `create-driver-auth`:
-- Validates admin caller (owner/manager)
-- Creates auth user with email/password
-- Creates employee record in `employees` table
-- Assigns `employee` role in `user_roles` table
-- Auto-confirms email for immediate login
+These products are **only used as bundle components** and will never appear in the menu (₱0 price is filtered out). They use existing flavor logic.
 
-**File:** `supabase/functions/create-employee-auth/index.ts`
+### Products to Create
+
+| Product Name | Price | Type | Purpose |
+|--------------|-------|------|---------|
+| Red Wine (Bundle) | ₱0 | simple | Included item for Valentine meals |
+| Bento Cake (Bundle) | ₱0 | simple | Included item for Valentine meals |
+| Pork Ribs Portion (2 pcs) | ₱0 | flavored | For "Wings of Love" - uses wings flavors |
+
+**Note:** Existing products to reuse:
+- `Coleslaw Salad (150g)` - ₱99, already exists
+- `Combo Fries` - ₱0, already exists
+- `Java Rice` - ₱40, already exists
+- `Half-Rack Ribs (500g)` - ₱549, already exists (flavor-selectable)
+- `Full-Rack Ribs (1kg)` - ₱999, already exists (flavor-selectable)
+- Wing Ala Carte products - already exist with correct slot configs
 
 ---
 
-### Frontend Components
+## Phase 2: Create Valentine Group Meal Products
 
-#### 4. Update AuthContext
-Add `isEmployee` helper:
+All 4 products go in the "Groups" category (ID: `dce950f7-15f1-4fcf-8a55-04a154f93d25`)
+
+### Product A: Forever Us - ₱2,799
+
+| Field | Value |
+|-------|-------|
+| name | Forever Us |
+| price | 2799.00 |
+| product_type | bundle |
+| category_id | dce950f7-15f1-4fcf-8a55-04a154f93d25 |
+| description | Valentine's Day Special! Full rack ribs, 18 pcs wings, 8 cups java rice, fries, coleslaw, wine & cake |
+
+### Product B: Love on the Ribs - ₱1,999
+
+| Field | Value |
+|-------|-------|
+| name | Love on the Ribs |
+| price | 1999.00 |
+| product_type | bundle |
+| category_id | dce950f7-15f1-4fcf-8a55-04a154f93d25 |
+| description | Valentine's Day Special! Half rack ribs, 12 pcs wings, 4 cups java rice, fries, coleslaw, wine & cake |
+
+### Product C: Valentine Classic - ₱1,699
+
+| Field | Value |
+|-------|-------|
+| name | Valentine Classic |
+| price | 1699.00 |
+| product_type | bundle |
+| category_id | dce950f7-15f1-4fcf-8a55-04a154f93d25 |
+| description | Valentine's Day Special! Half rack ribs, 6 pcs wings, 2 cups java rice, fries, coleslaw, wine & cake |
+
+### Product D: Wings of Love - ₱1,699
+
+| Field | Value |
+|-------|-------|
+| name | Wings of Love |
+| price | 1699.00 |
+| product_type | bundle |
+| category_id | dce950f7-15f1-4fcf-8a55-04a154f93d25 |
+| description | Valentine's Day Special! 12 pcs wings, 2 pcs ribs, 2 cups java rice, fries, coleslaw, wine & cake |
+
+---
+
+## Phase 3: Configure Bundle Components
+
+### Forever Us (₱2,799) - 7 Components
+
+| Component | has_flavor_selection | total_units | units_per_flavor | quantity | required_flavors |
+|-----------|---------------------|-------------|------------------|----------|------------------|
+| Full-Rack Ribs (1kg) | true | 1 | 1 | 1 | 1 |
+| Wing Ala Carte 4 (18 pcs) | true | 18 | 3 | 1 | 6 |
+| Java Rice | false | 8 | 1 | 8 | null |
+| Combo Fries | false | 1 | 1 | 1 | null |
+| Coleslaw Salad (150g) | false | 1 | 1 | 1 | null |
+| Red Wine (Bundle) | false | 1 | 1 | 1 | null |
+| Bento Cake (Bundle) | false | 1 | 1 | 1 | null |
+
+### Love on the Ribs (₱1,999) - 7 Components
+
+| Component | has_flavor_selection | total_units | units_per_flavor | quantity | required_flavors |
+|-----------|---------------------|-------------|------------------|----------|------------------|
+| Half-Rack Ribs (500g) | true | 1 | 1 | 1 | 1 |
+| Wing Ala Carte 3 (12 pcs) | true | 12 | 3 | 1 | 4 |
+| Java Rice | false | 4 | 1 | 4 | null |
+| Combo Fries | false | 1 | 1 | 1 | null |
+| Coleslaw Salad (150g) | false | 1 | 1 | 1 | null |
+| Red Wine (Bundle) | false | 1 | 1 | 1 | null |
+| Bento Cake (Bundle) | false | 1 | 1 | 1 | null |
+
+### Valentine Classic (₱1,699) - 7 Components
+
+| Component | has_flavor_selection | total_units | units_per_flavor | quantity | required_flavors |
+|-----------|---------------------|-------------|------------------|----------|------------------|
+| Half-Rack Ribs (500g) | true | 1 | 1 | 1 | 1 |
+| Wing Ala Carte 2 (6 pcs) | true | 6 | 3 | 1 | 2 |
+| Java Rice | false | 2 | 1 | 2 | null |
+| Combo Fries | false | 1 | 1 | 1 | null |
+| Coleslaw Salad (150g) | false | 1 | 1 | 1 | null |
+| Red Wine (Bundle) | false | 1 | 1 | 1 | null |
+| Bento Cake (Bundle) | false | 1 | 1 | 1 | null |
+
+### Wings of Love (₱1,699) - 7 Components
+
+| Component | has_flavor_selection | total_units | units_per_flavor | quantity | required_flavors |
+|-----------|---------------------|-------------|------------------|----------|------------------|
+| Wing Ala Carte 3 (12 pcs) | true | 12 | 3 | 1 | 4 |
+| Pork Ribs Portion (2 pcs) | true | 1 | 1 | 1 | 1 |
+| Java Rice | false | 2 | 1 | 2 | null |
+| Combo Fries | false | 1 | 1 | 1 | null |
+| Coleslaw Salad (150g) | false | 1 | 1 | 1 | null |
+| Red Wine (Bundle) | false | 1 | 1 | 1 | null |
+| Bento Cake (Bundle) | false | 1 | 1 | 1 | null |
+
+---
+
+## Phase 4: Update BundleWizard Display Names
+
+The BundleWizard needs a minor update to display "Red Wine" and "Bento Cake" correctly in the included items section (lines 274-280):
+
 ```typescript
-const isEmployee = role === 'employee';
-```
+// Add to displayName handling in handleConfirm():
+} else if (displayName.toLowerCase().includes('wine')) {
+  displayName = 'Red Wine';
+} else if (displayName.toLowerCase().includes('cake')) {
+  displayName = 'Bento Cake';
+}
 
-#### 5. Create `EmployeeProtectedRoute`
-**File:** `src/components/employee/EmployeeProtectedRoute.tsx`
-- Block non-employees
-- Redirect admins to `/admin`
-- Redirect drivers to `/driver`
-- Check `is_active` status and show "inactive" message if false
-
-#### 6. Create Employee Layout
-**File:** `src/layouts/EmployeeLayout.tsx`
-- Clean header with "Employee Portal" branding
-- Employee name display
-- Sign out button
-- No bottom navigation (simple layout)
-
-#### 7. Create Employee Dashboard (Placeholder)
-**File:** `src/pages/employee/Dashboard.tsx`
-- Welcome message: "Welcome, {{employee name}}"
-- Employee badge
-- Three placeholder cards:
-  - Payslips (Coming Soon)
-  - Timesheets (Coming Soon)
-  - Announcements (Coming Soon)
-
-#### 8. Create Employee Auth Page
-**File:** `src/pages/employee/Auth.tsx`
-- Email/password login form
-- Employee-branded (Briefcase icon instead of Truck)
-- Redirect to `/employee` on success
-- Block admin/driver access
-
----
-
-### Admin Components
-
-#### 9. Create Admin Employees Management Page
-**File:** `src/pages/admin/Employees.tsx`
-Pattern mirrors Drivers.tsx:
-- Table listing all employees
-- Search/filter functionality
-- Add Employee dialog:
-  - Full Name (required)
-  - Email (required)
-  - Phone (optional)
-  - Employee ID (optional)
-  - Date Hired (optional)
-  - Password (required for creation)
-- Edit Employee sheet
-- Toggle active/inactive status
-- Password reset functionality (uses admin-user-management edge function)
-
-#### 10. Update Admin Sidebar
-Add "Employees" menu item:
-```typescript
-{ title: 'Employees', url: '/admin/employees', icon: UserCog, roles: ['owner', 'manager'] },
+// Add to displayName handling in review step (lines 507-523):
+} else if (displayName.toLowerCase().includes('wine')) {
+  displayName = 'Red Wine';
+} else if (displayName.toLowerCase().includes('cake')) {
+  displayName = 'Bento Cake';
+}
 ```
 
 ---
 
-### Route Configuration
+## Technical Details
 
-#### 11. Update App.tsx Routes
-```tsx
-// Employee Routes
-<Route path="/employee/auth" element={<EmployeeAuth />} />
-<Route
-  path="/employee"
-  element={
-    <EmployeeProtectedRoute>
-      <EmployeeLayout />
-    </EmployeeProtectedRoute>
-  }
->
-  <Route index element={<EmployeeDashboard />} />
-</Route>
+### Pricing Logic (Unchanged)
+- Base price is FIXED (₱1,699 / ₱1,999 / ₱2,799)
+- Only SPECIAL flavors add ₱40 surcharge
+- Surcharge is per DISTINCT special flavor, NOT per piece/slot
+- Example: Using "#13 Vintage Garlic Butter" for ribs AND wings = +₱40 each = +₱80 total
 
-// Admin Route
-<Route path="employees" element={<Employees />} />
-```
+### BundleWizard Flow (Already Works)
+1. Step 1: Choose Ribs Flavor (radio select, single choice)
+2. Step 2: Choose Wings Flavors (slot-based, +/- buttons)
+3. Step 3: Review (shows all selections + included items)
+
+### Display Rules (Already Work)
+- Ribs: Show as single flavor selection
+- Wings: Show "for X wings" format
+- Included items: Show with green "Included" badge
+- No quantity multipliers (×) in display
 
 ---
 
-### Auth Flow Updates
+## Database Migration Summary
 
-#### 12. Update ProtectedRoute
-Ensure employees cannot access admin routes (already handled since they don't have owner/manager/cashier role).
+### SQL Operations Required
 
-#### 13. Update Login Redirects
-- `/auth` (admin login): Block employees, redirect to `/employee`
-- `/employee/auth`: Block admins/drivers
-- `/driver/auth`: Block admins/employees
+1. **Create component products** (Red Wine Bundle, Bento Cake Bundle, Pork Ribs Portion)
+2. **Create 4 Valentine Group Meal products** in Groups category
+3. **Insert bundle_components** linking each meal to its components
+
+### No Schema Changes Needed
+The existing `products`, `bundle_components`, and `flavors` tables already have all required columns.
 
 ---
 
-### Files to Create
-
-| File | Description |
-|------|-------------|
-| `supabase/functions/create-employee-auth/index.ts` | Edge function for creating employee auth users |
-| `src/components/employee/EmployeeProtectedRoute.tsx` | Route protection for employee portal |
-| `src/layouts/EmployeeLayout.tsx` | Layout wrapper for employee pages |
-| `src/pages/employee/Auth.tsx` | Employee login page |
-| `src/pages/employee/Dashboard.tsx` | Employee dashboard with placeholders |
-| `src/pages/admin/Employees.tsx` | Admin employee management page |
+## Code Changes Summary
 
 ### Files to Modify
 
-| File | Changes |
-|------|---------|
-| `src/contexts/AuthContext.tsx` | Add `isEmployee` boolean |
-| `src/components/admin/AdminSidebar.tsx` | Add Employees menu item |
-| `src/App.tsx` | Add employee routes |
-| `src/pages/Auth.tsx` | Block employee role, redirect to `/employee` |
-| `supabase/functions/admin-user-management/index.ts` | Add employee support for password resets |
+| File | Change |
+|------|--------|
+| `src/components/customer/BundleWizard.tsx` | Add "wine" and "cake" display name mappings (6 lines) |
+
+### Files NOT Changed (Already Support This)
+- `src/components/customer/Cart.tsx` - Already handles bundles with includedItems
+- `src/components/customer/CheckoutSheet.tsx` - Already displays bundle data correctly
+- `src/components/customer/checkout/CompactOrderSummary.tsx` - Already shows inclusions
+- `src/pages/Order.tsx` - Already routes bundles to BundleWizard
+- All admin/order views - Already use normalized rendering
 
 ---
 
-### Security Summary
+## Verification Checklist
 
-| Route | Allowed Roles |
-|-------|---------------|
-| `/admin/*` | owner, manager, cashier |
-| `/driver/*` | driver |
-| `/employee/*` | employee |
-| `/auth` | admin login only |
-| `/driver/auth` | driver login only |
-| `/employee/auth` | employee login only |
+After implementation, verify:
 
-Employees cannot see: Orders, Customers, Reports, Drivers, Products, or other employees.
+1. All 4 Valentine meals appear in "Groups" category on order page
+2. Clicking each meal opens BundleWizard with correct steps
+3. Ribs flavor selection works (radio buttons, single select)
+4. Wings flavor selection works (slot-based, fills all slots)
+5. Special flavor surcharges calculate correctly (₱40 per distinct)
+6. Review step shows all selections + included items
+7. Cart displays correctly with grouped flavors and inclusions
+8. Checkout summary shows complete breakdown
+9. Order confirmation stores correct data
+10. Admin order view shows all components correctly
 
 ---
 
-### What This Phase Does NOT Include
+## Risk Mitigation
 
-- Payroll computation
-- Payslip uploads/viewing
-- Timesheet logic
-- Salary fields
-- Attendance tracking
-- Announcements system
+### What This Plan Protects
+- Existing ARW Group Meals continue to work unchanged
+- Rice Meals with Java Rice upgrade unaffected
+- All ala carte products unaffected
+- Checkout flow unchanged
+- Cart persistence unchanged
+- Order submission unchanged
 
-These will be added in future phases.
+### Why This Is Safe
+- Using exact same database structure as existing bundles
+- Using exact same BundleWizard component
+- Only adding new products and data rows
+- Minimal code change (display name mapping only)
