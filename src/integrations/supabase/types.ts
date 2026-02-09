@@ -1993,6 +1993,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      cancel_reservation_by_customer: {
+        Args: { p_code: string; p_phone: string }
+        Returns: Json
+      }
       check_slot_capacity: {
         Args: {
           p_requested_pax: number
@@ -2199,6 +2203,7 @@ export type Database = {
         | "cancelled"
         | "completed"
         | "no_show"
+        | "cancelled_by_customer"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2358,6 +2363,7 @@ export const Constants = {
         "cancelled",
         "completed",
         "no_show",
+        "cancelled_by_customer",
       ],
     },
   },

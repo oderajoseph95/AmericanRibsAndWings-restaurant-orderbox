@@ -224,6 +224,9 @@ function getDefaultMessage(type: string, payload: SmsPayload): string {
     
     reservation_cancelled: `Your reservation was not approved.\nCode: ${reservationCode}\nPlease contact us if you have questions.\n- American Ribs & Wings`,
     
+    // Customer-initiated cancellation
+    reservation_cancelled_by_customer: `Your reservation has been cancelled.\nCode: ${reservationCode}\nIf you change your mind, please book again.\n- American Ribs & Wings`,
+    
     // Reservation reminder
     reservation_reminder: `ARW Reminder 🍽️\n\nHi ${payload.customerName || ''},\nReminder for your reservation ${reservationDate} at ${reservationTime} for ${pax} guests.\n\nCode: ${reservationCode}\n📍 American Ribs & Wings – Floridablanca\n\nSee you soon!`,
     
