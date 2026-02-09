@@ -219,6 +219,11 @@ function getDefaultMessage(type: string, payload: SmsPayload): string {
     // Reservation type
     reservation_received: `American Ribs & Wings: Reservation ${reservationCode} received for ${pax} guests on ${reservationDate} at ${reservationTime}. We'll confirm via SMS shortly.`,
     
+    // Reservation confirmation types
+    reservation_confirmed: `Your reservation is CONFIRMED.\nCode: ${reservationCode}\n${reservationDate}, ${reservationTime} - ${pax} guests\nSee you soon! - American Ribs & Wings`,
+    
+    reservation_cancelled: `Your reservation was not approved.\nCode: ${reservationCode}\nPlease contact us if you have questions.\n- American Ribs & Wings`,
+    
     // Review request - MUST be under 140 characters
     review_request: `Loved your order? Review us! g.page/r/CX7_36IAlM8XEBM/review - American Ribs & Wings`,
     
