@@ -1,228 +1,212 @@
 
 
-# Plan: Fix Reservation System - Database Function, Notifications & Reminders
+# Fix: Reservation Database Function Type Casting Error
 
-## Problem Summary
+## Problem Identified
 
-The reservation system is broken due to a PostgreSQL function overload conflict, and the notification/reminder system needs to be fully implemented.
+The error message `"cannot cast type time without time zone to timestamp without time zone"` is happening inside the `create_reservation` PostgreSQL function.
 
-**Critical Issues Found:**
+**Root Cause:** Line in the capacity check logic:
+```sql
+v_slot_start := (DATE_TRUNC('hour', p_reservation_time::TIMESTAMP) + 
+    INTERVAL '30 minutes' * FLOOR(EXTRACT(MINUTE FROM p_reservation_time) / 30))::TIME;
+```
 
-1. **Database Error**: There are TWO versions of `create_reservation` function with overlapping signatures:
-   - Version 1: 7 parameters (without `p_preorder_items`)
-   - Version 2: 8 parameters (with `p_preorder_items`)
-   - PostgreSQL cannot determine which to call, causing the error: "Could not choose the best candidate function between..."
-
-2. **Missing Notification on New Reservation**: When a customer submits a reservation, no SMS or email is sent (status = "pending for confirmation")
-
-3. **Confirmation Notifications**: Already implemented in admin ReservationDetail page (working)
-
-4. **Reminder Schedule**: Current system only supports 2 reminder intervals (24h, 3h). User wants 6 intervals: 12h, 6h, 3h, 1h, 30min, 15min
+PostgreSQL cannot directly cast a `TIME` type (`p_reservation_time`) to `TIMESTAMP`. It needs a date component.
 
 ---
 
 ## Solution
 
-### Part 1: Fix Database Function Overload
+Fix the `create_reservation` function by properly calculating the 30-minute slot boundaries using TIME arithmetic instead of trying to cast to TIMESTAMP.
 
-**Action:** Drop the old function (without preorder_items) and keep only the new one. The frontend doesn't use preorder_items anyway, so we just pass `null` for it.
+### Fixed SQL Logic
+
+**Before (broken):**
+```sql
+v_slot_start := (DATE_TRUNC('hour', p_reservation_time::TIMESTAMP) + 
+    INTERVAL '30 minutes' * FLOOR(EXTRACT(MINUTE FROM p_reservation_time) / 30))::TIME;
+```
+
+**After (fixed):**
+```sql
+-- Calculate slot boundaries using TIME arithmetic (no TIMESTAMP cast needed)
+v_slot_start := (
+  (EXTRACT(HOUR FROM p_reservation_time)::INTEGER * INTERVAL '1 hour') +
+  (FLOOR(EXTRACT(MINUTE FROM p_reservation_time) / 30) * INTERVAL '30 minutes')
+)::TIME;
+v_slot_end := v_slot_start + INTERVAL '30 minutes';
+```
+
+This calculates the 30-minute slot start time using only TIME-compatible operations:
+- Extract the hour and multiply by 1-hour interval
+- Floor the minutes to nearest 30 (0 or 30) and multiply by 30-minute interval
+- Cast result to TIME
+
+---
+
+## Database Migration
 
 ```sql
--- Drop the old function that's causing the conflict
-DROP FUNCTION IF EXISTS public.create_reservation(text, text, text, integer, date, time without time zone, text);
-```
-
-**Result:** Only one function signature remains, eliminating the ambiguity error.
-
----
-
-### Part 2: Send Notifications When Reservation is Created (Pending)
-
-**Current State:** ReservationForm submits to database but doesn't trigger notifications.
-
-**Solution:** After successful reservation creation, call the SMS and Email notification edge functions with type `reservation_received`.
-
-**File:** `src/components/reservation/ReservationForm.tsx`
-
-After the `supabase.rpc("create_reservation", ...)` call succeeds:
-
-```typescript
-// Send "pending confirmation" SMS to customer
-await supabase.functions.invoke("send-sms-notification", {
-  body: {
-    type: "reservation_received",
-    recipientPhone: normalizePhone(phone),
-    reservationCode: reservation.reservation_code,
-    customerName: name.trim(),
-    reservationDate: displayDate,
-    reservationTime: time,
-    pax: pax,
-  },
-});
-
-// Send email if customer provided one
-if (email.trim()) {
-  await supabase.functions.invoke("send-email-notification", {
-    body: {
-      type: "new_reservation",
-      recipientEmail: email.trim(),
-      reservationCode: reservation.reservation_code,
-      customerName: name.trim(),
-      reservationDate: displayDate,
-      reservationTime: time,
-      pax: pax,
-    },
-  });
-}
-```
-
----
-
-### Part 3: Update Reminder Schedule (6 Intervals)
-
-**Current:** 24h and 3h before reservation
-**New:** 12h, 6h, 3h, 1h, 30min, 15min before reservation
-
-**File:** `src/pages/admin/ReservationDetail.tsx` (Lines ~225-315)
-
-Update the reminder scheduling logic when status changes to "confirmed":
-
-```typescript
-// UPDATED REMINDER INTERVALS: 12h, 6h, 3h, 1h, 30min, 15min
-const reminderIntervals = [
-  { hours: 12, minutes: 0, type: '12h' },
-  { hours: 6, minutes: 0, type: '6h' },
-  { hours: 3, minutes: 0, type: '3h' },
-  { hours: 1, minutes: 0, type: '1h' },
-  { hours: 0, minutes: 30, type: '30min' },
-  { hours: 0, minutes: 15, type: '15min' },
-];
-
-const remindersToInsert = [];
-for (const interval of reminderIntervals) {
-  const reminderTime = new Date(reservationDateTime);
-  reminderTime.setHours(reminderTime.getHours() - interval.hours);
-  reminderTime.setMinutes(reminderTime.getMinutes() - interval.minutes);
+-- Fix the create_reservation function to handle TIME type correctly
+CREATE OR REPLACE FUNCTION public.create_reservation(
+  p_name text, 
+  p_phone text, 
+  p_email text DEFAULT NULL::text, 
+  p_pax integer DEFAULT 2, 
+  p_reservation_date date DEFAULT NULL::date, 
+  p_reservation_time time without time zone DEFAULT NULL::time without time zone, 
+  p_notes text DEFAULT NULL::text, 
+  p_preorder_items jsonb DEFAULT NULL::jsonb
+)
+RETURNS TABLE(id uuid, reservation_code text)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_reservation_id UUID;
+  v_code TEXT;
+  v_hash TEXT;
+  v_existing_id UUID;
+  v_attempts INTEGER := 0;
+  v_max_pax INTEGER := 40;
+  v_current_pax INTEGER := 0;
+  v_slot_start TIME;
+  v_slot_end TIME;
+BEGIN
+  -- Validate required fields
+  IF p_name IS NULL OR TRIM(p_name) = '' THEN
+    RAISE EXCEPTION 'Name is required';
+  END IF;
   
-  // Only schedule if reminder time is in the future
-  if (reminderTime > new Date()) {
-    remindersToInsert.push({
-      reservation_id: id,
-      reminder_type: interval.type,
-      scheduled_for: reminderTime.toISOString(),
-      status: 'pending',
-    });
-  }
-}
+  IF p_phone IS NULL OR TRIM(p_phone) = '' THEN
+    RAISE EXCEPTION 'Phone is required';
+  END IF;
+  
+  IF p_pax < 1 OR p_pax > 20 THEN
+    RAISE EXCEPTION 'Party size must be between 1 and 20';
+  END IF;
 
-// Insert all reminders
-if (remindersToInsert.length > 0) {
-  await supabase.from('reservation_reminders').insert(remindersToInsert);
-}
-```
+  IF p_reservation_date IS NULL THEN
+    RAISE EXCEPTION 'Reservation date is required';
+  END IF;
 
-**File:** `src/hooks/useReservationSettings.ts`
-
-Update default settings to include all reminder intervals (for reference in admin settings panel):
-
-```typescript
-export const DEFAULT_RESERVATION_SETTINGS = {
-  // ... existing settings
-  reminder_intervals: [
-    { hours: 12, type: '12h' },
-    { hours: 6, type: '6h' },
-    { hours: 3, type: '3h' },
-    { hours: 1, type: '1h' },
-    { minutes: 30, type: '30min' },
-    { minutes: 15, type: '15min' },
-  ],
-};
+  IF p_reservation_time IS NULL THEN
+    RAISE EXCEPTION 'Reservation time is required';
+  END IF;
+  
+  -- ========== CAPACITY CHECK ==========
+  
+  -- Get capacity setting
+  SELECT (value->>'max_pax_per_slot')::INTEGER INTO v_max_pax
+  FROM settings WHERE key = 'reservation_capacity';
+  
+  IF v_max_pax IS NULL THEN
+    v_max_pax := 40;
+  END IF;
+  
+  -- Calculate slot boundaries using TIME arithmetic (FIX: no TIMESTAMP cast)
+  v_slot_start := (
+    (EXTRACT(HOUR FROM p_reservation_time)::INTEGER * INTERVAL '1 hour') +
+    (FLOOR(EXTRACT(MINUTE FROM p_reservation_time) / 30) * INTERVAL '30 minutes')
+  )::TIME;
+  v_slot_end := v_slot_start + INTERVAL '30 minutes';
+  
+  -- Lock and sum pax for this slot (FOR UPDATE to prevent race conditions)
+  SELECT COALESCE(SUM(pax), 0) INTO v_current_pax
+  FROM reservations
+  WHERE reservation_date = p_reservation_date
+    AND reservation_time >= v_slot_start
+    AND reservation_time < v_slot_end
+    AND status IN ('pending', 'confirmed')
+  FOR UPDATE;
+  
+  -- Block if capacity would be exceeded
+  IF (v_current_pax + p_pax) > v_max_pax THEN
+    RAISE EXCEPTION 'Sorry, this time slot is already full. Please choose a different time.';
+  END IF;
+  
+  -- ========== END CAPACITY CHECK ==========
+  
+  -- Generate idempotency hash from name + phone + date + time
+  v_hash := md5(
+    LOWER(TRIM(p_name)) || '|' || 
+    TRIM(p_phone) || '|' || 
+    p_reservation_date::TEXT || '|' || 
+    p_reservation_time::TEXT
+  );
+  
+  -- Check for duplicate within 5 minutes (idempotent behavior)
+  SELECT reservations.id INTO v_existing_id
+  FROM reservations
+  WHERE idempotency_hash = v_hash
+    AND created_at > (now() - INTERVAL '5 minutes');
+  
+  IF v_existing_id IS NOT NULL THEN
+    -- Return existing reservation (idempotent - no duplicate created)
+    RETURN QUERY SELECT reservations.id, reservations.reservation_code
+    FROM reservations WHERE reservations.id = v_existing_id;
+    RETURN;
+  END IF;
+  
+  -- Generate unique code with retry
+  LOOP
+    v_code := 'ARW-RSV-' || LPAD(FLOOR(RANDOM() * 10000)::TEXT, 4, '0');
+    
+    IF NOT EXISTS (SELECT 1 FROM reservations WHERE reservations.reservation_code = v_code) THEN
+      EXIT;
+    END IF;
+    
+    v_attempts := v_attempts + 1;
+    IF v_attempts > 10 THEN
+      RAISE EXCEPTION 'Failed to generate unique reservation code';
+    END IF;
+  END LOOP;
+  
+  -- Insert reservation
+  INSERT INTO reservations (
+    reservation_code,
+    name,
+    phone,
+    email,
+    pax,
+    reservation_date,
+    reservation_time,
+    notes,
+    status,
+    preorder_items,
+    idempotency_hash
+  ) VALUES (
+    v_code,
+    TRIM(p_name),
+    TRIM(p_phone),
+    NULLIF(TRIM(p_email), ''),
+    p_pax,
+    p_reservation_date,
+    p_reservation_time,
+    NULLIF(TRIM(p_notes), ''),
+    'pending',
+    p_preorder_items,
+    v_hash
+  )
+  RETURNING reservations.id INTO v_reservation_id;
+  
+  RETURN QUERY SELECT v_reservation_id, v_code;
+END;
+$function$;
 ```
 
 ---
 
-### Part 4: Add `new_reservation` Email Template
+## Summary
 
-**File:** `supabase/functions/send-email-notification/index.ts`
+| Item | Description |
+|------|-------------|
+| **Error** | `cannot cast type time without time zone to timestamp without time zone` |
+| **Location** | `create_reservation` function, capacity check section |
+| **Fix** | Use TIME-compatible arithmetic instead of casting to TIMESTAMP |
+| **Files Changed** | Database migration only (no code changes needed) |
 
-Add email template for new reservations (pending confirmation):
-
-```typescript
-case 'new_reservation':
-  content = `
-    <div class="content">
-      <h2>Reservation Request Received, ${customerName}!</h2>
-      <p>Thank you for requesting a table reservation. Our team will review and confirm your booking shortly.</p>
-      
-      <div class="order-box">
-        <p><strong>Reservation Code:</strong> ${payload.reservationCode}</p>
-        <p><strong>Date:</strong> ${payload.reservationDate}</p>
-        <p><strong>Time:</strong> ${payload.reservationTime}</p>
-        <p><strong>Guests:</strong> ${payload.pax}</p>
-        <span class="status-badge status-warning">⏳ Pending Confirmation</span>
-      </div>
-      
-      <p>You will receive an SMS and email once your reservation is confirmed.</p>
-      <p>📍 American Ribs & Wings - Floridablanca, Pampanga</p>
-    </div>
-  `;
-  break;
-```
-
----
-
-## Summary of Changes
-
-| File | Change |
-|------|--------|
-| **Database** | Drop duplicate `create_reservation` function (SQL migration) |
-| `src/components/reservation/ReservationForm.tsx` | Add SMS/Email calls after reservation created |
-| `src/pages/admin/ReservationDetail.tsx` | Update reminder scheduling to 6 intervals (12h, 6h, 3h, 1h, 30min, 15min) |
-| `src/hooks/useReservationSettings.ts` | Update default reminder interval settings |
-| `supabase/functions/send-email-notification/index.ts` | Add `new_reservation` email template case |
-
----
-
-## Notification Flow After Fix
-
-```
-CUSTOMER SUBMITS RESERVATION
-         ↓
-    Status: pending
-         ↓
-  ✉️ SMS: "Reservation received, pending confirmation"
-  📧 Email: "Reservation request received" (if email provided)
-         ↓
-ADMIN CONFIRMS IN DASHBOARD
-         ↓
-    Status: confirmed
-         ↓
-  ✉️ SMS: "Your reservation is CONFIRMED!"
-  📧 Email: "Reservation confirmed"
-  ⏰ Schedule reminders: 12h, 6h, 3h, 1h, 30min, 15min
-         ↓
-AUTOMATIC REMINDERS (via pg_cron every 15 min)
-         ↓
-  ✉️ SMS + 📧 Email sent at each interval before reservation time
-```
-
----
-
-## Technical Details
-
-### Database Migration SQL
-```sql
--- Fix function overload: drop the old 7-parameter version
-DROP FUNCTION IF EXISTS public.create_reservation(text, text, text, integer, date, time without time zone, text);
-
--- The 8-parameter version (with p_preorder_items) remains
--- Frontend passes null for preorder_items which is fine
-```
-
-### Cron Job Already Configured
-The reminder system already has a cron job running every 15 minutes:
-```
-*/15 * * * * → send-reservation-reminder edge function
-```
-This will process all due reminders automatically.
+After applying this migration, reservations will work correctly.
 
