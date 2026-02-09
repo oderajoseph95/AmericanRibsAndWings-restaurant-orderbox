@@ -1,86 +1,197 @@
 
-# ISSUE R5.1 — Reservation Check-In Control (Admin)
+# ISSUE R5.2 — Reservation Completion Control (Admin)
 
-## Status: ✅ COMPLETE
+## Overview
 
-## What Was Implemented
+Add explicit completion tracking for reservations, mirroring the check-in implementation from R5.1. This ensures reservations close cleanly with full audit attribution when staff marks service as concluded.
+
+---
+
+## Current State Analysis
+
+### Already Implemented
+- "Mark Completed" button exists for `checked_in` status
+- Status transitions to `completed` via existing mutation
+- Customer tracking page shows "Completed" status
+- Check-in tracking pattern already established in R5.1
+
+### Missing for R5.2
+- `completed_at` and `completed_by` database columns
+- Completion timestamp/admin tracking in the mutation
+- Completion attribution display in admin detail
+- Query for completion admin name
+- Audit logging for `reservation_completed` action
+- Timeline entry for completion event
+
+---
+
+## Technical Implementation
 
 ### 1. Database Migration
-- Added `checked_in` to `reservation_status` enum (after `confirmed`)
-- Added `checked_in_at` (TIMESTAMPTZ) column for timestamp tracking
-- Added `checked_in_by` (UUID) column referencing `auth.users` for admin attribution
-- Updated `get_reservation_analytics` RPC to include `checked_in` count
 
-### 2. Admin Reservation Detail Page (`ReservationDetail.tsx`)
-- Added "Check In" button visible only when `status === 'confirmed'`
-- Button styled with blue color for clear visual distinction
-- Check-in mutation updates:
-  - `status` → `checked_in`
-  - `status_changed_at` → current timestamp
-  - `status_changed_by` → admin user ID
-  - `checked_in_at` → current timestamp
-  - `checked_in_by` → admin user ID
-- Added check-in attribution display in summary section:
-  - Shows "Checked In" with time and admin name
-- After check-in, only "Mark Completed" button is shown (no "Mark No-Show")
-- Audit logging via `logAdminAction` with action type `reservation_checked_in`
-- Timeline entry via `reservation_notifications` table
+Add dedicated columns for completion tracking (mirroring check-in):
 
-### 3. Admin Reservation List Page (`Reservations.tsx`)
-- Added `checked_in` to status colors (blue styling)
-- Added `checked_in` to status labels
-- Added `checked_in` to status filter dropdown
-
-### 4. Customer Tracking Page (`ReservationTracking.tsx`)
-- Added `checked_in` to status type
-- Maps `checked_in` to display as "Confirmed" for customers (internal-only state)
-- Customers do not see "Checked In" status
-
-### 5. Reservation Analytics (`ReservationAnalytics.tsx`)
-- Added `checked_in` to AnalyticsData interface
-- Added blue color for checked_in in pie chart
-- Updated metrics calculations to include checked_in in confirmed total
-- Added "Checked In" to status breakdown pie chart
-
-### 6. No-Show Protection (Automatic)
-The existing `process-no-shows` Edge Function already filters by `status = 'confirmed'` only. Once a reservation transitions to `checked_in`, it will no longer have status = 'confirmed' and will be automatically excluded from no-show processing. **No changes were needed to the Edge Function.**
-
----
-
-## Status Workflow
-
-```
-┌─────────┐     ┌───────────┐     ┌────────────┐     ┌───────────┐
-│ pending │ ──► │ confirmed │ ──► │ checked_in │ ──► │ completed │
-└─────────┘     └───────────┘     └────────────┘     └───────────┘
-                      │                                    
-                      ▼                                    
-               ┌────────────┐                              
-               │  no_show   │  (only from confirmed,       
-               └────────────┘   never from checked_in)     
+```sql
+-- Add dedicated columns for completion tracking
+ALTER TABLE reservations 
+ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ,
+ADD COLUMN IF NOT EXISTS completed_by UUID REFERENCES auth.users(id);
 ```
 
+### 2. Update Status Mutation
+
+Modify the mutation in `ReservationDetail.tsx` to track completion:
+
+```typescript
+// Track completion with dedicated columns
+if (newStatus === 'completed') {
+  updateData.completed_at = new Date().toISOString();
+  updateData.completed_by = user?.id || null;
+}
+```
+
+### 3. Update Audit Logging
+
+Add `reservation_completed` action type:
+
+```typescript
+const actionType = newStatus === 'checked_in' 
+  ? 'reservation_checked_in' 
+  : newStatus === 'completed'
+    ? 'reservation_completed'
+    : 'status_change';
+```
+
+### 4. Add Timeline Entry
+
+Log completion to `reservation_notifications` table:
+
+```typescript
+if (newStatus === 'completed' && reservation) {
+  await supabase.from('reservation_notifications').insert({
+    reservation_id: reservation.id,
+    channel: 'system',
+    recipient: 'internal',
+    status: 'sent',
+    trigger_type: 'manual',
+    message_type: 'completed',
+  });
+}
+```
+
+### 5. Add Completion Admin Query
+
+Query the admin who completed the reservation:
+
+```typescript
+const { data: completedByAdmin } = useQuery({
+  queryKey: ['completed-by-admin', reservation?.completed_by],
+  queryFn: async () => {
+    if (!reservation?.completed_by) return null;
+    
+    const { data, error } = await supabase
+      .from('user_roles')
+      .select('display_name, username')
+      .eq('user_id', reservation.completed_by)
+      .maybeSingle();
+    
+    if (error) throw error;
+    return data?.display_name || data?.username || 'Admin';
+  },
+  enabled: !!reservation?.completed_by,
+});
+```
+
+### 6. Add Completion Attribution Display
+
+Display completion info in the summary section (after check-in attribution):
+
+```typescript
+{/* Completion Attribution */}
+{reservation.completed_at && (
+  <div className="flex items-center gap-3">
+    <CheckCircle className="h-4 w-4 text-emerald-600" />
+    <div>
+      <p className="text-sm text-muted-foreground">Completed</p>
+      <p className="font-medium">
+        {format(new Date(reservation.completed_at), 'h:mm a')}
+        {completedByAdmin && ` by ${completedByAdmin}`}
+      </p>
+    </div>
+  </div>
+)}
+```
+
 ---
 
-## Acceptance Criteria Met
+## Files to Modify
 
-| Criteria | Status |
-|----------|--------|
-| Check-In button appears correctly | ✅ |
-| Status transitions correctly | ✅ |
-| No-show automation skips checked-in records | ✅ |
-| Timestamp and admin attribution saved | ✅ |
-| Admin UI clearly reflects check-in | ✅ |
-| One-way transition | ✅ |
-| Customers do not see checked_in status | ✅ |
-| Audit logging | ✅ |
+| File | Action | Description |
+|------|--------|-------------|
+| **Database Migration** | CREATE | Add `completed_at` and `completed_by` columns |
+| `src/pages/admin/ReservationDetail.tsx` | MODIFY | Add completion tracking to mutation, add query for admin name, add attribution display |
 
 ---
 
-## Files Modified
+## UI Changes
 
-- `src/pages/admin/ReservationDetail.tsx` - Check In button, mutation, attribution display
-- `src/pages/admin/Reservations.tsx` - Status colors, labels, filter
-- `src/pages/admin/ReservationAnalytics.tsx` - Analytics interface, metrics, pie chart
-- `src/pages/ReservationTracking.tsx` - Customer visibility mapping
-- Database migration - Enum value, columns, RPC update
+### Admin Reservation Detail - Summary Section
+
+After a reservation is completed, the summary will show:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Reservation Summary                                          │
+│ ┌─────────────────────────────────────────────────────────┐  │
+│ │ ✓ Checked In           ✓ Completed                     │  │
+│ │ 7:12 PM by Joseph      8:34 PM by Maria                │  │
+│ └─────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Status Badge
+
+Completed reservations will show:
+- Badge: "Completed" (emerald green styling) - already implemented
+
+---
+
+## Acceptance Criteria Mapping
+
+| Criteria | Implementation |
+|----------|----------------|
+| Completion button appears correctly | Already exists for `checked_in` status |
+| Status transitions correctly | Already works, just adding dedicated tracking |
+| Completed reservations are terminal | Already enforced by action card visibility |
+| Timestamps and admin attribution saved | New `completed_at` and `completed_by` columns |
+| No automation modifies completed records | process-no-shows only queries `confirmed` status |
+| Audit logging | `reservation_completed` action type |
+
+---
+
+## System Interactions
+
+Completed reservations are automatically:
+- **Excluded from**: No-show automation (already filters by `confirmed` only)
+- **Excluded from**: Reminder jobs (already only schedules for `confirmed`)
+- **Included in**: Analytics (already counted in `get_reservation_analytics`)
+
+---
+
+## What This Creates
+
+1. `completed_at` and `completed_by` columns in reservations table
+2. Completion tracking in the status mutation
+3. Completion attribution display (time + admin name)
+4. Audit logging with `reservation_completed` action
+5. Timeline entry for completion event
+
+---
+
+## What This Does NOT Create
+
+- Auto-completion after time
+- Feedback collection
+- Ratings
+- Table assignment release
+- Staff performance tracking
