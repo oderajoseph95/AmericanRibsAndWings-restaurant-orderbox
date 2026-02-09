@@ -1,180 +1,168 @@
 
 
-# ISSUE R2.1 — Admin Reservation List View
+# ISSUE R2.2 — Admin Reservation Detail View
 
 ## Overview
 
-Create an admin-facing list page at `/admin/reservations` that displays all reservation records. This is a **read-only operational list** with status badges, basic filtering, pagination, and row navigation to detail view.
+Create a read-only admin detail page at `/admin/reservations/:id` that displays full reservation context before any actions are taken. This is a pure inspection surface with no editing capabilities.
 
 ---
 
 ## Technical Implementation
 
-### 1. Create Reservations Admin Page
+### 1. Create ReservationDetail Admin Page
 
-**File:** `src/pages/admin/Reservations.tsx`
+**File:** `src/pages/admin/ReservationDetail.tsx`
 
-A new admin page following the established patterns from `Customers.tsx` and `Orders.tsx`:
+A new admin page following established patterns with these characteristics:
 
-Key features:
-- Uses `@tanstack/react-query` for data fetching with `supabase.from('reservations')`
-- Responsive design: Table layout for desktop, MobileCard for mobile
-- Status filter dropdown (All, Pending, Confirmed, Cancelled, Completed, No Show)
-- Date filter tabs (Upcoming, Today, Past)
-- Default ordering: Soonest reservation first (ascending by `reservation_date` + `reservation_time`)
-- Pagination with 15 items per page
-- Row click navigates to `/admin/reservations/:id` (detail view in R2.2)
-- Empty state with clear messaging
-
-**Data Query:**
+**Data Fetching:**
 ```typescript
-const { data: reservationsData, isLoading } = useQuery({
-  queryKey: ['admin-reservations', statusFilter, dateFilter, currentPage],
+const { id } = useParams<{ id: string }>();
+
+const { data: reservation, isLoading, error } = useQuery({
+  queryKey: ['admin-reservation', id],
   queryFn: async () => {
-    const from = (currentPage - 1) * ITEMS_PER_PAGE;
-    const to = from + ITEMS_PER_PAGE - 1;
-    
-    let query = supabase
+    const { data, error } = await supabase
       .from('reservations')
-      .select('*', { count: 'exact' })
-      .order('reservation_date', { ascending: true })
-      .order('reservation_time', { ascending: true })
-      .range(from, to);
-
-    // Status filter
-    if (statusFilter !== 'all') {
-      query = query.eq('status', statusFilter);
-    }
+      .select('*')
+      .eq('id', id)
+      .single();
     
-    // Date filter
-    const today = format(new Date(), 'yyyy-MM-dd');
-    if (dateFilter === 'upcoming') {
-      query = query.gte('reservation_date', today);
-    } else if (dateFilter === 'today') {
-      query = query.eq('reservation_date', today);
-    } else if (dateFilter === 'past') {
-      query = query.lt('reservation_date', today);
-    }
-
-    const { data, error, count } = await query;
     if (error) throw error;
-    return { reservations: data, totalCount: count || 0 };
+    return data;
   },
+  enabled: !!id,
 });
 ```
 
+**Component Structure:**
+- Header with back navigation
+- Reservation summary section
+- Customer information section
+- Pre-order selections section (if any)
+- Metadata section (created at)
+
 ---
 
-### 2. Status Badge Colors
+### 2. Page Sections
 
-Following the established pattern from Orders page:
+**A. Header**
+- "Back to Reservations" button → navigates to `/admin/reservations`
+- Page title: "Reservation Details"
+- Status badge (read-only, using same colors from R2.1)
+
+**B. Reservation Summary Card**
+| Field | Display |
+|-------|---------|
+| Reservation Code | Shown prominently (read-only reference) |
+| Date | Formatted as "February 14, 2025" |
+| Time | Formatted as "7:00 PM" |
+| Party Size | "4 guests" |
+| Status | Badge (pending/confirmed/cancelled/completed/no_show) |
+
+**C. Customer Information Card**
+| Field | Display |
+|-------|---------|
+| Name | Full name |
+| Phone | Phone number |
+| Email | Email (if present) or "Not provided" |
+| Notes | Customer notes (if any) or "No notes" |
+
+**D. Pre-Order Selections Card**
+- Header: "Pre-order Selections"
+- Subtext: "(Not paid - for reference only)"
+- If `preorder_items` exists and has items:
+  - List each item with name and quantity
+  - No prices displayed
+  - No totals
+- If no pre-orders:
+  - Show: "No pre-orders selected"
+
+**E. Metadata Section (subtle)**
+| Field | Display |
+|-------|---------|
+| Created | "Created 2 days ago" or full date |
+| Last Updated | If different from created |
+
+---
+
+### 3. Status Badge Colors
+
+Reusing the same status colors from `Reservations.tsx`:
 
 ```typescript
-const statusColors: Record<Enums<'reservation_status'>, string> = {
+const statusColors: Record<ReservationStatus, string> = {
   pending: 'bg-yellow-500/20 text-yellow-700 border-yellow-500/30',
   confirmed: 'bg-green-500/20 text-green-700 border-green-500/30',
   cancelled: 'bg-red-500/20 text-red-700 border-red-500/30',
   completed: 'bg-emerald-500/20 text-emerald-700 border-emerald-500/30',
   no_show: 'bg-gray-500/20 text-gray-700 border-gray-500/30',
 };
-
-const statusLabels: Record<Enums<'reservation_status'>, string> = {
-  pending: 'Pending',
-  confirmed: 'Confirmed',
-  cancelled: 'Cancelled',
-  completed: 'Completed',
-  no_show: 'No Show',
-};
 ```
 
 ---
 
-### 3. Table Columns (Desktop)
+### 4. Pre-Order Items Display
 
-| Column | Content |
-|--------|---------|
-| Date | `reservation_date` formatted as "Feb 14, 2025" |
-| Time | `reservation_time` formatted as "7:00 PM" |
-| Customer | `name` |
-| Guests | `pax` with "guests" label |
-| Status | Badge with status color |
-| Created | `created_at` formatted as "2d ago" or date |
+The `preorder_items` field is a JSONB column. Expected structure based on R1.3:
 
----
+```typescript
+interface PreorderItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+}
 
-### 4. Mobile Card Layout
+// Parse and display
+const preorderItems = reservation.preorder_items as PreorderItem[] | null;
+```
 
-Each card shows:
-- Date & time as header
-- Customer name
-- Pax count badge
-- Status badge
-- Created timestamp (subtle)
+Display as a simple list:
+```
+- 2x Baby Back Ribs
+- 1x Buffalo Wings
+- 3x Combo Platter
+```
 
----
-
-### 5. Filters UI
-
-**Status Filter (Dropdown):**
-- All
-- Pending
-- Confirmed
-- Cancelled
-- Completed
-- No Show
-
-**Date Filter (Tabs/Buttons):**
-- Upcoming (default)
-- Today
-- Past
+No pricing. No modification controls.
 
 ---
 
-### 6. Empty State
+### 5. Error & Loading States
 
-When no reservations exist:
+**Loading State:**
+- Skeleton cards matching the layout
+
+**Not Found (404):**
 ```tsx
-<div className="text-center py-12 text-muted-foreground">
-  <CalendarDays className="h-12 w-12 mx-auto mb-4 opacity-50" />
-  <p className="font-medium">No reservations yet</p>
-  <p className="text-sm mt-1">
-    Reservations submitted by customers will appear here
+<div className="text-center py-12">
+  <CalendarDays className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+  <h2 className="text-xl font-semibold mb-2">Reservation not found</h2>
+  <p className="text-muted-foreground mb-4">
+    The reservation you're looking for doesn't exist or has been removed.
   </p>
+  <Button asChild>
+    <Link to="/admin/reservations">Back to Reservations</Link>
+  </Button>
 </div>
 ```
 
 ---
 
-### 7. Add Route to App.tsx
+### 6. Add Route to App.tsx
 
 **File:** `src/App.tsx`
 
-Add the `/admin/reservations` route and import:
+Add the detail route inside the admin routes:
 
 ```tsx
 // Add import
-import Reservations from "./pages/admin/Reservations";
+import ReservationDetail from "./pages/admin/ReservationDetail";
 
-// Add route inside admin routes (around line 100)
-<Route path="reservations" element={<Reservations />} />
+// Add route after reservations list route (around line 95)
+<Route path="reservations/:id" element={<ReservationDetail />} />
 ```
-
----
-
-### 8. Add Sidebar Navigation
-
-**File:** `src/components/admin/AdminSidebar.tsx`
-
-Add Reservations to the navigation items (positioned after Orders for operational flow):
-
-```tsx
-import { CalendarDays } from 'lucide-react';
-
-// In navItems array, after Orders:
-{ title: 'Reservations', url: '/admin/reservations', icon: CalendarDays, roles: ['owner', 'manager', 'cashier'] },
-```
-
-Note: Although sidebar changes are technically R2.5, adding basic navigation is essential for accessing this page. The sidebar entry is minimal and read-only.
 
 ---
 
@@ -182,55 +170,86 @@ Note: Although sidebar changes are technically R2.5, adding basic navigation is 
 
 | File | Change |
 |------|--------|
-| `src/pages/admin/Reservations.tsx` | **Create** - New admin reservation list page |
-| `src/App.tsx` | Add `/admin/reservations` route |
-| `src/components/admin/AdminSidebar.tsx` | Add Reservations nav item |
+| `src/pages/admin/ReservationDetail.tsx` | **Create** - New admin reservation detail page |
+| `src/App.tsx` | Add `/admin/reservations/:id` route |
+
+---
+
+## Layout Structure
+
+```
+┌─────────────────────────────────────────────────┐
+│ ← Back to Reservations          [Status Badge] │
+│ Reservation Details                             │
+└─────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────┐
+│ RESERVATION SUMMARY                             │
+├─────────────────────────────────────────────────┤
+│ Code: ARW-RSV-4832                              │
+│ Date: February 14, 2025                         │
+│ Time: 7:00 PM                                   │
+│ Party Size: 4 guests                            │
+└─────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────┐
+│ CUSTOMER INFORMATION                            │
+├─────────────────────────────────────────────────┤
+│ Name: Juan Dela Cruz                            │
+│ Phone: 09171234567                              │
+│ Email: juan@example.com                         │
+│ Notes: "Window seat if possible"                │
+└─────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────┐
+│ PRE-ORDER SELECTIONS                            │
+│ (Not paid - for reference only)                 │
+├─────────────────────────────────────────────────┤
+│ • 2x Baby Back Ribs                             │
+│ • 1x Buffalo Wings                              │
+│ • 3x Combo Platter                              │
+└─────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────┐
+│ Created 2 days ago                              │
+└─────────────────────────────────────────────────┘
+```
 
 ---
 
 ## What This Creates
 
-- `/admin/reservations` route (protected, admin only)
-- Reservation list with date, time, name, pax, status
-- Read-only status badges (no actions)
-- Status filter (dropdown)
-- Date filter (upcoming/today/past)
-- Pagination (15 items per page)
-- Row click → navigate to `/admin/reservations/:id`
-- Empty state with clear messaging
-- Mobile-responsive layout
+- `/admin/reservations/:id` route (protected, admin only)
+- Full reservation context on one page
+- Read-only display of all reservation data
+- Pre-order selections listed (no prices)
+- Status badge visible but not editable
+- Back navigation to reservation list
+- Deep linking support
+- 404 handling for invalid IDs
 
 ---
 
 ## What This Does NOT Create
 
-- Status editing
-- Admin notes
-- Notifications panel
-- Customer-facing actions
-- Reservation detail view (R2.2)
-- Sidebar changes beyond basic nav entry
-
----
-
-## Accessibility & UX
-
-- Table is horizontally scrollable on smaller screens
-- Badges have sufficient color contrast
-- Row hover states indicate clickability
-- Loading skeleton while fetching
-- Clear filter reset option
-- Page count visible in pagination
+- Status editing (R2.3)
+- Admin notes (R2.4)
+- Notifications
+- Editing reservation data
+- Customer communication
+- Payments or confirmation
+- Any action buttons beyond navigation
 
 ---
 
 ## Result
 
 After implementation:
-- Admins can access `/admin/reservations` from sidebar
-- All reservations displayed in sortable list
-- Quick status identification via badges
-- Filter by status and date range
-- Navigate to individual reservation details
-- Answers: "What reservations do we have coming up?"
+- Admin clicks row in `/admin/reservations`
+- Navigates to `/admin/reservations/:id`
+- Sees full reservation context
+- Can review customer info and pre-orders
+- Has clear back navigation
+- Status is visible but immutable
+- Answers: "What exactly did this customer request?"
 
