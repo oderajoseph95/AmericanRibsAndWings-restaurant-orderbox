@@ -1,212 +1,327 @@
 
-# ISSUE R3.4 — Reservation Tracking Page (Customer)
+
+# ISSUE R3.5 — Admin Triggered Resend (Email & SMS)
 
 ## Overview
 
-Create a public, read-only customer-facing page where customers can view their reservation status using their confirmation code. This page is accessible without login and displays reservation details, status, and pre-orders.
+Add "Resend Email" and "Resend SMS" buttons to the admin reservation detail page, allowing staff to manually re-send confirmation or rejection messages without changing the reservation status.
 
 ---
 
-## Route Design
+## Current System Analysis
 
-| Route | Purpose |
-|-------|---------|
-| `/reserve/track/:confirmationCode` | Customer reservation tracking page |
+### Existing Infrastructure
+- **Email Hook**: `sendEmailNotification()` in `src/hooks/useEmailNotifications.ts`
+- **SMS Hook**: `sendSmsNotification()` in `src/hooks/useSmsNotifications.ts`
+- **Email Types**: `reservation_confirmed`, `reservation_cancelled` already exist
+- **SMS Types**: `reservation_confirmed`, `reservation_cancelled` already exist
+- **Admin Logger**: `logAdminAction()` available for logging resend attempts
 
-**Key behaviors:**
-- Public access (no authentication required)
-- Case-insensitive code lookup (query using `ilike` or lowercase comparison)
-- Returns reservation data from `confirmation_code` field
+### Existing Page Structure
+The `ReservationDetail.tsx` page has these sections:
+1. Header with status badge
+2. Reservation Summary card
+3. Customer Information card
+4. Pre-Order Selections card
+5. Actions card (status buttons - only for pending/confirmed)
+6. Internal Notes card
+7. Metadata footer
 
 ---
 
 ## Technical Implementation
 
-### 1. Create New Page Component
+### 1. Add State for Resend Loading
 
-**File: `src/pages/ReservationTracking.tsx`**
+**File: `src/pages/admin/ReservationDetail.tsx`**
 
-A new page that:
-- Extracts `confirmationCode` from URL params
-- Queries reservations by `confirmation_code` (case-insensitive)
-- Displays reservation status, details, and pre-orders
-- Shows friendly error for invalid codes
+Add loading states for resend buttons:
+```typescript
+const [resendingEmail, setResendingEmail] = useState(false);
+const [resendingSms, setResendingSms] = useState(false);
+```
 
-### 2. Add Route to App.tsx
+---
 
-Add new route in the public routes section:
+### 2. Create Resend Handler Functions
+
+Add two async handler functions:
+
+**Resend Email Handler:**
+```typescript
+const handleResendEmail = async () => {
+  if (!reservation?.email) return;
+  
+  setResendingEmail(true);
+  try {
+    const emailType = reservation.status === 'confirmed' 
+      ? 'reservation_confirmed' 
+      : 'reservation_cancelled';
+    
+    // Format date and time
+    const formattedDate = format(new Date(reservation.reservation_date), 'MMMM d, yyyy');
+    const formattedTime = formatTime(reservation.reservation_time);
+    
+    const preorderItemsData = reservation.preorder_items as unknown as PreorderItem[] | null;
+    
+    const result = await sendEmailNotification({
+      type: emailType,
+      recipientEmail: reservation.email,
+      reservationId: reservation.id,
+      reservationCode: reservation.confirmation_code || reservation.reservation_code,
+      customerName: reservation.name,
+      customerPhone: reservation.phone,
+      customerEmail: reservation.email,
+      reservationDate: formattedDate,
+      reservationTime: formattedTime,
+      pax: reservation.pax,
+      notes: reservation.notes || undefined,
+      preorderItems: preorderItemsData?.map(item => ({
+        productName: item.productName,
+        quantity: item.quantity,
+      })),
+    });
+    
+    // Log admin action
+    await logAdminAction({
+      action: 'resend_email',
+      entityType: 'reservation',
+      entityId: reservation.id,
+      entityName: reservation.reservation_code,
+      details: `Resent ${emailType} email to ${reservation.email}`,
+      newValues: { channel: 'email', status: result.success ? 'sent' : 'failed' },
+    });
+    
+    if (result.success) {
+      toast.success('Email resent successfully');
+    } else {
+      toast.error('Failed to resend email: ' + result.error);
+    }
+  } catch (err) {
+    toast.error('Failed to resend email');
+    console.error('Resend email error:', err);
+  } finally {
+    setResendingEmail(false);
+  }
+};
+```
+
+**Resend SMS Handler:**
+```typescript
+const handleResendSms = async () => {
+  if (!reservation?.phone) return;
+  
+  setResendingSms(true);
+  try {
+    const smsType = reservation.status === 'confirmed' 
+      ? 'reservation_confirmed' 
+      : 'reservation_cancelled';
+    
+    // Format date and time for SMS
+    const smsFormattedDate = format(new Date(reservation.reservation_date), 'MMM d');
+    const smsFormattedTime = formatTime(reservation.reservation_time);
+    
+    const result = await sendSmsNotification({
+      type: smsType,
+      recipientPhone: reservation.phone,
+      reservationId: reservation.id,
+      reservationCode: reservation.confirmation_code || reservation.reservation_code,
+      customerName: reservation.name,
+      reservationDate: smsFormattedDate,
+      reservationTime: smsFormattedTime,
+      pax: reservation.pax,
+    });
+    
+    // Log admin action
+    await logAdminAction({
+      action: 'resend_sms',
+      entityType: 'reservation',
+      entityId: reservation.id,
+      entityName: reservation.reservation_code,
+      details: `Resent ${smsType} SMS to ${reservation.phone}`,
+      newValues: { channel: 'sms', status: result.success ? 'sent' : 'failed' },
+    });
+    
+    if (result.success) {
+      toast.success('SMS resent successfully');
+    } else {
+      toast.error('Failed to resend SMS: ' + result.error);
+    }
+  } catch (err) {
+    toast.error('Failed to resend SMS');
+    console.error('Resend SMS error:', err);
+  } finally {
+    setResendingSms(false);
+  }
+};
+```
+
+---
+
+### 3. Add Resend Notifications Card
+
+Add a new Card component after the Status Actions card and before Internal Notes. This card only appears for `confirmed` or `cancelled` statuses.
+
 ```tsx
-<Route path="/reserve/track/:confirmationCode" element={<ReservationTracking />} />
+{/* Resend Notifications */}
+{(reservation.status === 'confirmed' || reservation.status === 'cancelled') && (
+  <Card>
+    <CardHeader>
+      <CardTitle className="text-lg flex items-center gap-2">
+        <RefreshCw className="h-5 w-5 text-muted-foreground" />
+        Resend Notifications
+      </CardTitle>
+      <p className="text-sm text-muted-foreground">
+        Re-send confirmation messages to customer
+      </p>
+    </CardHeader>
+    <CardContent>
+      <div className="flex flex-wrap gap-3">
+        {/* Resend Email - only if email exists */}
+        {reservation.email && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleResendEmail}
+            disabled={resendingEmail}
+          >
+            {resendingEmail ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <Mail className="h-4 w-4 mr-2" />
+            )}
+            Resend Email
+          </Button>
+        )}
+        
+        {/* Resend SMS - always visible (phone is required) */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleResendSms}
+          disabled={resendingSms}
+        >
+          {resendingSms ? (
+            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+          ) : (
+            <MessageSquare className="h-4 w-4 mr-2" />
+          )}
+          Resend SMS
+        </Button>
+      </div>
+    </CardContent>
+  </Card>
+)}
 ```
 
 ---
 
-## Page Sections
+### 4. Add Required Import
 
-### A. Status Section
-- Large, prominent status badge
-- Human-readable status labels:
-  - `pending` → "Pending Confirmation"
-  - `confirmed` → "Confirmed"
-  - `cancelled` → "Not Approved"
-  - `completed` → "Completed"
-  - `no_show` → "No Show"
-
-### B. Reservation Details Card
-- Confirmation code (prominent display)
-- Date (formatted: "February 12, 2026")
-- Time (formatted: "7:00 PM")
-- Party size ("4 guests")
-
-### C. Pre-Order Summary Card (conditional)
-- If pre-orders exist: List items with quantities
-- Label: "Pre-order (not paid)"
-- If none: "No pre-orders selected"
-
-### D. Guidance Text (status-based)
-| Status | Message |
-|--------|---------|
-| pending | "Your reservation is awaiting confirmation. You will receive an SMS once confirmed." |
-| confirmed | "Please arrive on time. Present your confirmation code if asked." |
-| cancelled | "Your reservation was not approved. Please contact the store." |
-| completed | "Thank you for dining with us!" |
-| no_show | "This reservation was marked as no-show." |
-
----
-
-## Error State
-
-When confirmation code is not found:
-- Show "Reservation Not Found" heading
-- Message: "We couldn't find a reservation with this code. Please check your SMS or email for the correct code."
-- Link back to home
-- No technical error details exposed
-
----
-
-## Data Access (RLS)
-
-The page needs to read reservations by `confirmation_code`. Current RLS policies may not allow public SELECT. Options:
-
-**Option A: Public RLS Policy (Recommended)**
-Add a SELECT policy that allows reading reservations by confirmation_code:
-```sql
-CREATE POLICY "Allow public read by confirmation_code"
-ON reservations FOR SELECT
-USING (confirmation_code IS NOT NULL);
+Add `RefreshCw` to the lucide-react imports:
+```typescript
+import { ArrowLeft, CalendarDays, Users, Phone, Mail, MessageSquare, Clock, Hash, Check, X, CheckCircle, UserX, Loader2, StickyNote, Send, Ticket, RefreshCw } from 'lucide-react';
 ```
 
-This only exposes reservations that have been confirmed (have a confirmation code). Pending/cancelled reservations without codes cannot be queried.
+---
 
-**Option B: Use RPC Function**
-Create a secure RPC that returns only necessary fields:
-```sql
-CREATE FUNCTION get_reservation_tracking(p_confirmation_code text)
-RETURNS json
+## UI Placement
+
+```text
+┌─────────────────────────────────────┐
+│ ← Reservation Details      [Status] │
+├─────────────────────────────────────┤
+│ Reservation Summary Card            │
+├─────────────────────────────────────┤
+│ Customer Information Card           │
+├─────────────────────────────────────┤
+│ Pre-Order Selections Card           │
+├─────────────────────────────────────┤
+│ Actions Card (if pending/confirmed) │
+├─────────────────────────────────────┤
+│ 🔄 Resend Notifications Card  ← NEW │
+│    [Resend Email] [Resend SMS]      │
+├─────────────────────────────────────┤
+│ Internal Notes Card                 │
+├─────────────────────────────────────┤
+│ Metadata                            │
+└─────────────────────────────────────┘
 ```
 
-We will use **Option A** as it's simpler and the confirmation code acts as a "password" - only people with the code can access the data.
+---
+
+## Visibility Rules
+
+| Status | Resend Email | Resend SMS |
+|--------|--------------|------------|
+| pending | Hidden (card not shown) | Hidden (card not shown) |
+| confirmed | Visible if email exists | Always visible |
+| cancelled | Visible if email exists | Always visible |
+| completed | Hidden (card not shown) | Hidden (card not shown) |
+| no_show | Hidden (card not shown) | Hidden (card not shown) |
 
 ---
 
-## Design Guidelines
+## Logging
 
-- Mobile-first layout
-- Clean, minimal design matching existing customer pages
-- Uses existing UI components (Card, Badge, Button)
-- No admin styling or actions
-- Calm, reassuring tone
-- Back button to home
-- Footer included
+Each resend attempt is logged via `logAdminAction()` with:
+- `action`: 'resend_email' or 'resend_sms'
+- `entityType`: 'reservation'
+- `entityId`: reservation ID
+- `entityName`: reservation code
+- `details`: Human-readable description
+- `newValues`: { channel, status }
+
+These logs are stored in the `admin_logs` table for audit trail.
 
 ---
 
-## Files to Create/Modify
+## Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/pages/ReservationTracking.tsx` | NEW - Customer tracking page |
-| `src/App.tsx` | Add route for `/reserve/track/:confirmationCode` |
-| **Database** | Add RLS policy for public read by confirmation_code |
+| `src/pages/admin/ReservationDetail.tsx` | Add resend state, handlers, and UI card |
 
 ---
 
-## Component Structure
+## Error Handling
 
-```tsx
-ReservationTracking
-├── SEOHead (meta tags)
-├── Header
-│   ├── Back button (→ home)
-│   └── Title: "Reservation Status"
-├── Main content (max-w-md centered)
-│   ├── Status Card (prominent status badge + guidance)
-│   ├── Reservation Details Card
-│   │   ├── Confirmation Code
-│   │   ├── Date
-│   │   ├── Time
-│   │   └── Party Size
-│   └── Pre-Order Card (conditional)
-│       └── Item list or "No pre-orders"
-└── Footer
-```
-
----
-
-## Status Styling
-
-| Status | Badge Color | Background |
-|--------|-------------|------------|
-| pending | Yellow | Warning tint |
-| confirmed | Green | Success tint |
-| cancelled | Red | Destructive tint |
-| completed | Emerald | Success tint |
-| no_show | Gray | Muted tint |
-
----
-
-## Security Considerations
-
-- Confirmation code acts as access token
-- Only reservations WITH confirmation codes are queryable
-- Pending reservations (no code yet) cannot be looked up
-- No PII exposed beyond what customer already knows
-- Read-only - no mutations allowed
-- No admin links or actions visible
+1. Button shows loading spinner during send
+2. Success toast on successful resend
+3. Error toast with message on failure
+4. Admin can retry immediately (button re-enabled after attempt)
+5. No confirmation modal (one click = one send)
+6. Failures logged in admin_logs table
 
 ---
 
 ## What This Creates
 
-- Public reservation tracking page
-- Route: `/reserve/track/:confirmationCode`
-- Status display with human-readable labels
-- Reservation details (date, time, pax)
-- Pre-order summary when applicable
-- Friendly error state for invalid codes
-- RLS policy for public read access
+- Resend Email button (visible only if email exists)
+- Resend SMS button (always visible for valid statuses)
+- Loading states during resend
+- Success/error feedback via toast
+- Audit logging of all resend attempts
+- Subtle, outline-style buttons (not primary CTAs)
 
 ---
 
 ## What This Does NOT Create
 
-- Editing capabilities
-- Payment processing
-- Cancellation functionality
-- Admin controls
-- Notifications or reminders
-- Resend functionality
+- Message content editing
+- Status changes
+- Bulk send functionality
+- Notification settings UI
+- Automatic retry loops
+- Confirmation code regeneration
 
 ---
 
-## Verification Checklist
+## Design Guidelines Applied
 
-After implementation:
-- [ ] Valid code shows reservation details
-- [ ] Invalid code shows friendly error
-- [ ] Case-insensitive lookup works (ARW-RES-12345 = arw-res-12345)
-- [ ] Status displays correctly for all states
-- [ ] Pre-orders show when present
-- [ ] No edit/cancel buttons visible
-- [ ] Mobile responsive design
-- [ ] Page loads without login
+- Buttons use `variant="outline"` (subtle, not primary)
+- `size="sm"` for compact appearance
+- Clear text labels: "Resend Email", "Resend SMS"
+- Card has descriptive subtitle explaining purpose
+- Recovery tool, not workflow driver
+
