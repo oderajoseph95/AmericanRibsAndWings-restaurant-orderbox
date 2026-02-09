@@ -273,6 +273,64 @@ export default function Orders() {
     enabled: bundleProductIds.length > 0,
   });
 
+  // Fetch flavor-selectable components (ribs, wings) to categorize flavors
+  const { data: flavorSelectableComponents = [] } = useQuery({
+    queryKey: ['bundle-flavor-components', bundleProductIds],
+    queryFn: async () => {
+      if (bundleProductIds.length === 0) return [];
+      const { data, error } = await supabase
+        .from('bundle_components')
+        .select('*, component_product:products!bundle_components_component_product_id_fkey(name)')
+        .in('bundle_product_id', bundleProductIds)
+        .eq('has_flavor_selection', true);
+      if (error) throw error;
+      return data;
+    },
+    enabled: bundleProductIds.length > 0,
+  });
+
+  // Helper to categorize flavors as ribs or wings based on bundle components
+  const categorizeFlavorForBundle = (
+    productId: string, 
+    flavorQuantity: number, 
+    components: typeof flavorSelectableComponents
+  ) => {
+    const bundleComps = components.filter(c => c.bundle_product_id === productId);
+    
+    // Find ribs component
+    const ribsComponent = bundleComps.find(c => {
+      const name = (c.component_product as any)?.name?.toLowerCase() || '';
+      return name.includes('rib');
+    });
+    
+    // Find wings component
+    const wingsComponent = bundleComps.find(c => {
+      const name = (c.component_product as any)?.name?.toLowerCase() || '';
+      return name.includes('wing') || name.includes('ala carte');
+    });
+    
+    // Ribs: quantity = 1, Wings: quantity > 1
+    if (ribsComponent && flavorQuantity === 1) {
+      return {
+        category: 'ribs',
+        componentName: (ribsComponent.component_product as any)?.name || 'Ribs'
+      };
+    }
+    
+    if (wingsComponent && flavorQuantity > 1) {
+      return {
+        category: 'wings',
+        componentName: (wingsComponent.component_product as any)?.name || 'Chicken Wings',
+        totalWings: wingsComponent.total_units
+      };
+    }
+    
+    // Default: ribs for qty=1, wings otherwise
+    return flavorQuantity === 1 
+      ? { category: 'ribs', componentName: 'Ribs' }
+      : { category: 'wings', componentName: 'Wings' };
+  };
+
   // Fetch payment proofs for selected order
   const { data: paymentProofs = [] } = useQuery({
     queryKey: ['payment-proofs', selectedOrder?.id],
@@ -1608,15 +1666,72 @@ export default function Orders() {
                             </span>
                             <span>₱{item.line_total?.toFixed(2) || item.subtotal.toFixed(2)}</span>
                           </div>
-                          {item.order_item_flavors.length > 0 && (
+                          {/* Bundle items: Group flavors by ribs vs wings */}
+                          {item.order_item_flavors.length > 0 && isBundle && (
+                            <div className="pl-4 space-y-1.5">
+                              {/* Ribs Section */}
+                              {(() => {
+                                const ribsFlavors = item.order_item_flavors.filter(f => 
+                                  categorizeFlavorForBundle(item.product_id!, f.quantity, flavorSelectableComponents).category === 'ribs'
+                                );
+                                if (ribsFlavors.length === 0) return null;
+                                
+                                // Get ribs component name to show type (Half-Rack, Full-Rack, etc.)
+                                const ribsComp = flavorSelectableComponents.find(c => 
+                                  c.bundle_product_id === item.product_id && 
+                                  (c.component_product as any)?.name?.toLowerCase().includes('rib')
+                                );
+                                const ribsType = (ribsComp?.component_product as any)?.name?.replace(/\s*\(.*\)/, '') || 'Ribs';
+                                
+                                return (
+                                  <div className="space-y-0.5">
+                                    <span className="text-xs font-medium text-muted-foreground">{ribsType}:</span>
+                                    {ribsFlavors.map((f, idx) => (
+                                      <div key={idx} className="flex justify-between text-xs text-muted-foreground ml-2">
+                                        <span>• {f.flavor_name}</span>
+                                        {f.surcharge_applied > 0 && (
+                                          <span className="text-orange-500">+₱{f.surcharge_applied.toFixed(2)}</span>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
+                              
+                              {/* Wings Section */}
+                              {(() => {
+                                const wingsFlavors = item.order_item_flavors.filter(f => 
+                                  categorizeFlavorForBundle(item.product_id!, f.quantity, flavorSelectableComponents).category === 'wings'
+                                );
+                                if (wingsFlavors.length === 0) return null;
+                                
+                                const totalWings = wingsFlavors.reduce((sum, f) => sum + (f.quantity || 0), 0);
+                                
+                                return (
+                                  <div className="space-y-0.5">
+                                    <span className="text-xs font-medium text-muted-foreground">{totalWings} pcs Chicken Wings:</span>
+                                    {wingsFlavors.map((f, idx) => (
+                                      <div key={idx} className="flex justify-between text-xs text-muted-foreground ml-2">
+                                        <span>• {f.flavor_name} (for {f.quantity} wings)</span>
+                                        {f.surcharge_applied > 0 && (
+                                          <span className="text-orange-500">+₱{f.surcharge_applied.toFixed(2)}</span>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          )}
+                          
+                          {/* Non-bundle items: Keep original flat flavor list */}
+                          {item.order_item_flavors.length > 0 && !isBundle && (
                             <div className="pl-4 text-xs text-muted-foreground">
                               {item.order_item_flavors.map((f, idx) => (
                                 <div key={idx} className="flex justify-between">
-                                  <span>
-                                    {f.flavor_name} {f.surcharge_applied > 0 ? `(Special flavor for ${f.quantity} wings)` : `(Free flavor for ${f.quantity} wings)`}
-                                  </span>
+                                  <span>{f.flavor_name} ({f.quantity} pcs)</span>
                                   {f.surcharge_applied > 0 && (
-                                    <span>+₱{f.surcharge_applied.toFixed(2)}</span>
+                                    <span className="text-orange-500">+₱{f.surcharge_applied.toFixed(2)}</span>
                                   )}
                                 </div>
                               ))}
