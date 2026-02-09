@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
-import { Shield, Loader2, Upload, CreditCard, X, Trash2, AlertTriangle, ShoppingBag, FileText } from 'lucide-react';
+import { Shield, Loader2, Upload, CreditCard, X, Trash2, AlertTriangle, ShoppingBag, FileText, Heart } from 'lucide-react';
 import type { Json } from '@/integrations/supabase/types';
 import type { Enums } from '@/integrations/supabase/types';
 import { createAdminNotification } from '@/hooks/useAdminNotifications';
@@ -691,6 +691,44 @@ export default function Settings() {
             <p className="text-xs text-muted-foreground mt-2">
               One location per line. These will appear randomly in the popup.
             </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Separator />
+
+      {/* Valentine Mode */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Heart className="h-5 w-5 text-pink-500" />
+            Valentine's Day Mode
+          </CardTitle>
+          <CardDescription>
+            Enable floating hearts for the Valentine season
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>Enable Valentine Hearts</Label>
+              <p className="text-xs text-muted-foreground">
+                Show subtle floating hearts on customer pages
+              </p>
+            </div>
+            <Switch
+              checked={(() => {
+                const setting = settings.find((s) => s.key === 'valentine_mode_enabled');
+                const val = setting?.value;
+                return val === true || val === 'true';
+              })()}
+              onCheckedChange={(checked) =>
+                saveSettingMutation.mutate({
+                  key: 'valentine_mode_enabled',
+                  value: checked,
+                })
+              }
+            />
           </div>
         </CardContent>
       </Card>
