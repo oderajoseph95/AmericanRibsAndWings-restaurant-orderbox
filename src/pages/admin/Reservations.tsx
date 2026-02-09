@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { format, formatDistanceToNow } from 'date-fns';
-import { CalendarDays, Users, ChevronLeft, ChevronRight } from 'lucide-react';
+import { CalendarDays, Users, ChevronLeft, ChevronRight, BarChart3 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -53,9 +54,12 @@ type DateFilter = 'all' | 'upcoming' | 'today' | 'past';
 export default function Reservations() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const { role } = useAuth();
   const [statusFilter, setStatusFilter] = useState<ReservationStatus | 'all'>('all');
   const [dateFilter, setDateFilter] = useState<DateFilter>('upcoming');
   const [currentPage, setCurrentPage] = useState(1);
+  
+  const canViewAnalytics = role === 'owner' || role === 'manager';
 
   const { data: reservationsData, isLoading } = useQuery({
     queryKey: ['admin-reservations', statusFilter, dateFilter, currentPage],
@@ -147,9 +151,19 @@ export default function Reservations() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold">Reservations</h1>
-        <p className="text-muted-foreground">Manage table reservations</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Reservations</h1>
+          <p className="text-muted-foreground">Manage table reservations</p>
+        </div>
+        {canViewAnalytics && (
+          <Button variant="outline" asChild>
+            <Link to="/admin/reservations/analytics">
+              <BarChart3 className="h-4 w-4 mr-2" />
+              Analytics
+            </Link>
+          </Button>
+        )}
       </div>
 
       {/* Filters */}
