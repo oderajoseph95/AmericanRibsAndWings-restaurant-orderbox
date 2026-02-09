@@ -76,6 +76,10 @@ const smsVariables = [
   { variable: '{{driver_phone}}', description: 'Driver\'s phone number' },
   { variable: '{{delivery_address}}', description: 'Delivery address' },
   { variable: '{{reason}}', description: 'Rejection/cancellation reason' },
+  { variable: '{{reservation_code}}', description: 'Reservation code (e.g., ARW-RSV-1234)' },
+  { variable: '{{reservation_date}}', description: 'Reservation date' },
+  { variable: '{{reservation_time}}', description: 'Reservation time' },
+  { variable: '{{pax}}', description: 'Number of guests' },
 ];
 
 const SMS_CHAR_LIMIT = 160;
@@ -330,6 +334,11 @@ export default function Sms() {
       order_delivered: { label: 'Delivered', color: 'bg-green-500/20 text-green-700' },
       order_completed: { label: 'Completed', color: 'bg-emerald-500/20 text-emerald-700' },
       test: { label: 'Test', color: 'bg-gray-500/20 text-gray-700' },
+      reservation_received: { label: 'Reservation Received', color: 'bg-purple-500/20 text-purple-700' },
+      reservation_confirmed: { label: 'Reservation Confirmed', color: 'bg-green-500/20 text-green-700' },
+      reservation_cancelled: { label: 'Reservation Cancelled', color: 'bg-red-500/20 text-red-700' },
+      reservation_cancelled_by_customer: { label: 'Cancelled by Customer', color: 'bg-gray-500/20 text-gray-700' },
+      reservation_reminder: { label: 'Reservation Reminder', color: 'bg-amber-500/20 text-amber-700' },
     };
     return labels[type] || { label: type, color: 'bg-muted' };
   };
