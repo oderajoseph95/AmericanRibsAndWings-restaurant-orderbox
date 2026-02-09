@@ -11,14 +11,11 @@ import { CalendarIcon, Loader2, Users } from "lucide-react";
 import { format, addDays, isAfter, isBefore, startOfDay } from "date-fns";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
-import { sendSmsNotification } from "@/hooks/useSmsNotifications";
-import { sendEmailNotification } from "@/hooks/useEmailNotifications";
 import { toast } from "@/hooks/use-toast";
 
 interface ReservationFormProps {
   onSuccess: (reservation: {
     id: string;
-    code: string;
     name: string;
     pax: number;
     date: string;
@@ -204,40 +201,9 @@ export function ReservationForm({ onSuccess, storeHours }: ReservationFormProps)
       const reservation = data[0];
       console.log("Reservation created:", reservation);
       
-      // Fire notifications in parallel (don't wait, don't fail)
-      Promise.allSettled([
-        // SMS to customer
-        sendSmsNotification({
-          type: "reservation_received",
-          recipientPhone: normalizePhone(phone),
-          reservationId: reservation.id,
-          reservationCode: reservation.reservation_code,
-          reservationDate: displayDate,
-          reservationTime: time,
-          pax: pax,
-          customerName: name.trim(),
-        }),
-        // Email to admin
-        sendEmailNotification({
-          type: "new_reservation",
-          reservationId: reservation.id,
-          reservationCode: reservation.reservation_code,
-          reservationDate: displayDate,
-          reservationTime: time,
-          pax: pax,
-          customerName: name.trim(),
-          customerPhone: normalizePhone(phone),
-          customerEmail: email.trim() || undefined,
-          notes: notes.trim() || undefined,
-        }),
-      ]).then((results) => {
-        console.log("Notification results:", results);
-      });
-      
-      // Call success callback
+      // Call success callback (R1.4: No notifications - just state creation)
       onSuccess({
         id: reservation.id,
-        code: reservation.reservation_code,
         name: name.trim(),
         pax: pax,
         date: displayDate,
