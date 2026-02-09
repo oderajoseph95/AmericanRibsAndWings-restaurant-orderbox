@@ -1,12 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Navbar } from "@/components/home/Navbar";
 import { Footer } from "@/components/home/Footer";
+import { Gallery } from "@/components/home/Gallery";
 import { SEOHead } from "@/components/SEOHead";
-import { CalendarPlus, Search, Users, Flame } from "lucide-react";
+import { CalendarPlus, Search, Users, Flame, Sparkles } from "lucide-react";
 import { FILIPINO_NAMES } from "@/data/filipinoNames";
 import { format, addDays } from "date-fns";
 
@@ -19,9 +20,11 @@ interface GalleryImage {
 }
 
 interface ReservationFomoMessage {
+  id: string;
   name: string;
   pax: number;
   dateLabel: string;
+  timestamp: number;
 }
 
 // Helper functions
@@ -30,18 +33,21 @@ const getRandomBetween = (min: number, max: number): number =>
   Math.floor(Math.random() * (max - min + 1)) + min;
 
 const generateFutureDate = (): string => {
-  const daysAhead = getRandomBetween(1, 7);
+  const daysAhead = getRandomBetween(0, 7);
   const futureDate = addDays(new Date(), daysAhead);
   
+  if (daysAhead === 0) return "today";
   if (daysAhead === 1) return "tomorrow";
   if (daysAhead <= 6) return format(futureDate, "EEEE");
   return format(futureDate, "'next' EEEE");
 };
 
 const generateFomoMessage = (): ReservationFomoMessage => ({
+  id: Math.random().toString(36).substr(2, 9),
   name: getRandomItem(FILIPINO_NAMES),
-  pax: getRandomBetween(1, 6),
+  pax: getRandomBetween(2, 8),
   dateLabel: generateFutureDate(),
+  timestamp: Date.now(),
 });
 
 // Placeholder images for the gallery
@@ -54,9 +60,11 @@ const placeholderImages: GalleryImage[] = [
   { id: "p6", title: "Family Platter", image_url: "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=400&h=300&fit=crop", sort_order: 6, is_active: true },
 ];
 
+const MAX_VISIBLE_MESSAGES = 5;
+
 export default function ReserveNow() {
-  const [fomoMessage, setFomoMessage] = useState<ReservationFomoMessage | null>(null);
-  const [isFading, setIsFading] = useState(false);
+  const [fomoMessages, setFomoMessages] = useState<ReservationFomoMessage[]>([]);
+  const feedRef = useRef<HTMLDivElement>(null);
 
   // Fetch gallery images
   const { data: images } = useQuery({
@@ -72,23 +80,30 @@ export default function ReserveNow() {
     },
   });
 
-  // FOMO rotation effect
+  // Live feed FOMO effect
   useEffect(() => {
-    // Initial message
-    setFomoMessage(generateFomoMessage());
+    // Initial batch of messages
+    const initial = Array.from({ length: 4 }, () => generateFomoMessage());
+    setFomoMessages(initial);
 
-    // Rotate every 10-20 seconds with fade animation
-    const rotateMessage = () => {
-      setIsFading(true);
-      setTimeout(() => {
-        setFomoMessage(generateFomoMessage());
-        setIsFading(false);
-      }, 300);
+    // Add new message every 3-5 seconds
+    const addMessage = () => {
+      setFomoMessages(prev => {
+        const newMessages = [...prev, generateFomoMessage()];
+        return newMessages.slice(-MAX_VISIBLE_MESSAGES);
+      });
     };
 
-    const interval = setInterval(rotateMessage, getRandomBetween(10000, 20000));
+    const interval = setInterval(addMessage, getRandomBetween(2500, 4500));
     return () => clearInterval(interval);
   }, []);
+
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (feedRef.current) {
+      feedRef.current.scrollTop = feedRef.current.scrollHeight;
+    }
+  }, [fomoMessages]);
 
   const displayImages = images && images.length > 0 ? images : placeholderImages;
   const scrollImages = [...displayImages, ...displayImages];
@@ -103,7 +118,7 @@ export default function ReserveNow() {
       <Navbar />
       
       {/* Hero Section */}
-      <section className="relative min-h-[70vh] flex items-center justify-center overflow-hidden pt-16">
+      <section className="relative min-h-[60vh] flex items-center justify-center overflow-hidden pt-16">
         {/* Background with gradient overlay */}
         <div className="absolute inset-0 bg-gradient-to-br from-primary via-primary/90 to-accent/80" />
         
@@ -183,34 +198,102 @@ export default function ReserveNow() {
         </div>
       </section>
 
-      {/* FOMO Activity Feed */}
-      <section className="py-8 md:py-12 bg-muted/50">
-        <div className="container px-4">
-          <div className="max-w-md mx-auto text-center">
-            {/* Activity message */}
-            {fomoMessage && (
-              <div className={`transition-opacity duration-300 ${isFading ? 'opacity-0' : 'opacity-100'}`}>
-                <div className="bg-background rounded-xl p-6 shadow-sm border">
-                  <div className="flex items-center justify-center gap-2 text-primary mb-2">
-                    <Users className="h-5 w-5" />
-                    <span className="text-sm font-medium">Recent Activity</span>
-                  </div>
-                  <p className="text-lg">
-                    <span className="font-semibold">{fomoMessage.name}</span> reserved a table for{" "}
-                    <span className="font-semibold">{fomoMessage.pax}</span>
-                  </p>
-                  <p className="text-muted-foreground">
-                    for {fomoMessage.dateLabel}
-                  </p>
-                </div>
-              </div>
-            )}
+      {/* Scrolling Gallery - Same as Homepage */}
+      <Gallery />
 
-            {/* Demand indicator */}
-            <div className="mt-6 inline-flex items-center gap-2 text-primary font-medium">
-              <Flame className="h-5 w-5 text-destructive" />
-              <span>Tables filling fast this weekend</span>
+      {/* HYPED FOMO Live Feed Section */}
+      <section className="py-8 md:py-12 bg-gradient-to-b from-muted/30 to-background overflow-hidden">
+        <div className="container px-4">
+          <div className="max-w-2xl mx-auto">
+            
+            {/* Live Indicator Header */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="relative flex items-center gap-2 bg-destructive text-white px-3 py-1.5 rounded-full text-sm font-bold">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
+                  </span>
+                  LIVE
+                </div>
+                <span className="text-sm text-muted-foreground font-medium">Reservations happening now</span>
+              </div>
+              <Sparkles className="h-5 w-5 text-accent animate-pulse" />
             </div>
+
+            {/* Live Feed Container */}
+            <div 
+              ref={feedRef}
+              className="bg-card border rounded-xl shadow-lg overflow-hidden mb-6"
+            >
+              <div className="max-h-[280px] overflow-y-auto p-4 space-y-3">
+                {fomoMessages.map((msg, index) => (
+                  <div
+                    key={msg.id}
+                    className="flex items-center gap-3 bg-muted/50 backdrop-blur-sm rounded-lg px-4 py-3 animate-slide-in-up"
+                    style={{ animationDelay: `${index * 50}ms` }}
+                  >
+                    {/* Avatar */}
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                      {msg.name.charAt(0)}
+                    </div>
+                    
+                    {/* Message Content */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm">
+                        <span className="font-semibold text-foreground">{msg.name}</span>
+                        <span className="text-muted-foreground"> reserved for </span>
+                        <span className="font-semibold text-primary">{msg.pax} guests</span>
+                      </p>
+                      <p className="text-xs text-muted-foreground capitalize">
+                        {msg.dateLabel}
+                      </p>
+                    </div>
+                    
+                    {/* Timestamp indicator */}
+                    <div className="flex-shrink-0">
+                      <span className="text-xs text-muted-foreground">just now</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Urgency Banner */}
+            <div className="relative bg-gradient-to-r from-destructive via-orange-500 to-destructive rounded-2xl p-6 md:p-8 text-center shadow-xl animate-urgency-pulse overflow-hidden">
+              {/* Animated background sparkles */}
+              <div className="absolute inset-0 overflow-hidden">
+                <div className="absolute top-2 left-4 text-2xl animate-bounce" style={{ animationDelay: '0s' }}>🔥</div>
+                <div className="absolute top-4 right-6 text-xl animate-bounce" style={{ animationDelay: '0.3s' }}>✨</div>
+                <div className="absolute bottom-3 left-8 text-lg animate-bounce" style={{ animationDelay: '0.6s' }}>🔥</div>
+                <div className="absolute bottom-4 right-4 text-2xl animate-bounce" style={{ animationDelay: '0.2s' }}>✨</div>
+              </div>
+              
+              {/* Main urgency text */}
+              <div className="relative z-10">
+                <div className="flex items-center justify-center gap-2 md:gap-3 text-white text-xl md:text-2xl lg:text-3xl font-extrabold mb-4 animate-blink-urgent">
+                  <Flame className="h-6 w-6 md:h-8 md:w-8" />
+                  <span>TABLES FILLING FAST!</span>
+                  <Flame className="h-6 w-6 md:h-8 md:w-8" />
+                </div>
+                
+                <p className="text-white/90 mb-6 text-sm md:text-base">
+                  Weekend slots are going quick — don't miss out!
+                </p>
+                
+                <Button 
+                  asChild 
+                  size="lg" 
+                  className="bg-white text-primary hover:bg-white/90 font-bold px-8 md:px-10 py-6 md:py-7 rounded-full shadow-2xl text-base md:text-lg transition-transform hover:scale-105"
+                >
+                  <Link to="/reserve">
+                    <CalendarPlus className="mr-2 h-5 w-5 md:h-6 md:w-6" />
+                    RESERVE YOUR TABLE NOW
+                  </Link>
+                </Button>
+              </div>
+            </div>
+
           </div>
         </div>
       </section>

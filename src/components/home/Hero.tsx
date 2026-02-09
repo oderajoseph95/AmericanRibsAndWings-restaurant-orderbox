@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ChevronRight, MapPin, Clock, Phone } from "lucide-react";
+import { ChevronRight, MapPin, Clock, Phone, CalendarPlus } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MenuModal } from "./MenuModal";
@@ -115,6 +115,17 @@ export function Hero() {
                 onClick={() => setMenuModalOpen(true)}
               >
                 {secondaryCta}
+              </Button>
+              <Button 
+                asChild
+                variant="outline" 
+                size="lg"
+                className="border-white/30 bg-white/10 text-white hover:bg-white/20 text-base px-6 py-5 rounded-full"
+              >
+                <Link to="/reservenow">
+                  <CalendarPlus className="mr-2 h-5 w-5" />
+                  Reserve a Table
+                </Link>
               </Button>
             </div>
 

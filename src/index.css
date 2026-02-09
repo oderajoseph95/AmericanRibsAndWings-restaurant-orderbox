@@ -295,6 +295,65 @@ html, body {
   animation: cooking 1s ease-in-out infinite;
 }
 
+/* Live feed animations for FOMO section */
+@keyframes slide-in-up {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes urgency-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 hsl(var(--destructive) / 0.4);
+  }
+  50% {
+    transform: scale(1.02);
+    box-shadow: 0 0 30px 10px hsl(var(--destructive) / 0.3);
+  }
+}
+
+@keyframes blink-urgent {
+  0%, 50%, 100% {
+    opacity: 1;
+  }
+  25%, 75% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes live-dot {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(0.8);
+  }
+}
+
+.animate-slide-in-up {
+  animation: slide-in-up 0.4s ease-out forwards;
+}
+
+.animate-urgency-pulse {
+  animation: urgency-pulse 2s ease-in-out infinite;
+}
+
+.animate-blink-urgent {
+  animation: blink-urgent 1s ease-in-out infinite;
+}
+
+.animate-live-dot {
+  animation: live-dot 1.5s ease-in-out infinite;
+}
+
 /* Valentine floating hearts */
 @keyframes float-heart {
   0% {

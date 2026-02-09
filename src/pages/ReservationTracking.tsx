@@ -282,7 +282,7 @@ export default function ReservationTracking() {
       <header className="sticky top-0 z-40 bg-card border-b border-border">
         <div className="container px-4 h-16 flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
-            <Link to="/">
+            <Link to="/reservenow">
               <ArrowLeft className="h-5 w-5" />
             </Link>
           </Button>
