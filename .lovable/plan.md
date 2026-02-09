@@ -1,255 +1,302 @@
 
 
-# ISSUE R2.2 — Admin Reservation Detail View
+# ISSUE R2.3 — Reservation Status Management (Admin)
 
 ## Overview
 
-Create a read-only admin detail page at `/admin/reservations/:id` that displays full reservation context before any actions are taken. This is a pure inspection surface with no editing capabilities.
+Add admin-controlled status transitions to the reservation detail page. This enables the reservation lifecycle from `pending` through to `completed` or terminal states. No notifications, no notes, no editing - just state control.
+
+---
+
+## Gap Analysis
+
+| Requirement | Current State | Action |
+|-------------|---------------|--------|
+| Status change controls | Not present | Add status action buttons |
+| Allowed transitions only | Not enforced | Implement transition rules |
+| Status persistence | Works via `updated_at` | Keep |
+| `status_changed_at` column | Missing | Add via migration |
+| `status_changed_by` column | Missing | Add via migration |
+| Admin logging | Exists (`logAdminAction`) | Reuse pattern |
+| No notifications | N/A | Ensure NOT added |
 
 ---
 
 ## Technical Implementation
 
-### 1. Create ReservationDetail Admin Page
+### 1. Database Migration - Add Status Change Tracking
 
-**File:** `src/pages/admin/ReservationDetail.tsx`
+Add columns to track when and who changed the status:
 
-A new admin page following established patterns with these characteristics:
+```sql
+-- Add status_changed_at to track when status was last changed
+ALTER TABLE reservations 
+ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMPTZ;
 
-**Data Fetching:**
-```typescript
-const { id } = useParams<{ id: string }>();
-
-const { data: reservation, isLoading, error } = useQuery({
-  queryKey: ['admin-reservation', id],
-  queryFn: async () => {
-    const { data, error } = await supabase
-      .from('reservations')
-      .select('*')
-      .eq('id', id)
-      .single();
-    
-    if (error) throw error;
-    return data;
-  },
-  enabled: !!id,
-});
+-- Add status_changed_by to track who changed the status (admin user ID)
+ALTER TABLE reservations 
+ADD COLUMN IF NOT EXISTS status_changed_by UUID;
 ```
 
-**Component Structure:**
-- Header with back navigation
-- Reservation summary section
-- Customer information section
-- Pre-order selections section (if any)
-- Metadata section (created at)
-
 ---
 
-### 2. Page Sections
+### 2. Status Transition Rules
 
-**A. Header**
-- "Back to Reservations" button → navigates to `/admin/reservations`
-- Page title: "Reservation Details"
-- Status badge (read-only, using same colors from R2.1)
-
-**B. Reservation Summary Card**
-| Field | Display |
-|-------|---------|
-| Reservation Code | Shown prominently (read-only reference) |
-| Date | Formatted as "February 14, 2025" |
-| Time | Formatted as "7:00 PM" |
-| Party Size | "4 guests" |
-| Status | Badge (pending/confirmed/cancelled/completed/no_show) |
-
-**C. Customer Information Card**
-| Field | Display |
-|-------|---------|
-| Name | Full name |
-| Phone | Phone number |
-| Email | Email (if present) or "Not provided" |
-| Notes | Customer notes (if any) or "No notes" |
-
-**D. Pre-Order Selections Card**
-- Header: "Pre-order Selections"
-- Subtext: "(Not paid - for reference only)"
-- If `preorder_items` exists and has items:
-  - List each item with name and quantity
-  - No prices displayed
-  - No totals
-- If no pre-orders:
-  - Show: "No pre-orders selected"
-
-**E. Metadata Section (subtle)**
-| Field | Display |
-|-------|---------|
-| Created | "Created 2 days ago" or full date |
-| Last Updated | If different from created |
-
----
-
-### 3. Status Badge Colors
-
-Reusing the same status colors from `Reservations.tsx`:
+Define strict allowed transitions (enforced in UI):
 
 ```typescript
-const statusColors: Record<ReservationStatus, string> = {
-  pending: 'bg-yellow-500/20 text-yellow-700 border-yellow-500/30',
-  confirmed: 'bg-green-500/20 text-green-700 border-green-500/30',
-  cancelled: 'bg-red-500/20 text-red-700 border-red-500/30',
-  completed: 'bg-emerald-500/20 text-emerald-700 border-emerald-500/30',
-  no_show: 'bg-gray-500/20 text-gray-700 border-gray-500/30',
+const allowedTransitions: Record<ReservationStatus, ReservationStatus[]> = {
+  pending: ['confirmed', 'cancelled'],   // Note: 'cancelled' maps to 'rejected' per UI
+  confirmed: ['completed', 'no_show'],
+  cancelled: [],  // Terminal state
+  completed: [],  // Terminal state
+  no_show: [],    // Terminal state
 };
 ```
 
+Note: The database enum uses `cancelled` but the requirements say `rejected`. These are the same status.
+
 ---
 
-### 4. Pre-Order Items Display
+### 3. Update ReservationDetail.tsx
 
-The `preorder_items` field is a JSONB column. Expected structure based on R1.3:
+**Changes:**
 
+A. Add imports:
 ```typescript
-interface PreorderItem {
-  productId: string;
-  productName: string;
-  quantity: number;
-}
-
-// Parse and display
-const preorderItems = reservation.preorder_items as PreorderItem[] | null;
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { logAdminAction } from '@/lib/adminLogger';
+import { Check, X, CheckCircle, UserX, Loader2 } from 'lucide-react';
 ```
 
-Display as a simple list:
+B. Add status mutation:
+```typescript
+const queryClient = useQueryClient();
+
+const updateStatusMutation = useMutation({
+  mutationFn: async ({ newStatus }: { newStatus: ReservationStatus }) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    const { error } = await supabase
+      .from('reservations')
+      .update({ 
+        status: newStatus,
+        status_changed_at: new Date().toISOString(),
+        status_changed_by: user?.id || null,
+      })
+      .eq('id', id);
+    
+    if (error) throw error;
+
+    // Log admin action
+    await logAdminAction({
+      action: 'status_change',
+      entityType: 'reservation',
+      entityId: id,
+      entityName: reservation?.reservation_code,
+      oldValues: { status: reservation?.status },
+      newValues: { status: newStatus },
+      details: `Changed reservation status from ${reservation?.status} to ${newStatus}`,
+    });
+  },
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['admin-reservation', id] });
+    queryClient.invalidateQueries({ queryKey: ['admin-reservations'] });
+    toast.success('Reservation status updated');
+  },
+  onError: (error) => {
+    toast.error('Failed to update status: ' + error.message);
+  },
+});
 ```
-- 2x Baby Back Ribs
-- 1x Buffalo Wings
-- 3x Combo Platter
-```
 
-No pricing. No modification controls.
-
----
-
-### 5. Error & Loading States
-
-**Loading State:**
-- Skeleton cards matching the layout
-
-**Not Found (404):**
+C. Add Status Actions Card (after Pre-Order Selections card):
 ```tsx
-<div className="text-center py-12">
-  <CalendarDays className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-  <h2 className="text-xl font-semibold mb-2">Reservation not found</h2>
-  <p className="text-muted-foreground mb-4">
-    The reservation you're looking for doesn't exist or has been removed.
-  </p>
-  <Button asChild>
-    <Link to="/admin/reservations">Back to Reservations</Link>
-  </Button>
+{/* Status Actions */}
+{reservation.status !== 'completed' && 
+ reservation.status !== 'cancelled' && 
+ reservation.status !== 'no_show' && (
+  <Card>
+    <CardHeader>
+      <CardTitle className="text-lg">Actions</CardTitle>
+    </CardHeader>
+    <CardContent>
+      <div className="flex flex-wrap gap-3">
+        {reservation.status === 'pending' && (
+          <>
+            <Button
+              onClick={() => updateStatusMutation.mutate({ newStatus: 'confirmed' })}
+              disabled={updateStatusMutation.isPending}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {updateStatusMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Check className="h-4 w-4 mr-2" />
+              )}
+              Confirm Reservation
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => updateStatusMutation.mutate({ newStatus: 'cancelled' })}
+              disabled={updateStatusMutation.isPending}
+            >
+              {updateStatusMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <X className="h-4 w-4 mr-2" />
+              )}
+              Reject
+            </Button>
+          </>
+        )}
+        {reservation.status === 'confirmed' && (
+          <>
+            <Button
+              onClick={() => updateStatusMutation.mutate({ newStatus: 'completed' })}
+              disabled={updateStatusMutation.isPending}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              {updateStatusMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <CheckCircle className="h-4 w-4 mr-2" />
+              )}
+              Mark Completed
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => updateStatusMutation.mutate({ newStatus: 'no_show' })}
+              disabled={updateStatusMutation.isPending}
+            >
+              {updateStatusMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <UserX className="h-4 w-4 mr-2" />
+              )}
+              Mark No-Show
+            </Button>
+          </>
+        )}
+      </div>
+    </CardContent>
+  </Card>
+)}
+```
+
+D. Update Metadata section to show status change info:
+```tsx
+{/* Metadata */}
+<div className="text-sm text-muted-foreground space-y-1">
+  <p>Created {formatCreatedAt(reservation.created_at || '')}</p>
+  {reservation.status_changed_at && (
+    <p>Status changed {formatCreatedAt(reservation.status_changed_at)}</p>
+  )}
 </div>
 ```
 
 ---
 
-### 6. Add Route to App.tsx
-
-**File:** `src/App.tsx`
-
-Add the detail route inside the admin routes:
-
-```tsx
-// Add import
-import ReservationDetail from "./pages/admin/ReservationDetail";
-
-// Add route after reservations list route (around line 95)
-<Route path="reservations/:id" element={<ReservationDetail />} />
-```
-
----
-
-## Files to Create/Modify
+## Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/pages/admin/ReservationDetail.tsx` | **Create** - New admin reservation detail page |
-| `src/App.tsx` | Add `/admin/reservations/:id` route |
+| **Database** | Add `status_changed_at` and `status_changed_by` columns |
+| `src/pages/admin/ReservationDetail.tsx` | Add status mutation and action buttons |
 
 ---
 
-## Layout Structure
+## Status Transition Flow (Visual)
 
+```text
+                    ┌──────────────┐
+                    │   pending    │
+                    └──────┬───────┘
+                           │
+              ┌────────────┼────────────┐
+              ▼                         ▼
+     ┌──────────────┐          ┌──────────────┐
+     │  confirmed   │          │  cancelled   │
+     └──────┬───────┘          │  (rejected)  │
+            │                  └──────────────┘
+   ┌────────┼────────┐               TERMINAL
+   ▼                 ▼
+┌──────────┐  ┌──────────────┐
+│completed │  │   no_show    │
+└──────────┘  └──────────────┘
+   TERMINAL        TERMINAL
 ```
-┌─────────────────────────────────────────────────┐
-│ ← Back to Reservations          [Status Badge] │
-│ Reservation Details                             │
-└─────────────────────────────────────────────────┘
 
-┌─────────────────────────────────────────────────┐
-│ RESERVATION SUMMARY                             │
-├─────────────────────────────────────────────────┤
-│ Code: ARW-RSV-4832                              │
-│ Date: February 14, 2025                         │
-│ Time: 7:00 PM                                   │
-│ Party Size: 4 guests                            │
-└─────────────────────────────────────────────────┘
+---
 
-┌─────────────────────────────────────────────────┐
-│ CUSTOMER INFORMATION                            │
-├─────────────────────────────────────────────────┤
-│ Name: Juan Dela Cruz                            │
-│ Phone: 09171234567                              │
-│ Email: juan@example.com                         │
-│ Notes: "Window seat if possible"                │
-└─────────────────────────────────────────────────┘
+## Button Display Rules
 
-┌─────────────────────────────────────────────────┐
-│ PRE-ORDER SELECTIONS                            │
-│ (Not paid - for reference only)                 │
-├─────────────────────────────────────────────────┤
-│ • 2x Baby Back Ribs                             │
-│ • 1x Buffalo Wings                              │
-│ • 3x Combo Platter                              │
-└─────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────┐
-│ Created 2 days ago                              │
-└─────────────────────────────────────────────────┘
-```
+| Current Status | Available Actions |
+|----------------|-------------------|
+| `pending` | [Confirm Reservation] [Reject] |
+| `confirmed` | [Mark Completed] [Mark No-Show] |
+| `cancelled` | No actions (terminal) |
+| `completed` | No actions (terminal) |
+| `no_show` | No actions (terminal) |
 
 ---
 
 ## What This Creates
 
-- `/admin/reservations/:id` route (protected, admin only)
-- Full reservation context on one page
-- Read-only display of all reservation data
-- Pre-order selections listed (no prices)
-- Status badge visible but not editable
-- Back navigation to reservation list
-- Deep linking support
-- 404 handling for invalid IDs
+- Status change buttons on `/admin/reservations/:id`
+- Strict transition enforcement (UI-level)
+- `status_changed_at` timestamp tracking
+- `status_changed_by` admin user ID tracking
+- Admin action logging via `logAdminAction`
+- Loading states during mutation
+- Error handling with toast messages
+- Query invalidation for list/detail refresh
 
 ---
 
 ## What This Does NOT Create
 
-- Status editing (R2.3)
-- Admin notes (R2.4)
-- Notifications
-- Editing reservation data
-- Customer communication
-- Payments or confirmation
-- Any action buttons beyond navigation
+- Notifications (no SMS, no email, no push)
+- Admin notes
+- Reservation data editing
+- Capacity logic
+- Customer-facing status updates
+- Undo functionality
+
+---
+
+## Error Handling
+
+- Mutation errors show toast with error message
+- Button disabled during pending mutation
+- Failed updates do not change UI state
+- Retry is possible by clicking button again
+
+---
+
+## Audit Trail
+
+Each status change logs:
+- Action: `status_change`
+- Entity type: `reservation`
+- Entity ID: reservation UUID
+- Entity name: reservation code
+- Old values: `{ status: "pending" }`
+- New values: `{ status: "confirmed" }`
+- Details: Human-readable description
 
 ---
 
 ## Result
 
 After implementation:
-- Admin clicks row in `/admin/reservations`
-- Navigates to `/admin/reservations/:id`
-- Sees full reservation context
-- Can review customer info and pre-orders
-- Has clear back navigation
-- Status is visible but immutable
-- Answers: "What exactly did this customer request?"
+- Admins see action buttons based on current status
+- Clicking a button changes status and persists
+- Status change timestamp is recorded
+- Admin who changed it is recorded
+- UI updates immediately after success
+- Errors are visible and retryable
+- No notifications are sent
+- Answers: "What is the current state and what can I do next?"
 
