@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { format, formatDistanceToNow } from 'date-fns';
-import { CalendarDays, Users, ChevronLeft, ChevronRight, BarChart3 } from 'lucide-react';
+import { CalendarDays, Users, ChevronLeft, ChevronRight, BarChart3, Settings } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -60,6 +60,7 @@ export default function Reservations() {
   const [currentPage, setCurrentPage] = useState(1);
   
   const canViewAnalytics = role === 'owner' || role === 'manager';
+  const canViewSettings = role === 'owner' || role === 'manager';
 
   const { data: reservationsData, isLoading } = useQuery({
     queryKey: ['admin-reservations', statusFilter, dateFilter, currentPage],
@@ -156,14 +157,24 @@ export default function Reservations() {
           <h1 className="text-2xl font-bold">Reservations</h1>
           <p className="text-muted-foreground">Manage table reservations</p>
         </div>
-        {canViewAnalytics && (
-          <Button variant="outline" asChild>
-            <Link to="/admin/reservations/analytics">
-              <BarChart3 className="h-4 w-4 mr-2" />
-              Analytics
-            </Link>
-          </Button>
-        )}
+        <div className="flex gap-2">
+          {canViewSettings && (
+            <Button variant="outline" asChild>
+              <Link to="/admin/reservations/settings">
+                <Settings className="h-4 w-4 mr-2" />
+                Settings
+              </Link>
+            </Button>
+          )}
+          {canViewAnalytics && (
+            <Button variant="outline" asChild>
+              <Link to="/admin/reservations/analytics">
+                <BarChart3 className="h-4 w-4 mr-2" />
+                Analytics
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Filters */}

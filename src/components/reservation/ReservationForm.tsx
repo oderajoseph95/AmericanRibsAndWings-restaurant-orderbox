@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,6 +13,7 @@ import { format, addDays, isAfter, isBefore, startOfDay } from "date-fns";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { DEFAULT_RESERVATION_SETTINGS } from "@/hooks/useReservationSettings";
 
 interface ReservationFormProps {
   onSuccess: (reservation: {
@@ -27,22 +29,26 @@ interface ReservationFormProps {
   };
 }
 
-// Generate time slots based on store hours
-function generateTimeSlots(opensAt: string | null, closesAt: string | null): string[] {
+// Generate time slots based on store hours and slot duration
+function generateTimeSlots(opensAt: string | null, closesAt: string | null, slotDurationMinutes: number = 30): string[] {
   const slots: string[] = [];
   
   // Default to 10 AM - 9 PM if no store hours
   let startHour = 10;
+  let startMinute = 0;
   let endHour = 21;
+  let endMinute = 0;
   
   if (opensAt) {
     const match = opensAt.match(/(\d+):?(\d*)\s*(AM|PM)?/i);
     if (match) {
       let hour = parseInt(match[1], 10);
+      const minute = parseInt(match[2] || '0', 10);
       const isPM = match[3]?.toUpperCase() === 'PM';
       if (isPM && hour !== 12) hour += 12;
       if (!isPM && hour === 12) hour = 0;
       startHour = hour;
+      startMinute = minute;
     }
   }
   
@@ -50,21 +56,27 @@ function generateTimeSlots(opensAt: string | null, closesAt: string | null): str
     const match = closesAt.match(/(\d+):?(\d*)\s*(AM|PM)?/i);
     if (match) {
       let hour = parseInt(match[1], 10);
+      const minute = parseInt(match[2] || '0', 10);
       const isPM = match[3]?.toUpperCase() === 'PM';
       if (isPM && hour !== 12) hour += 12;
       if (!isPM && hour === 12) hour = 0;
       endHour = hour;
+      endMinute = minute;
     }
   }
   
-  // Generate slots in 30-minute increments
-  for (let hour = startHour; hour < endHour; hour++) {
-    for (const minute of [0, 30]) {
-      const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
-      const period = hour >= 12 ? 'PM' : 'AM';
-      const minuteStr = minute.toString().padStart(2, '0');
-      slots.push(`${displayHour}:${minuteStr} ${period}`);
-    }
+  // Convert to total minutes for easier calculation
+  const startTotalMinutes = startHour * 60 + startMinute;
+  const endTotalMinutes = endHour * 60 + endMinute;
+  
+  // Generate slots based on slot duration
+  for (let totalMinutes = startTotalMinutes; totalMinutes < endTotalMinutes; totalMinutes += slotDurationMinutes) {
+    const hour = Math.floor(totalMinutes / 60);
+    const minute = totalMinutes % 60;
+    const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+    const period = hour >= 12 ? 'PM' : 'AM';
+    const minuteStr = minute.toString().padStart(2, '0');
+    slots.push(`${displayHour}:${minuteStr} ${period}`);
   }
   
   return slots;
@@ -125,7 +137,24 @@ export function ReservationForm({ onSuccess, storeHours }: ReservationFormProps)
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const timeSlots = generateTimeSlots(storeHours.opensAt, storeHours.closesAt);
+  // Fetch reservation settings for slot duration
+  const { data: reservationSettings } = useQuery({
+    queryKey: ['reservation-settings'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('settings')
+        .select('value')
+        .eq('key', 'reservation_settings')
+        .maybeSingle();
+
+      if (error) throw error;
+      return { ...DEFAULT_RESERVATION_SETTINGS, ...(data?.value as Partial<typeof DEFAULT_RESERVATION_SETTINGS> || {}) };
+    },
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
+
+  const slotDuration = reservationSettings?.slot_duration_minutes ?? DEFAULT_RESERVATION_SETTINGS.slot_duration_minutes;
+  const timeSlots = generateTimeSlots(storeHours.opensAt, storeHours.closesAt, slotDuration);
   
   // Date constraints: tomorrow to 30 days from now
   const minDate = addDays(startOfDay(new Date()), 1);

@@ -1994,8 +1994,12 @@ export type Database = {
     }
     Functions: {
       cancel_reservation_by_customer: {
-        Args: { p_code: string; p_phone: string }
-        Returns: Json
+        Args: { p_phone: string; p_reservation_code: string }
+        Returns: {
+          message: string
+          reservation_id: string
+          success: boolean
+        }[]
       }
       check_slot_capacity: {
         Args: {

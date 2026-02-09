@@ -14,6 +14,7 @@ import { logAdminAction } from '@/lib/adminLogger';
 import { useAuth } from '@/contexts/AuthContext';
 import { sendEmailNotification } from '@/hooks/useEmailNotifications';
 import { sendSmsNotification } from '@/hooks/useSmsNotifications';
+import { useReservationSettings, DEFAULT_RESERVATION_SETTINGS } from '@/hooks/useReservationSettings';
 import type { Database } from '@/integrations/supabase/types';
 
 type ReservationStatus = Database['public']['Enums']['reservation_status'];
@@ -113,6 +114,11 @@ export default function ReservationDetail() {
   const [resendingEmail, setResendingEmail] = useState(false);
   const [resendingSms, setResendingSms] = useState(false);
 
+  // Fetch reservation settings for dynamic reminder timing
+  const { data: reservationSettings } = useReservationSettings();
+  const reminderFirstHours = reservationSettings?.reminder_first_hours ?? DEFAULT_RESERVATION_SETTINGS.reminder_first_hours;
+  const reminderSecondHours = reservationSettings?.reminder_second_hours ?? DEFAULT_RESERVATION_SETTINGS.reminder_second_hours;
+
   const { data: reservation, isLoading, error } = useQuery({
     queryKey: ['admin-reservation', id],
     queryFn: async () => {
@@ -179,47 +185,47 @@ export default function ReservationDetail() {
           const now = new Date();
           const hoursUntilReservation = (reservationDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
           
-          console.log(`Scheduling reminders: ${hoursUntilReservation.toFixed(1)} hours until reservation`);
+          console.log(`Scheduling reminders: ${hoursUntilReservation.toFixed(1)} hours until reservation (first: ${reminderFirstHours}h, second: ${reminderSecondHours}h)`);
           
-          if (hoursUntilReservation > 24) {
-            // Case 1: More than 24 hours away - schedule both 24h and 3h reminders
-            const reminder24h = new Date(reservationDateTime.getTime() - 24 * 60 * 60 * 1000);
-            const reminder3h = new Date(reservationDateTime.getTime() - 3 * 60 * 60 * 1000);
+          if (hoursUntilReservation > reminderFirstHours) {
+            // Case 1: More than first reminder hours away - schedule both reminders
+            const reminderFirst = new Date(reservationDateTime.getTime() - reminderFirstHours * 60 * 60 * 1000);
+            const reminderSecond = new Date(reservationDateTime.getTime() - reminderSecondHours * 60 * 60 * 1000);
             
-            // Insert 24h reminder
+            // Insert first reminder
             await supabase.from('reservation_reminders').upsert({
               reservation_id: reservation.id,
-              reminder_type: '24h',
-              scheduled_for: reminder24h.toISOString(),
+              reminder_type: `${reminderFirstHours}h`,
+              scheduled_for: reminderFirst.toISOString(),
               status: 'pending',
             }, { onConflict: 'reservation_id,reminder_type' });
             
-            // Insert 3h reminder
+            // Insert second reminder
             await supabase.from('reservation_reminders').upsert({
               reservation_id: reservation.id,
-              reminder_type: '3h',
-              scheduled_for: reminder3h.toISOString(),
+              reminder_type: `${reminderSecondHours}h`,
+              scheduled_for: reminderSecond.toISOString(),
               status: 'pending',
             }, { onConflict: 'reservation_id,reminder_type' });
             
-            console.log('Scheduled 24h and 3h reminders');
+            console.log(`Scheduled ${reminderFirstHours}h and ${reminderSecondHours}h reminders`);
             
-          } else if (hoursUntilReservation > 3) {
-            // Case 2: Between 3-24 hours - only schedule 3h reminder
-            const reminder3h = new Date(reservationDateTime.getTime() - 3 * 60 * 60 * 1000);
+          } else if (hoursUntilReservation > reminderSecondHours) {
+            // Case 2: Between second and first reminder hours - only schedule second reminder
+            const reminderSecond = new Date(reservationDateTime.getTime() - reminderSecondHours * 60 * 60 * 1000);
             
             await supabase.from('reservation_reminders').upsert({
               reservation_id: reservation.id,
-              reminder_type: '3h',
-              scheduled_for: reminder3h.toISOString(),
+              reminder_type: `${reminderSecondHours}h`,
+              scheduled_for: reminderSecond.toISOString(),
               status: 'pending',
             }, { onConflict: 'reservation_id,reminder_type' });
             
-            console.log('Scheduled 3h reminder (skipped 24h - too late)');
+            console.log(`Scheduled ${reminderSecondHours}h reminder (skipped ${reminderFirstHours}h - too late)`);
             
           } else if (hoursUntilReservation > 0) {
-            // Case 3: Less than 3 hours - send immediate reminder
-            console.log('Reservation less than 3h away - triggering immediate reminder');
+            // Case 3: Less than second reminder hours - send immediate reminder
+            console.log(`Reservation less than ${reminderSecondHours}h away - triggering immediate reminder`);
             
             // Insert as immediate type and mark as pending (will be picked up by next cron run)
             // Or trigger the edge function directly
