@@ -38,3 +38,6 @@ verify_jwt = false
 
 [functions.send-reservation-reminder]
 verify_jwt = false
+
+[functions.process-no-shows]
+verify_jwt = false
