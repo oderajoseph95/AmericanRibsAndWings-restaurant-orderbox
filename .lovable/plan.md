@@ -1,124 +1,243 @@
 
-
-# Fix: Reservation Module - Single Code & Email Subjects
+# Plan: Enhanced Reservation Confirmation with Details & PDF Ticket
 
 ## Problem Summary
 
-| Issue | Status |
-|-------|--------|
-| Two reservation codes (`ARW-RSV-XXXX` + `ARW-RES-XXXXX`) | **NONSENSE - MUST FIX** |
-| Customer email "Order #undefined Update" | Missing `new_reservation` in subject function |
-| Admin email wrong subject on confirm | Missing `reservation_confirmed` in admin subject function |
+The current reservation confirmation screen is missing critical information:
 
-## Root Cause Analysis
-
-### Why Two Codes Exist
-- **Line 30-54 in `ReservationDetail.tsx`**: When admin clicks "Confirm", it generates a SECOND code (`ARW-RES-XXXXX`) called `confirmation_code`
-- This is completely unnecessary - we already have `reservation_code`
-
-### Email Subject Bugs
-- **Line 621-649 in `send-email-notification/index.ts`**: `getDefaultSubject()` is MISSING `new_reservation`
-- **Line 1310-1332**: `getAdminNotificationSubject()` is MISSING `reservation_confirmed`
+| Issue | Current State | Expected |
+|-------|--------------|----------|
+| Reservation Code | **NOT SHOWN** | Show `ARW-RSV-XXXX` prominently |
+| Customer Details | Only name shown | Show name, phone, email, notes |
+| Tracking Link | **NOT PROVIDED** | Give customers a way to track their reservation |
+| PDF Ticket | **NOT AVAILABLE** | Downloadable ticket with QR code |
 
 ---
 
-## Solution: Single Code System
+## Solution Overview
 
-### Part 1: Remove `confirmation_code` Generation
+### Part 1: Update Confirmation Data Flow
 
-**File:** `src/pages/admin/ReservationDetail.tsx`
+**File: `src/pages/Reserve.tsx`**
 
-**Delete** the `generateConfirmationCode()` function (lines 29-54) and remove all references to it.
+Currently the `ConfirmationData` interface and `onSuccess` callback only pass:
+- id, name, pax, date, time
 
-When admin confirms:
-- DO NOT generate a new code
-- Just change status to `confirmed`
-- Use existing `reservation_code` for all notifications
+Need to expand to include:
+- `reservationCode` (ARW-RSV-XXXX)
+- `phone`
+- `email` (if provided)
+- `notes` (if provided)
 
-### Part 2: Update ReservationDetail.tsx Status Update
+### Part 2: Update ReservationForm to Pass Full Data
 
-Remove confirmation code generation from the mutation:
-- Delete lines 143-146 (confirmation code generation on confirm)
-- Delete lines 154-157 (adding confirmation_code to updateData)
-- Change all references from `confirmationCode || reservation.confirmation_code || reservation.reservation_code` to just `reservation.reservation_code`
+**File: `src/components/reservation/ReservationForm.tsx`**
 
-### Part 3: Fix Email Subject Functions
-
-**File:** `supabase/functions/send-email-notification/index.ts`
-
-**Add `new_reservation` to `getDefaultSubject()` (around line 646):**
+Update the `onSuccess` callback at line 269-275 to pass all customer details:
 ```typescript
-new_reservation: `📅 Reservation Request Received - ${payload?.reservationCode || ''}`,
+onSuccess({
+  id: reservation.id,
+  reservationCode: reservation.reservation_code,
+  name: name.trim(),
+  phone: normalizePhone(phone),
+  email: email.trim() || null,
+  pax: pax,
+  date: displayDate,
+  time: time,
+  notes: notes.trim() || null,
+});
 ```
 
-**Add `reservation_confirmed` to `getAdminNotificationSubject()` (around line 1326):**
+### Part 3: Redesign ReservationConfirmation Component
+
+**File: `src/components/reservation/ReservationConfirmation.tsx`**
+
+Expand the props interface and UI to show:
+
+1. **Reservation Code Card** (prominent, centered)
+   - Large `ARW-RSV-XXXX` code in a styled box
+   - "Save this code to track your reservation"
+
+2. **Customer Details Section**
+   - Name
+   - Phone (partially masked for privacy display)
+   - Email (if provided)
+   - Notes (if provided)
+
+3. **Reservation Details Section** (existing)
+   - Date, Time, Party Size
+
+4. **Action Buttons**
+   - "Download Ticket" → Generates PDF
+   - "Track Reservation" → Links to `/reserve/track`
+   - "Back to Home"
+   - "Make Another Reservation"
+
+### Part 4: Create PDF Ticket Generator Component
+
+**New File: `src/components/reservation/ReservationTicket.tsx`**
+
+Uses:
+- `jspdf` - PDF generation library
+- `qrcode.react` - QR code generation for React
+
+The ticket will include:
+- Restaurant logo/header
+- Reservation code (large)
+- QR code that links to tracking page
+- Customer name
+- Date, time, party size
+- Restaurant address & phone
+- "Present this ticket on arrival"
+
+### Part 5: Install Required Dependencies
+
+```bash
+npm install jspdf qrcode.react
+npm install -D @types/qrcode.react
+```
+
+---
+
+## Detailed UI Design
+
+### Confirmation Screen Layout
+
+```
+┌────────────────────────────────────────┐
+│  ← Reservation Submitted               │
+│     American Ribs & Wings              │
+├────────────────────────────────────────┤
+│                                        │
+│            ✓ (success icon)            │
+│                                        │
+│      Reservation Submitted!            │
+│  Thank you, [Name]. Your request       │
+│  has been received.                    │
+│                                        │
+├────────────────────────────────────────┤
+│  ┌────────────────────────────────┐    │
+│  │     Your Reservation Code      │    │
+│  │                                │    │
+│  │     ARW-RSV-1234              │    │
+│  │                                │    │
+│  │  Save this code to track your  │    │
+│  │  reservation status            │    │
+│  └────────────────────────────────┘    │
+├────────────────────────────────────────┤
+│  Status: Pending Confirmation          │
+│  We will contact you to confirm        │
+├────────────────────────────────────────┤
+│  YOUR DETAILS                          │
+│  👤 Name: [Customer Name]              │
+│  📱 Phone: 0917****567                 │
+│  ✉️  Email: customer@email.com          │
+│  📝 Notes: Near the window please      │
+├────────────────────────────────────────┤
+│  RESERVATION DETAILS                   │
+│  📅 Date: February 17, 2026            │
+│  🕐 Time: 1:30 PM                      │
+│  👥 Party Size: 3 guests               │
+├────────────────────────────────────────┤
+│  ┌────────────────────────────────┐    │
+│  │  📥 Download Reservation Ticket │    │
+│  └────────────────────────────────┘    │
+│  ┌────────────────────────────────┐    │
+│  │  🔍 Track Your Reservation     │    │
+│  └────────────────────────────────┘    │
+│  ┌────────────────────────────────┐    │
+│  │       Back to Home             │    │
+│  └────────────────────────────────┘    │
+│  ┌────────────────────────────────┐    │
+│  │  ↺ Make Another Reservation    │    │
+│  └────────────────────────────────┘    │
+└────────────────────────────────────────┘
+```
+
+### PDF Ticket Layout
+
+```
+┌─────────────────────────────────────┐
+│  🍗 AMERICAN RIBS & WINGS           │
+│     Table Reservation Ticket        │
+├─────────────────────────────────────┤
+│                                     │
+│  ┌─────────────┐                    │
+│  │   QR CODE   │   ARW-RSV-1234    │
+│  │             │                    │
+│  │   (links    │   RESERVATION     │
+│  │    to       │   CODE            │
+│  │   tracking) │                    │
+│  └─────────────┘                    │
+│                                     │
+├─────────────────────────────────────┤
+│  Guest: Odera Joseph Echendu        │
+│  Party Size: 3 guests               │
+├─────────────────────────────────────┤
+│  📅 February 17, 2026               │
+│  🕐 1:30 PM                         │
+├─────────────────────────────────────┤
+│  Status: PENDING CONFIRMATION       │
+│  (Subject to confirmation)          │
+├─────────────────────────────────────┤
+│  📍 LOCATION                        │
+│  American Ribs & Wings              │
+│  Floridablanca, Pampanga            │
+│  📞 0917-XXX-XXXX                   │
+├─────────────────────────────────────┤
+│  Present this ticket on arrival     │
+│  Track status: arwfloridablanca.    │
+│  lovable.app/reserve/track          │
+└─────────────────────────────────────┘
+```
+
+---
+
+## Files to Create/Modify
+
+| File | Action | Description |
+|------|--------|-------------|
+| `package.json` | Modify | Add `jspdf` and `qrcode.react` dependencies |
+| `src/pages/Reserve.tsx` | Modify | Expand ConfirmationData interface |
+| `src/components/reservation/ReservationForm.tsx` | Modify | Pass reservationCode, phone, email, notes to onSuccess |
+| `src/components/reservation/ReservationConfirmation.tsx` | Modify | Complete redesign with all details + download button |
+| `src/components/reservation/ReservationTicket.tsx` | Create | New component for PDF generation |
+| `src/lib/constants.ts` | Read | Get store details for ticket |
+
+---
+
+## Technical Notes
+
+### PDF Generation Approach
+
+Using `jspdf` for PDF creation and `qrcode.react` to generate a QR code, then converting it to base64 for embedding in the PDF:
+
 ```typescript
-reservation_confirmed: `✅ [CONFIRMED] ${payload?.reservationCode} - ${payload?.pax} guests - ${payload?.customerName}`,
-reservation_cancelled: `❌ [CANCELLED] ${payload?.reservationCode} - ${payload?.customerName}`,
-reservation_cancelled_by_customer: `🚫 [CUSTOMER CANCELLED] ${payload?.reservationCode} - ${payload?.customerName}`,
+import jsPDF from 'jspdf';
+import { QRCodeCanvas } from 'qrcode.react';
+
+// 1. Render QR code to hidden canvas
+// 2. Get canvas as base64 image
+// 3. Add to PDF using doc.addImage()
+// 4. Trigger download with doc.save()
 ```
 
-### Part 4: Add Admin Templates for Confirmation/Cancellation
+### QR Code Content
 
-**File:** `supabase/functions/send-email-notification/index.ts`
+The QR code will contain the tracking URL with pre-filled code:
+```
+https://arwfloridablanca.lovable.app/reserve/track?code=ARW-RSV-1234
+```
 
-Add templates in `getAdminNotificationTemplate()` for:
-- `reservation_confirmed` 
-- `reservation_cancelled`
-- `reservation_cancelled_by_customer`
-
-### Part 5: Clean Up All Other Files
-
-Update these files to use only `reservation_code`:
-- `src/pages/ReservationTracking.tsx` - Remove `confirmation_code` references
-- `supabase/functions/process-no-shows/index.ts` - Use only `reservation_code`
-- `supabase/functions/send-reservation-reminder/index.ts` - Use only `reservation_code`
-- Database functions that reference both codes
-
-### Part 6: Database Cleanup (Optional)
-
-The `confirmation_code` column can remain in the database (existing data), but we stop populating it. No migration needed - just code changes.
+This allows customers to scan and go directly to tracking (though they'll still need to enter their phone for security).
 
 ---
 
-## Files to Change
+## Email Attachment Note
 
-| File | Changes |
-|------|---------|
-| `src/pages/admin/ReservationDetail.tsx` | Remove `generateConfirmationCode()` function and all `confirmation_code` references |
-| `supabase/functions/send-email-notification/index.ts` | Add missing email types to subject functions, add admin templates |
-| `src/pages/ReservationTracking.tsx` | Use only `reservation_code` |
-| `supabase/functions/process-no-shows/index.ts` | Use only `reservation_code` |
-| `supabase/functions/send-reservation-reminder/index.ts` | Use only `reservation_code` |
+For PDF attachment in emails, this would require:
+1. Generating PDF on server-side (edge function)
+2. Base64 encoding the PDF
+3. Attaching to email via Resend API
 
----
-
-## After This Fix
-
-**Single Code System:**
-```
-Customer submits → ARW-RSV-1234 (this is THE code)
-Admin confirms → Same code: ARW-RSV-1234
-Customer gets SMS/Email → Uses ARW-RSV-1234
-Reminders → Uses ARW-RSV-1234
-```
-
-**Email Subjects Fixed:**
-```
-NEW RESERVATION (Customer): "📅 Reservation Request Received - ARW-RSV-1234"
-NEW RESERVATION (Admin): "📅 [NEW RESERVATION] ARW-RSV-1234 - 3 guests - John"
-CONFIRMED (Customer): "✅ Your Reservation is Confirmed! - ARW-RSV-1234"  
-CONFIRMED (Admin): "✅ [CONFIRMED] ARW-RSV-1234 - 3 guests - John"
-```
-
----
-
-## Technical Changes Summary
-
-1. **Delete** `generateConfirmationCode()` function from ReservationDetail.tsx
-2. **Remove** all logic that sets `confirmation_code` field
-3. **Replace** all `confirmation_code || reservation_code` with just `reservation_code`
-4. **Add** `new_reservation` to customer subject dictionary
-5. **Add** `reservation_confirmed`, `reservation_cancelled`, `reservation_cancelled_by_customer` to admin subject dictionary
-6. **Add** admin email templates for reservation confirmations and cancellations
-
+This is more complex and can be a Phase 2 enhancement. For now, the downloadable PDF on the confirmation screen provides the immediate value.
