@@ -1,106 +1,70 @@
-
-
 # ISSUE R4.1 — Automated Reservation Reminder Engine
 
-## Overview
+## ✅ COMPLETED
 
-Build an automated reminder system that sends SMS and email notifications to customers before their confirmed reservations. This reduces no-shows and improves operational reliability by eliminating manual follow-ups.
-
----
-
-## Current State Analysis
-
-### Infrastructure Available
-- **pg_net**: Enabled (version 0.19.5)
-- **pg_cron**: NOT enabled - must be enabled first
-- **SMS System**: Semaphore via `send-sms-notification` edge function
-- **Email System**: Resend via `send-email-notification` edge function
-- **Reservation Table**: Has `reservation_date`, `reservation_time`, `phone` (required), `email` (optional), `status`, `confirmation_code`
-- **Existing Audit Logging**: `reservation_notifications` table for tracking all sends
-
-### Admin Backup Numbers
-From settings: `["+639214080286", "+639569669710", "+639762074276"]`
+**Implementation Date:** February 9, 2026
 
 ---
 
-## Technical Implementation
+## Summary
 
-### Step 1: Enable pg_cron Extension
+Built an automated reminder system that sends SMS and email notifications to customers before their confirmed reservations. The system uses pg_cron to trigger an edge function every 15 minutes that processes due reminders.
 
-```sql
--- Enable pg_cron extension
-CREATE EXTENSION IF NOT EXISTS pg_cron;
-GRANT USAGE ON SCHEMA cron TO postgres;
+---
+
+## What Was Implemented
+
+### 1. Database Infrastructure
+
+**Table: `reservation_reminders`**
+- `id` (uuid) - Primary key
+- `reservation_id` (uuid) - FK to reservations
+- `reminder_type` (text) - '24h', '3h', or 'immediate'
+- `scheduled_for` (timestamptz) - When to send
+- `status` (text) - 'pending', 'sent', 'failed', 'cancelled'
+- `created_at`, `sent_at`, `error_message`
+
+**Indexes:**
+- Composite index on `(status, scheduled_for)` for efficient cron queries
+- Index on `reservation_id` for lookups
+
+**RLS Policies:**
+- Admins can SELECT, INSERT, UPDATE, DELETE
+
+**pg_cron Job:**
+- Name: `send-reservation-reminders`
+- Schedule: `*/15 * * * *` (every 15 minutes)
+- Calls: `send-reservation-reminder` edge function
+
+### 2. Edge Function: `send-reservation-reminder`
+
+**Location:** `supabase/functions/send-reservation-reminder/index.ts`
+
+**Flow:**
+1. Query due reminders (status='pending' AND scheduled_for <= now())
+2. For each reminder:
+   - Fetch reservation details
+   - Verify reservation is still 'confirmed'
+   - Send SMS to customer
+   - Send SMS copies to admin backup numbers
+   - Send email if customer has email
+   - Log to `reservation_notifications` table
+   - Update reminder status
+
+### 3. Reminder Scheduling Logic (ReservationDetail.tsx)
+
+**On Confirmation:**
+- Case 1: >24h before → Schedule both 24h and 3h reminders
+- Case 2: 3-24h before → Schedule only 3h reminder
+- Case 3: <3h before → Send immediate reminder
+
+**On Cancellation/No-Show:**
+- Cancel all pending reminders for the reservation
+
+### 4. Notification Templates
+
+**SMS (reservation_reminder):**
 ```
-
-### Step 2: Create Reservation Reminders Table
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | uuid | Primary key |
-| reservation_id | uuid | FK to reservations |
-| reminder_type | text | '24h' or '3h' |
-| scheduled_for | timestamptz | When to send |
-| status | text | 'pending', 'sent', 'failed', 'cancelled' |
-| created_at | timestamptz | When scheduled |
-| sent_at | timestamptz | When actually sent |
-| error_message | text | Error details if failed |
-
-```sql
-CREATE TABLE public.reservation_reminders (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  reservation_id uuid NOT NULL REFERENCES public.reservations(id) ON DELETE CASCADE,
-  reminder_type text NOT NULL CHECK (reminder_type IN ('24h', '3h')),
-  scheduled_for timestamptz NOT NULL,
-  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed', 'cancelled')),
-  created_at timestamptz DEFAULT now(),
-  sent_at timestamptz,
-  error_message text,
-  
-  -- Unique constraint to prevent duplicate reminders
-  CONSTRAINT unique_reservation_reminder UNIQUE (reservation_id, reminder_type)
-);
-
-CREATE INDEX idx_reservation_reminders_due 
-  ON public.reservation_reminders(status, scheduled_for);
-
-CREATE INDEX idx_reservation_reminders_reservation_id 
-  ON public.reservation_reminders(reservation_id);
-
-ALTER TABLE public.reservation_reminders ENABLE ROW LEVEL SECURITY;
-
--- Admins can view all
-CREATE POLICY "Admins can view reservation reminders"
-  ON public.reservation_reminders FOR SELECT
-  USING (is_admin(auth.uid()));
-
--- Admins can insert
-CREATE POLICY "Admins can insert reservation reminders"
-  ON public.reservation_reminders FOR INSERT
-  WITH CHECK (is_admin(auth.uid()));
-
--- Admins can update
-CREATE POLICY "Admins can update reservation reminders"
-  ON public.reservation_reminders FOR UPDATE
-  USING (is_admin(auth.uid()));
-```
-
-### Step 3: Create Edge Function `send-reservation-reminder`
-
-**File: `supabase/functions/send-reservation-reminder/index.ts`**
-
-This function:
-1. Queries `reservation_reminders` for due reminders (`status = 'pending'` AND `scheduled_for <= now()`)
-2. Joins with `reservations` to get customer details
-3. Verifies reservation is still `confirmed` (skip if cancelled/rejected)
-4. Sends SMS to customer (primary channel)
-5. Sends email to customer if email exists (secondary channel)
-6. Sends SMS copies to admin backup numbers
-7. Logs to `reservation_notifications` table for audit
-8. Updates reminder status to `sent` or `failed`
-
-**SMS Template:**
-```text
 ARW Reminder 🍽️
 
 Hi {{name}},
@@ -113,185 +77,64 @@ See you soon!
 ```
 
 **Email Subject:**
-```text
-Reminder: Your ARW Reservation – {{date}} at {{time}}
+```
+🍽️ Reminder: Your ARW Reservation – {{date}} at {{time}}
 ```
 
-### Step 4: Schedule pg_cron Job
+### 5. Admin Backup SMS Copies
 
-```sql
-SELECT cron.schedule(
-  'send-reservation-reminders',
-  '*/15 * * * *', -- Every 15 minutes
-  $$
-  SELECT net.http_post(
-    url:='https://saxwbdwmuzkmxztagfot.supabase.co/functions/v1/send-reservation-reminder',
-    headers:='{"Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNheHdiZHdtdXprbXh6dGFnZm90Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcyMjM0NDUsImV4cCI6MjA4Mjc5OTQ0NX0.cMcSJxeh3DcPYQtrDxC8x4VwMLApABa_nu_MCBZh9OA"}'::jsonb,
-    body:='{}'::jsonb
-  ) as request_id;
-  $$
-);
-```
-
-### Step 5: Update ReservationDetail.tsx
-
-When status changes to **confirmed**:
-1. Calculate reminder windows (24h and 3h before reservation datetime)
-2. Insert reminder records into `reservation_reminders` table
-3. For immediate reminders (less than 3h away), call edge function directly
-
-When status changes to **cancelled** or **rejected**:
-1. Update all pending reminders for this reservation to `status = 'cancelled'`
-
-### Step 6: Add Reminder Type Support
-
-**Update `src/hooks/useSmsNotifications.ts`:**
-- Add `reservation_reminder` type
-
-**Update `supabase/functions/send-sms-notification/index.ts`:**
-- Add `reservation_reminder` default message template
-
-**Update `src/hooks/useEmailNotifications.ts`:**
-- Add `reservation_reminder` type
+Sent to configured admin backup numbers from settings:
+- `sms_admin_backup_numbers` setting
 
 ---
 
-## Reminder Scheduling Logic
+## Files Created/Modified
 
-When a reservation is confirmed at time T, with reservation at time R (date + time in Philippines timezone):
-
-```text
-┌─────────────────────────────────────────────────────────────┐
-│ Case 1: R - T > 24 hours                                    │
-│   → Schedule 24h reminder for R - 24h                       │
-│   → Schedule 3h reminder for R - 3h                         │
-├─────────────────────────────────────────────────────────────┤
-│ Case 2: 3h < R - T ≤ 24 hours                               │
-│   → Skip 24h reminder (too late)                            │
-│   → Schedule 3h reminder for R - 3h                         │
-├─────────────────────────────────────────────────────────────┤
-│ Case 3: R - T ≤ 3 hours                                     │
-│   → Send one immediate reminder NOW                         │
-│   → No scheduled reminders                                  │
-└─────────────────────────────────────────────────────────────┘
-```
+| File | Change |
+|------|--------|
+| `supabase/functions/send-reservation-reminder/index.ts` | NEW - Cron-triggered reminder processor |
+| `supabase/config.toml` | Added `send-reservation-reminder` function config |
+| `src/pages/admin/ReservationDetail.tsx` | Added reminder scheduling on confirm, cancellation on reject |
+| `src/hooks/useSmsNotifications.ts` | Added `reservation_reminder` type |
+| `src/hooks/useEmailNotifications.ts` | Added `reservation_reminder` type |
+| `supabase/functions/send-sms-notification/index.ts` | Added `reservation_reminder` template |
+| `supabase/functions/send-email-notification/index.ts` | Added `reservation_reminder` subject and template |
 
 ---
 
-## Edge Function Flow
+## Acceptance Criteria ✅
 
-```text
-┌─────────────────────────────────────┐
-│ Cron triggers every 15 minutes     │
-└──────────────┬──────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────┐
-│ Query due reminders:                │
-│ status='pending' AND                │
-│ scheduled_for <= now()              │
-│ LIMIT 50                            │
-└──────────────┬──────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────┐
-│ For each reminder:                  │
-│ 1. Fetch reservation details        │
-│ 2. Check status = 'confirmed'       │
-│    If not → mark cancelled, skip    │
-│ 3. Format date/time for PH timezone │
-│ 4. Send SMS to customer phone       │
-│ 5. Send SMS to admin backup numbers │
-│ 6. Send email if customer has email │
-│ 7. Log to reservation_notifications │
-│ 8. Update reminder status           │
-└─────────────────────────────────────┘
-```
+| Criteria | Status |
+|----------|--------|
+| Confirmed reservations receive reminders automatically | ✅ Cron job + edge function every 15 min |
+| SMS is always sent when phone exists | ✅ Phone is required for reservations |
+| Email is sent only when email exists | ✅ Conditional check in edge function |
+| No reminders for cancelled/rejected | ✅ Status check before sending, cancellation on reject |
+| Reminders are never duplicated | ✅ Unique constraint + status check |
+| All reminders are logged | ✅ reservation_notifications table |
 
 ---
 
-## Files to Create/Modify
+## Testing the System
 
-| File | Action | Description |
-|------|--------|-------------|
-| **Database Migration** | CREATE | Enable pg_cron, create `reservation_reminders` table, schedule cron job |
-| `supabase/functions/send-reservation-reminder/index.ts` | CREATE | New edge function for processing reminders |
-| `supabase/config.toml` | MODIFY | Add `send-reservation-reminder` function config |
-| `src/pages/admin/ReservationDetail.tsx` | MODIFY | Add reminder scheduling on confirm, cancellation on reject |
-| `src/hooks/useSmsNotifications.ts` | MODIFY | Add `reservation_reminder` type |
-| `src/hooks/useEmailNotifications.ts` | MODIFY | Add `reservation_reminder` type |
-| `supabase/functions/send-sms-notification/index.ts` | MODIFY | Add `reservation_reminder` default template |
-| `supabase/functions/send-email-notification/index.ts` | MODIFY | Add `reservation_reminder` subject and template |
-
----
-
-## Duplication Prevention
-
-Each reminder uniquely identified by composite key: `(reservation_id, reminder_type)`
-
-**Before sending:**
-1. Check reminder `status = 'pending'`
-2. Check reservation `status = 'confirmed'`
-3. Immediately update status to `sent` after successful send
-
-**Result:** Even if cron runs multiple times, each reminder is only sent once.
+1. **Create a reservation** and confirm it
+2. **Check `reservation_reminders` table** for scheduled reminders
+3. **Wait for cron job** (runs every 15 minutes) or **manually trigger**:
+   ```sql
+   SELECT net.http_post(
+     url:='https://saxwbdwmuzkmxztagfot.supabase.co/functions/v1/send-reservation-reminder',
+     headers:='{"Content-Type": "application/json", "Authorization": "Bearer ..."}'::jsonb,
+     body:='{}'::jsonb
+   );
+   ```
+4. **Check `reservation_notifications` table** for logs
+5. **Check `sms_logs` table** for SMS delivery details
 
 ---
 
-## Admin Backup SMS Copies
+## Future Enhancements (R4.7)
 
-For reminder SMS, always send copies to the configured admin backup numbers:
-- `+639214080286`
-- `+639569669710`
-
-These are silent copies - the edge function sends SMS to these numbers automatically, just like it does for order SMS notifications.
-
----
-
-## Logging Integration
-
-All reminder sends logged to `reservation_notifications` table:
-- **channel**: 'email' or 'sms'
-- **trigger_type**: 'automatic'
-- **message_type**: 'reservation_reminder_24h' or 'reservation_reminder_3h'
-- **status**: 'sent' or 'failed'
-- **recipient**: Customer phone/email or admin backup number
-
-Visible in admin reservation detail under "Notification History".
-
----
-
-## Acceptance Criteria Mapping
-
-| Criteria | Implementation |
-|----------|----------------|
-| Confirmed reservations receive reminders automatically | Cron job + edge function every 15 min |
-| SMS is always sent when phone exists | Phone is required for reservations |
-| Email is sent only when email exists | Conditional check in edge function |
-| No reminders for cancelled/rejected | Status check before sending |
-| Reminders are never duplicated | Unique constraint + status check |
-| All reminders are logged | reservation_notifications table |
-
----
-
-## What This Creates
-
-1. `reservation_reminders` table for scheduling
-2. `send-reservation-reminder` edge function
-3. pg_cron job running every 15 minutes
-4. Reminder scheduling on confirmation
-5. Reminder cancellation on rejection
-6. SMS + Email templates for reminders
-7. Admin backup SMS copies
-8. Full audit logging
-
----
-
-## What This Does NOT Create
-
-- Manual reminder sending UI
+- 24h reminder toggle (admin configurable)
 - Reminder customization UI
-- WhatsApp/Messenger/Push notifications
+- WhatsApp/Messenger notifications
 - Analytics dashboards
-- 24h reminder toggle (configurable later in R4.7)
-

@@ -164,6 +164,7 @@ function getTriggerEventLabel(type: string, orderType?: string): string {
     new_reservation: 'New Reservation',
     reservation_confirmed: 'Reservation Confirmed',
     reservation_cancelled: 'Reservation Cancelled',
+    reservation_reminder: 'Reservation Reminder',
     test_email: 'Test Email',
   };
   return labels[type] || type.replace(/_/g, ' ');
@@ -481,6 +482,7 @@ function getEmailTypeLabel(type: string): string {
     new_reservation: 'New Reservation',
     reservation_confirmed: 'Reservation Confirmed',
     reservation_cancelled: 'Reservation Cancelled',
+    reservation_reminder: 'Reservation Reminder',
   };
   return labels[type] || type.replace(/_/g, ' ');
 }
@@ -638,6 +640,7 @@ function getDefaultSubject(type: string, orderNumber?: string, payload?: EmailPa
     review_request: `⭐ We'd love your feedback! - Order #${orderNumber}`,
     reservation_confirmed: `✅ Your Reservation is Confirmed! - ${payload?.reservationCode || ''}`,
     reservation_cancelled: `Reservation Update - ${payload?.reservationCode || ''}`,
+    reservation_reminder: `🍽️ Reminder: Your ARW Reservation – ${payload?.reservationDate || ''} at ${payload?.reservationTime || ''}`,
   };
   return subjects[type] || `Order #${orderNumber} Update`;
 }
@@ -1128,6 +1131,45 @@ function getDefaultTemplate(payload: EmailPayload): string {
 
           <p>We apologize for any inconvenience. Please contact us if you would like to book a different time.</p>
           <p><strong>Contact:</strong> ${BUSINESS_PHONE}</p>
+        </div>
+      `;
+      break;
+
+    case 'reservation_reminder':
+      content = `
+        <div class="content">
+          <h2>🍽️ Reminder: Your Reservation is Coming Up!</h2>
+          <p>Hi ${customerName},</p>
+          <p>This is a friendly reminder about your upcoming reservation at ${BUSINESS_NAME}.</p>
+          
+          <div class="order-box" style="background: #fef3c7; border-color: #fde68a;">
+            <div class="order-number" style="color: #92400e;">${payload.reservationCode || ''}</div>
+            <span class="status-badge" style="background: #dcfce7; color: #166534;">Confirmed</span>
+          </div>
+
+          <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 20px; margin: 20px 0;">
+            <h3 style="margin: 0 0 15px; color: #1e40af;">📅 Reservation Details</h3>
+            <table style="width: 100%;">
+              <tr><td style="padding: 5px 0; color: #6b7280; width: 100px;">Date:</td><td style="font-weight: 600;">${payload.reservationDate || ''}</td></tr>
+              <tr><td style="padding: 5px 0; color: #6b7280;">Time:</td><td style="font-weight: 600;">${payload.reservationTime || ''}</td></tr>
+              <tr><td style="padding: 5px 0; color: #6b7280;">Party Size:</td><td style="font-weight: 600;">${payload.pax || 0} ${(payload.pax || 0) === 1 ? 'guest' : 'guests'}</td></tr>
+            </table>
+          </div>
+
+          <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 20px; margin: 20px 0; text-align: center;">
+            <h3 style="margin: 0 0 10px; color: #166534;">📍 Location</h3>
+            <p style="margin: 0; font-size: 16px; font-weight: 600;">${BUSINESS_NAME}</p>
+            <p style="margin: 5px 0 0;">${BUSINESS_ADDRESS}</p>
+            <p style="margin: 5px 0 0; color: #6b7280;">${BUSINESS_PHONE}</p>
+          </div>
+
+          <p style="margin-top: 20px; color: #374151; text-align: center; font-size: 16px;">
+            <strong>We look forward to seeing you! 🎉</strong>
+          </p>
+          
+          <p style="margin-top: 15px; color: #6b7280; text-align: center; font-size: 14px;">
+            Need to make changes? Contact us at ${BUSINESS_PHONE}
+          </p>
         </div>
       `;
       break;

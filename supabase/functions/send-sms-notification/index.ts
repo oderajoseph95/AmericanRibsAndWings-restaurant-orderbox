@@ -224,6 +224,9 @@ function getDefaultMessage(type: string, payload: SmsPayload): string {
     
     reservation_cancelled: `Your reservation was not approved.\nCode: ${reservationCode}\nPlease contact us if you have questions.\n- American Ribs & Wings`,
     
+    // Reservation reminder
+    reservation_reminder: `ARW Reminder 🍽️\n\nHi ${payload.customerName || ''},\nReminder for your reservation ${reservationDate} at ${reservationTime} for ${pax} guests.\n\nCode: ${reservationCode}\n📍 American Ribs & Wings – Floridablanca\n\nSee you soon!`,
+    
     // Review request - MUST be under 140 characters
     review_request: `Loved your order? Review us! g.page/r/CX7_36IAlM8XEBM/review - American Ribs & Wings`,
     

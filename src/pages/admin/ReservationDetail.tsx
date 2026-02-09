@@ -165,6 +165,98 @@ export default function ReservationDetail() {
         details: `Changed reservation status from ${reservation?.status} to ${newStatus}${confirmationCode ? ` (Confirmation: ${confirmationCode})` : ''}`,
       });
 
+      // REMINDER SCHEDULING LOGIC - R4.1
+      if (newStatus === 'confirmed' && reservation) {
+        // Schedule reminders when reservation is confirmed
+        try {
+          // Parse reservation datetime in Philippines timezone
+          const [hours, minutes] = reservation.reservation_time.split(':');
+          const reservationDateTime = new Date(reservation.reservation_date);
+          reservationDateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+          
+          const now = new Date();
+          const hoursUntilReservation = (reservationDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+          
+          console.log(`Scheduling reminders: ${hoursUntilReservation.toFixed(1)} hours until reservation`);
+          
+          if (hoursUntilReservation > 24) {
+            // Case 1: More than 24 hours away - schedule both 24h and 3h reminders
+            const reminder24h = new Date(reservationDateTime.getTime() - 24 * 60 * 60 * 1000);
+            const reminder3h = new Date(reservationDateTime.getTime() - 3 * 60 * 60 * 1000);
+            
+            // Insert 24h reminder
+            await supabase.from('reservation_reminders').upsert({
+              reservation_id: reservation.id,
+              reminder_type: '24h',
+              scheduled_for: reminder24h.toISOString(),
+              status: 'pending',
+            }, { onConflict: 'reservation_id,reminder_type' });
+            
+            // Insert 3h reminder
+            await supabase.from('reservation_reminders').upsert({
+              reservation_id: reservation.id,
+              reminder_type: '3h',
+              scheduled_for: reminder3h.toISOString(),
+              status: 'pending',
+            }, { onConflict: 'reservation_id,reminder_type' });
+            
+            console.log('Scheduled 24h and 3h reminders');
+            
+          } else if (hoursUntilReservation > 3) {
+            // Case 2: Between 3-24 hours - only schedule 3h reminder
+            const reminder3h = new Date(reservationDateTime.getTime() - 3 * 60 * 60 * 1000);
+            
+            await supabase.from('reservation_reminders').upsert({
+              reservation_id: reservation.id,
+              reminder_type: '3h',
+              scheduled_for: reminder3h.toISOString(),
+              status: 'pending',
+            }, { onConflict: 'reservation_id,reminder_type' });
+            
+            console.log('Scheduled 3h reminder (skipped 24h - too late)');
+            
+          } else if (hoursUntilReservation > 0) {
+            // Case 3: Less than 3 hours - send immediate reminder
+            console.log('Reservation less than 3h away - triggering immediate reminder');
+            
+            // Insert as immediate type and mark as pending (will be picked up by next cron run)
+            // Or trigger the edge function directly
+            await supabase.from('reservation_reminders').upsert({
+              reservation_id: reservation.id,
+              reminder_type: 'immediate',
+              scheduled_for: new Date().toISOString(), // Now
+              status: 'pending',
+            }, { onConflict: 'reservation_id,reminder_type' });
+            
+            // Also trigger the edge function directly for immediate processing
+            supabase.functions.invoke('send-reservation-reminder', { body: {} })
+              .then(() => console.log('Immediate reminder triggered'))
+              .catch(err => console.error('Failed to trigger immediate reminder:', err));
+          }
+          // else: reservation is in the past, don't schedule any reminders
+        } catch (reminderError) {
+          console.error('Error scheduling reminders:', reminderError);
+          // Don't fail the status update if reminder scheduling fails
+        }
+      } else if ((newStatus === 'cancelled' || newStatus === 'no_show') && reservation) {
+        // Cancel pending reminders when reservation is cancelled or marked no-show
+        try {
+          const { error: cancelError } = await supabase
+            .from('reservation_reminders')
+            .update({ status: 'cancelled' })
+            .eq('reservation_id', reservation.id)
+            .eq('status', 'pending');
+          
+          if (cancelError) {
+            console.error('Error cancelling reminders:', cancelError);
+          } else {
+            console.log('Cancelled pending reminders for reservation');
+          }
+        } catch (reminderError) {
+          console.error('Error cancelling reminders:', reminderError);
+        }
+      }
+
       // Send customer email notification (only if customer has email and status is confirmed or cancelled)
       if (reservation?.email && (newStatus === 'confirmed' || newStatus === 'cancelled')) {
         const emailType = newStatus === 'confirmed' ? 'reservation_confirmed' : 'reservation_cancelled';
