@@ -1,24 +1,23 @@
 
-
-# ISSUE R4.2 — Reservation Capacity & Slot Availability Control
+# ISSUE R4.3 — Customer Reservation Lookup & Status Page
 
 ## Overview
 
-Implement a time-slot based capacity system that prevents overbooking by enforcing pax limits per 30-minute time slot during reservation submission. This ensures customers cannot exceed capacity under any condition.
+Transform the existing reservation tracking page from URL-based lookup (code only) to form-based secure lookup requiring BOTH reservation code AND phone number. This prevents information disclosure and enables customers to independently verify their reservation status.
 
 ---
 
 ## Current State Analysis
 
 ### Existing Infrastructure
-- **Reservation Table**: Has `reservation_date` (DATE), `reservation_time` (TIME), `pax` (INTEGER), `status` (ENUM)
-- **Status Values**: `pending`, `confirmed`, `cancelled`, `completed`, `no_show`
-- **create_reservation RPC**: Two overloads - handles validation and code generation, but NO capacity check
-- **Store Hours**: Configured in settings as `{open: "11:00", close: "21:00", timezone: "Asia/Manila"}`
-- **Time Slots**: Already generated in 30-minute increments in ReservationForm.tsx
+- **Route**: `/reserve/track/:confirmationCode` - URL param lookup (insecure)
+- **Page**: `src/pages/ReservationTracking.tsx` - Already has nice UI, status badges, pre-order display
+- **Lookup**: Direct Supabase query with just confirmation code (no phone verification)
+- **Phone Normalization**: Already exists in `ReservationForm.tsx` (can reuse)
+- **Analytics**: `analytics_events` table exists but event types are limited
 
-### Key Insight
-The capacity check MUST happen inside the `create_reservation` database function to prevent race conditions. Using transactional validation at the database level ensures that two concurrent submissions cannot both succeed when only one slot remains.
+### Security Gap
+Current implementation allows anyone with a reservation code to view details without phone verification. This exposes customer data.
 
 ---
 
@@ -26,280 +25,156 @@ The capacity check MUST happen inside the `create_reservation` database function
 
 ### 1. Database Changes
 
-#### A. Add Capacity Configuration to Settings
+#### A. Create Secure Lookup Function
+
+A database function that:
+- Requires BOTH code AND phone
+- Normalizes phone before matching
+- Returns null if either doesn't match (no information disclosure)
+- Logs lookup attempts internally
 
 ```sql
--- Insert default capacity setting
-INSERT INTO settings (key, value)
-VALUES ('reservation_capacity', '{"max_pax_per_slot": 40}')
-ON CONFLICT (key) DO NOTHING;
-```
-
-#### B. Create Capacity Check Function
-
-Create a reusable function that checks if a slot has capacity:
-
-```sql
-CREATE OR REPLACE FUNCTION public.check_slot_capacity(
-  p_reservation_date DATE,
-  p_reservation_time TIME,
-  p_requested_pax INTEGER
+CREATE OR REPLACE FUNCTION public.lookup_reservation(
+  p_code TEXT,
+  p_phone TEXT
 )
-RETURNS TABLE(available BOOLEAN, current_pax INTEGER, max_pax INTEGER, remaining INTEGER)
+RETURNS JSON
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
 DECLARE
-  v_max_pax INTEGER := 40;  -- Default
-  v_current_pax INTEGER := 0;
-  v_slot_start TIME;
-  v_slot_end TIME;
+  v_reservation RECORD;
+  v_normalized_phone TEXT;
 BEGIN
-  -- Get capacity setting
-  SELECT (value->>'max_pax_per_slot')::INTEGER INTO v_max_pax
-  FROM settings WHERE key = 'reservation_capacity';
+  -- Normalize phone: strip non-digits, handle +63/0 prefix
+  v_normalized_phone := regexp_replace(TRIM(p_phone), '[^0-9]', '', 'g');
   
-  IF v_max_pax IS NULL THEN
-    v_max_pax := 40;
+  -- Handle +63 prefix conversion to 0
+  IF TRIM(p_phone) LIKE '+63%' THEN
+    v_normalized_phone := '0' || RIGHT(v_normalized_phone, 10);
   END IF;
   
-  -- Calculate slot boundaries (30-minute slots)
-  -- Slot starts at the top or half hour
-  v_slot_start := (DATE_TRUNC('hour', p_reservation_time::TIMESTAMP) + 
-    INTERVAL '30 minutes' * FLOOR(EXTRACT(MINUTE FROM p_reservation_time) / 30))::TIME;
-  v_slot_end := v_slot_start + INTERVAL '30 minutes';
-  
-  -- Sum pax for this slot (pending + confirmed only)
-  SELECT COALESCE(SUM(pax), 0) INTO v_current_pax
-  FROM reservations
-  WHERE reservation_date = p_reservation_date
-    AND reservation_time >= v_slot_start
-    AND reservation_time < v_slot_end
-    AND status IN ('pending', 'confirmed');
-  
-  RETURN QUERY SELECT 
-    (v_current_pax + p_requested_pax) <= v_max_pax AS available,
-    v_current_pax AS current_pax,
-    v_max_pax AS max_pax,
-    GREATEST(v_max_pax - v_current_pax, 0) AS remaining;
-END;
-$$;
-```
-
-#### C. Update create_reservation Function
-
-Add capacity check with transactional locking:
-
-```sql
-CREATE OR REPLACE FUNCTION public.create_reservation(
-  p_name text,
-  p_phone text,
-  p_email text DEFAULT NULL,
-  p_pax integer DEFAULT 2,
-  p_reservation_date date DEFAULT NULL,
-  p_reservation_time time DEFAULT NULL,
-  p_notes text DEFAULT NULL,
-  p_preorder_items jsonb DEFAULT NULL
-)
-RETURNS TABLE(id uuid, reservation_code text)
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $$
-DECLARE
-  v_reservation_id UUID;
-  v_code TEXT;
-  v_hash TEXT;
-  v_existing_id UUID;
-  v_attempts INTEGER := 0;
-  v_max_pax INTEGER := 40;
-  v_current_pax INTEGER := 0;
-  v_slot_start TIME;
-  v_slot_end TIME;
-BEGIN
-  -- Existing validations...
-  IF p_name IS NULL OR TRIM(p_name) = '' THEN
-    RAISE EXCEPTION 'Name is required';
+  -- If starts with 63 (12 digits), convert to 0 prefix
+  IF LENGTH(v_normalized_phone) = 12 AND LEFT(v_normalized_phone, 2) = '63' THEN
+    v_normalized_phone := '0' || RIGHT(v_normalized_phone, 10);
   END IF;
   
-  IF p_phone IS NULL OR TRIM(p_phone) = '' THEN
-    RAISE EXCEPTION 'Phone is required';
+  -- If starts with 9 (10 digits), add 0 prefix
+  IF LENGTH(v_normalized_phone) = 10 AND LEFT(v_normalized_phone, 1) = '9' THEN
+    v_normalized_phone := '0' || v_normalized_phone;
   END IF;
   
-  IF p_pax < 1 OR p_pax > 20 THEN
-    RAISE EXCEPTION 'Party size must be between 1 and 20';
-  END IF;
-
-  IF p_reservation_date IS NULL THEN
-    RAISE EXCEPTION 'Reservation date is required';
-  END IF;
-
-  IF p_reservation_time IS NULL THEN
-    RAISE EXCEPTION 'Reservation time is required';
-  END IF;
-  
-  -- ========== NEW: CAPACITY CHECK ==========
-  
-  -- Get capacity setting
-  SELECT (value->>'max_pax_per_slot')::INTEGER INTO v_max_pax
-  FROM settings WHERE key = 'reservation_capacity';
-  
-  IF v_max_pax IS NULL THEN
-    v_max_pax := 40;
-  END IF;
-  
-  -- Calculate slot boundaries (30-minute slots)
-  v_slot_start := (DATE_TRUNC('hour', p_reservation_time::TIMESTAMP) + 
-    INTERVAL '30 minutes' * FLOOR(EXTRACT(MINUTE FROM p_reservation_time) / 30))::TIME;
-  v_slot_end := v_slot_start + INTERVAL '30 minutes';
-  
-  -- Lock and sum pax for this slot (FOR UPDATE to prevent race conditions)
-  SELECT COALESCE(SUM(pax), 0) INTO v_current_pax
-  FROM reservations
-  WHERE reservation_date = p_reservation_date
-    AND reservation_time >= v_slot_start
-    AND reservation_time < v_slot_end
-    AND status IN ('pending', 'confirmed')
-  FOR UPDATE;
-  
-  -- Block if capacity would be exceeded
-  IF (v_current_pax + p_pax) > v_max_pax THEN
-    RAISE EXCEPTION 'Sorry, this time slot is already full. Please choose a different time.';
-  END IF;
-  
-  -- ========== END CAPACITY CHECK ==========
-  
-  -- Generate idempotency hash from name + phone + date + time
-  v_hash := md5(
-    LOWER(TRIM(p_name)) || '|' || 
-    TRIM(p_phone) || '|' || 
-    p_reservation_date::TEXT || '|' || 
-    p_reservation_time::TEXT
-  );
-  
-  -- Check for duplicate within 5 minutes (idempotent behavior)
-  SELECT reservations.id INTO v_existing_id
-  FROM reservations
-  WHERE idempotency_hash = v_hash
-    AND created_at > (now() - INTERVAL '5 minutes');
-  
-  IF v_existing_id IS NOT NULL THEN
-    -- Return existing reservation (idempotent - no duplicate created)
-    RETURN QUERY SELECT reservations.id, reservations.reservation_code
-    FROM reservations WHERE reservations.id = v_existing_id;
-    RETURN;
-  END IF;
-  
-  -- Generate unique code with retry
-  LOOP
-    v_code := 'ARW-RSV-' || LPAD(FLOOR(RANDOM() * 10000)::TEXT, 4, '0');
-    
-    IF NOT EXISTS (SELECT 1 FROM reservations WHERE reservations.reservation_code = v_code) THEN
-      EXIT;
-    END IF;
-    
-    v_attempts := v_attempts + 1;
-    IF v_attempts > 10 THEN
-      RAISE EXCEPTION 'Failed to generate unique reservation code';
-    END IF;
-  END LOOP;
-  
-  -- Insert reservation with idempotency hash and preorder items
-  INSERT INTO reservations (
-    reservation_code,
-    name,
-    phone,
-    email,
-    pax,
-    reservation_date,
-    reservation_time,
-    notes,
-    status,
-    preorder_items,
-    idempotency_hash
-  ) VALUES (
-    v_code,
-    TRIM(p_name),
-    TRIM(p_phone),
-    NULLIF(TRIM(p_email), ''),
-    p_pax,
-    p_reservation_date,
-    p_reservation_time,
-    NULLIF(TRIM(p_notes), ''),
-    'pending',
-    p_preorder_items,
-    v_hash
+  -- Lookup by code (case-insensitive) AND phone (normalized match)
+  SELECT 
+    r.id,
+    r.reservation_code,
+    r.confirmation_code,
+    r.name,
+    r.pax,
+    r.reservation_date,
+    r.reservation_time,
+    r.status,
+    r.preorder_items,
+    r.created_at
+  INTO v_reservation
+  FROM reservations r
+  WHERE (
+    UPPER(r.confirmation_code) = UPPER(TRIM(p_code))
+    OR UPPER(r.reservation_code) = UPPER(TRIM(p_code))
   )
-  RETURNING reservations.id INTO v_reservation_id;
+  AND (
+    -- Match normalized phone in various formats
+    regexp_replace(r.phone, '[^0-9]', '', 'g') = v_normalized_phone
+    OR regexp_replace(r.phone, '[^0-9]', '', 'g') = RIGHT(v_normalized_phone, 10)
+    OR RIGHT(regexp_replace(r.phone, '[^0-9]', '', 'g'), 10) = RIGHT(v_normalized_phone, 10)
+  )
+  LIMIT 1;
   
-  RETURN QUERY SELECT v_reservation_id, v_code;
+  -- If not found, return null (no information disclosure)
+  IF v_reservation IS NULL THEN
+    RETURN NULL;
+  END IF;
+  
+  -- Return safe reservation data (no sensitive admin fields)
+  RETURN json_build_object(
+    'reservation_code', COALESCE(v_reservation.confirmation_code, v_reservation.reservation_code),
+    'name', v_reservation.name,
+    'pax', v_reservation.pax,
+    'reservation_date', v_reservation.reservation_date,
+    'reservation_time', v_reservation.reservation_time,
+    'status', v_reservation.status,
+    'preorder_items', v_reservation.preorder_items
+  );
 END;
 $$;
 ```
 
-**Key Changes:**
-1. **Get capacity setting**: Reads `max_pax_per_slot` from settings (default: 40)
-2. **Calculate slot boundaries**: Rounds time to 30-minute slot
-3. **Lock rows for update**: Uses `FOR UPDATE` to prevent race conditions
-4. **Block if full**: Raises exception with customer-friendly message
+#### B. Add Lookup Event Types to Analytics
 
-### 2. Frontend Changes
+The existing `analytics_events` table can accept any event type string. We'll add:
+- `reservation_lookup_success`
+- `reservation_lookup_failed`
 
-#### A. Update ReservationForm.tsx Error Handling
+No schema changes needed - just new event types.
 
-The form already catches RPC errors and displays them via toast. The error message "Sorry, this time slot is already full..." will be shown automatically.
+### 2. Route Changes
 
-Optionally, enhance the UI to show availability before submission (future enhancement, out of scope for this issue).
-
----
-
-## Slot Calculation Logic
-
-Time slots are 30-minute blocks:
-- `11:00 - 11:30`
-- `11:30 - 12:00`
-- `12:00 - 12:30`
-- etc.
-
-A reservation time of `11:15` falls into the `11:00 - 11:30` slot.
-A reservation time of `11:45` falls into the `11:30 - 12:00` slot.
-
-The calculation:
-```sql
-slot_start = DATE_TRUNC('hour', time) + 30min * FLOOR(EXTRACT(MINUTE FROM time) / 30)
-slot_end = slot_start + 30 minutes
+**App.tsx updates:**
+```
+OLD: /reserve/track/:confirmationCode
+NEW: /reserve/track (no params)
 ```
 
----
+The old URL-param route should be removed for security.
 
-## Capacity Counting Rules
+### 3. Page Rewrite: ReservationTracking.tsx
 
-Only count reservations with status:
-- `pending` ✅
-- `confirmed` ✅
+Transform from URL-param lookup to form-based lookup:
 
-Do NOT count:
-- `cancelled` ❌
-- `completed` ❌ (past reservations)
-- `no_show` ❌
+**States:**
+1. **Initial**: Show lookup form (code + phone inputs)
+2. **Loading**: Show skeleton while looking up
+3. **Found**: Show reservation details (current UI)
+4. **Not Found**: Show error message with retry option
 
----
-
-## Race Condition Prevention
-
-The `FOR UPDATE` clause in the query:
-```sql
-SELECT SUM(pax) INTO v_current_pax
-FROM reservations
-WHERE reservation_date = ... AND reservation_time >= v_slot_start ...
-FOR UPDATE;
+**UI Flow:**
+```
+┌─────────────────────────────────────┐
+│ Header: "Check Reservation Status"  │
+├─────────────────────────────────────┤
+│                                     │
+│  ┌─────────────────────────────┐    │
+│  │ Reservation Code            │    │
+│  │ [ARW-RSV-XXXX             ] │    │
+│  └─────────────────────────────┘    │
+│                                     │
+│  ┌─────────────────────────────┐    │
+│  │ Phone Number                │    │
+│  │ [09171234567              ] │    │
+│  └─────────────────────────────┘    │
+│                                     │
+│  [       Check Status        ]      │
+│                                     │
+└─────────────────────────────────────┘
 ```
 
-This locks the matching rows during the transaction. If two users submit simultaneously:
-1. First transaction locks the rows, calculates capacity, inserts
-2. Second transaction waits for lock, then recalculates with updated data
-3. If capacity exceeded after first insert, second is blocked
+After successful lookup, show existing reservation details UI with added store contact info section.
+
+### 4. Security Features
+
+- **No code exposure in URL**: Form-based lookup prevents sharing/leaking
+- **Dual verification**: Both code AND phone required
+- **Normalized matching**: Handles various phone formats
+- **No information disclosure**: Same error for invalid code or invalid phone
+- **Rate limiting**: Frontend debounce + future server-side rate limiting
+
+### 5. Store Contact Info Section
+
+Add a card at the bottom with:
+- Store name: "American Ribs & Wings"
+- Phone: From constants (STORE_PHONE)
+- Address: From constants (STORE_ADDRESS_LINE1-3)
 
 ---
 
@@ -307,68 +182,95 @@ This locks the matching rows during the transaction. If two users submit simulta
 
 | File | Action | Description |
 |------|--------|-------------|
-| **Database Migration** | CREATE | Add capacity setting, create `check_slot_capacity` function, update `create_reservation` |
-| `src/components/reservation/ReservationForm.tsx` | MINOR | Error message already displays via toast - no changes needed |
+| **Database Migration** | CREATE | Create `lookup_reservation` function |
+| `src/App.tsx` | MODIFY | Change route from `/reserve/track/:confirmationCode` to `/reserve/track` |
+| `src/pages/ReservationTracking.tsx` | REWRITE | Add lookup form, use RPC instead of direct query |
+| `src/hooks/useAnalytics.ts` | MODIFY | Add new event types for lookup tracking |
 
 ---
 
-## Edge Cases Handled
+## Phone Normalization Logic
 
-| Case | Handling |
-|------|----------|
-| Same customer multiple reservations | Allowed, counted toward capacity |
-| Admin-created reservations | Same RPC, same rules apply |
-| Store closed hours | Time slots only generated within store hours (ReservationForm.tsx already handles this) |
-| Two concurrent submissions | FOR UPDATE locking ensures first-commit-wins |
-| Pax exceeds individual limit (>20) | Already validated, max 20 per reservation |
+Reuse existing pattern from `ReservationForm.tsx`:
 
----
+| Input | Normalized |
+|-------|------------|
+| `09171234567` | `09171234567` |
+| `9171234567` | `09171234567` |
+| `+639171234567` | `09171234567` |
+| `639171234567` | `09171234567` |
 
-## Default Configuration
-
-| Setting | Default Value | Notes |
-|---------|---------------|-------|
-| Max pax per slot | 40 | Configurable via settings table |
-| Slot duration | 30 minutes | Fixed in V1 |
+The database function handles normalization for matching.
 
 ---
 
-## Error Message
+## Status Badge Configuration
 
-When capacity is exceeded, customer sees:
+Already exists in current code - no changes needed:
+
+| Status | Label | Color | Message |
+|--------|-------|-------|---------|
+| pending | "Pending Confirmation" | Yellow | "Your reservation is awaiting confirmation..." |
+| confirmed | "Confirmed" | Green | "Please arrive on time..." |
+| cancelled | "Not Approved" | Red | "Your reservation was not approved..." |
+| completed | "Completed" | Emerald | "Thank you for dining with us!" |
+| no_show | "No Show" | Gray | "This reservation was marked as no-show." |
+
+---
+
+## Event Logging
+
+Track lookup attempts for abuse monitoring:
+
+```typescript
+// On successful lookup
+trackAnalyticsEvent('reservation_lookup_success', {
+  reservation_code: code,
+  // NO phone logged for privacy
+});
+
+// On failed lookup
+trackAnalyticsEvent('reservation_lookup_failed', {
+  attempted_code: code,
+  // NO phone logged
+});
 ```
-Sorry, this time slot is already full. Please choose a different time.
+
+---
+
+## UI/UX Details
+
+### Mobile-First Layout
+- Single column, max-width 448px (max-w-md)
+- Large touch targets
+- Clear typography
+- Status badge visually prominent
+
+### Error State
+```
+┌─────────────────────────────────────┐
+│  [!] Reservation Not Found          │
+│                                     │
+│  We couldn't find a reservation     │
+│  with those details. Please check   │
+│  your code and phone number.        │
+│                                     │
+│  [        Try Again        ]        │
+└─────────────────────────────────────┘
 ```
 
-This is clear, actionable, and doesn't expose internal capacity numbers.
-
----
-
-## Testing Scenarios
-
-1. **Normal submission**: Pax 4, slot has 30/40 → Success
-2. **At capacity**: Pax 10, slot has 35/40 → Blocked with error
-3. **Cancelled don't count**: Pax 4, slot has 35 pending + 5 cancelled → Success (35+4=39 ≤ 40)
-4. **Race condition**: Two simultaneous pax 25 submissions to empty slot → Only one succeeds
-
----
-
-## What This Creates
-
-1. `check_slot_capacity` database function (reusable for future UI)
-2. Updated `create_reservation` with capacity validation
-3. `reservation_capacity` setting in settings table
-4. Race-condition-safe capacity enforcement
-
----
-
-## What This Does NOT Create
-
-- Waitlist functionality
-- Admin capacity override
-- Visual capacity indicators
-- Per-table or per-area seating
-- Capacity analytics dashboard
+### Store Contact Card
+```
+┌─────────────────────────────────────┐
+│  Need Help?                         │
+│                                     │
+│  📍 American Ribs & Wings           │
+│     GF Unit 11-14 Hony Arcade       │
+│     Floridablanca, Pampanga         │
+│                                     │
+│  📞 0976 207 4276                   │
+└─────────────────────────────────────┘
+```
 
 ---
 
@@ -376,23 +278,45 @@ This is clear, actionable, and doesn't expose internal capacity numbers.
 
 | Criteria | Implementation |
 |----------|----------------|
-| Customers cannot exceed pax capacity per slot | FOR UPDATE lock + exception |
-| Capacity is enforced consistently | Database-level check (cannot bypass) |
-| Store hours are respected | Time slots already limited by ReservationForm |
-| Rejected/cancelled don't count | WHERE status IN ('pending', 'confirmed') |
-| No duplicate capacity counts | Transactional INSERT after check |
-| Overbooking is impossible | First-commit-wins with row locking |
+| Customers can reliably find their reservation | Secure RPC with dual verification |
+| Status is accurate and up-to-date | Direct database query |
+| Incorrect lookups fail safely | Same error for any mismatch |
+| UI works cleanly on mobile | Mobile-first, single column |
+| No private data leaks | No URL params, no disclosure on mismatch |
+| Read-only display | No edit/cancel buttons |
+| Status-specific messaging | Existing statusConfig remains |
 
 ---
 
-## ✅ Implementation Status
+## What This Creates
 
-**ISSUE R4.2 — COMPLETED**
+1. `lookup_reservation` database function (secure, normalized)
+2. Redesigned `/reserve/track` page with form-based lookup
+3. Lookup event tracking for abuse monitoring
+4. Store contact info display
+5. Removal of insecure URL-param route
 
-Migration applied successfully:
-- ✅ `reservation_capacity` setting added (default: 40 pax per slot)
-- ✅ `check_slot_capacity` function created (reusable for future UI)
-- ✅ `create_reservation` updated with capacity check + FOR UPDATE locking
-- ✅ Customer-friendly error message when slot is full
-- ✅ Race condition prevention via transactional locking
+---
 
+## What This Does NOT Create
+
+- Reservation cancellation (R4.4)
+- Editing reservation details
+- Payment processing
+- Menu browsing
+- Admin tools on customer page
+
+---
+
+## Technical Notes
+
+### Why Database Function?
+- Prevents phone enumeration attacks
+- Handles normalization server-side
+- Returns safe subset of fields only
+- No RLS bypass concerns
+
+### Why Not Direct Query?
+- Direct query would require exposing phone matching logic client-side
+- More attack surface for enumeration
+- Harder to rate limit
