@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNow } from 'date-fns';
-import { ArrowLeft, CalendarDays, Users, Phone, Mail, MessageSquare, Clock, Hash, Check, X, CheckCircle, UserX, Loader2, StickyNote, Send, Ticket } from 'lucide-react';
+import { ArrowLeft, CalendarDays, Users, Phone, Mail, MessageSquare, Clock, Hash, Check, X, CheckCircle, UserX, Loader2, StickyNote, Send, Ticket, RefreshCw } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -72,6 +72,8 @@ export default function ReservationDetail() {
   const queryClient = useQueryClient();
   const { user, displayName } = useAuth();
   const [noteText, setNoteText] = useState('');
+  const [resendingEmail, setResendingEmail] = useState(false);
+  const [resendingSms, setResendingSms] = useState(false);
 
   const { data: reservation, isLoading, error } = useQuery({
     queryKey: ['admin-reservation', id],
@@ -261,6 +263,107 @@ export default function ReservationDetail() {
       return format(date, 'h:mm a');
     } catch {
       return time;
+    }
+  };
+
+  // Resend Email Handler
+  const handleResendEmail = async () => {
+    if (!reservation?.email) return;
+    
+    setResendingEmail(true);
+    try {
+      const emailType = reservation.status === 'confirmed' 
+        ? 'reservation_confirmed' 
+        : 'reservation_cancelled';
+      
+      const formattedDate = format(new Date(reservation.reservation_date), 'MMMM d, yyyy');
+      const formattedTime = formatTime(reservation.reservation_time);
+      
+      const preorderItemsData = reservation.preorder_items as unknown as PreorderItem[] | null;
+      
+      const result = await sendEmailNotification({
+        type: emailType,
+        recipientEmail: reservation.email,
+        reservationId: reservation.id,
+        reservationCode: reservation.confirmation_code || reservation.reservation_code,
+        customerName: reservation.name,
+        customerPhone: reservation.phone,
+        customerEmail: reservation.email,
+        reservationDate: formattedDate,
+        reservationTime: formattedTime,
+        pax: reservation.pax,
+        notes: reservation.notes || undefined,
+        preorderItems: preorderItemsData?.map(item => ({
+          productName: item.productName,
+          quantity: item.quantity,
+        })),
+      });
+      
+      await logAdminAction({
+        action: 'resend_email',
+        entityType: 'reservation',
+        entityId: reservation.id,
+        entityName: reservation.reservation_code,
+        details: `Resent ${emailType} email to ${reservation.email}`,
+        newValues: { channel: 'email', status: result.success ? 'sent' : 'failed' },
+      });
+      
+      if (result.success) {
+        toast.success('Email resent successfully');
+      } else {
+        toast.error('Failed to resend email: ' + result.error);
+      }
+    } catch (err) {
+      toast.error('Failed to resend email');
+      console.error('Resend email error:', err);
+    } finally {
+      setResendingEmail(false);
+    }
+  };
+
+  // Resend SMS Handler
+  const handleResendSms = async () => {
+    if (!reservation?.phone) return;
+    
+    setResendingSms(true);
+    try {
+      const smsType = reservation.status === 'confirmed' 
+        ? 'reservation_confirmed' 
+        : 'reservation_cancelled';
+      
+      const smsFormattedDate = format(new Date(reservation.reservation_date), 'MMM d');
+      const smsFormattedTime = formatTime(reservation.reservation_time);
+      
+      const result = await sendSmsNotification({
+        type: smsType,
+        recipientPhone: reservation.phone,
+        reservationId: reservation.id,
+        reservationCode: reservation.confirmation_code || reservation.reservation_code,
+        customerName: reservation.name,
+        reservationDate: smsFormattedDate,
+        reservationTime: smsFormattedTime,
+        pax: reservation.pax,
+      });
+      
+      await logAdminAction({
+        action: 'resend_sms',
+        entityType: 'reservation',
+        entityId: reservation.id,
+        entityName: reservation.reservation_code,
+        details: `Resent ${smsType} SMS to ${reservation.phone}`,
+        newValues: { channel: 'sms', status: result.success ? 'sent' : 'failed' },
+      });
+      
+      if (result.success) {
+        toast.success('SMS resent successfully');
+      } else {
+        toast.error('Failed to resend SMS: ' + result.error);
+      }
+    } catch (err) {
+      toast.error('Failed to resend SMS');
+      console.error('Resend SMS error:', err);
+    } finally {
+      setResendingSms(false);
     }
   };
 
@@ -528,6 +631,53 @@ export default function ReservationDetail() {
                   </Button>
                 </>
               )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Resend Notifications */}
+      {(reservation.status === 'confirmed' || reservation.status === 'cancelled') && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <RefreshCw className="h-5 w-5 text-muted-foreground" />
+              Resend Notifications
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Re-send confirmation messages to customer
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-3">
+              {reservation.email && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleResendEmail}
+                  disabled={resendingEmail}
+                >
+                  {resendingEmail ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <Mail className="h-4 w-4 mr-2" />
+                  )}
+                  Resend Email
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleResendSms}
+                disabled={resendingSms}
+              >
+                {resendingSms ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <MessageSquare className="h-4 w-4 mr-2" />
+                )}
+                Resend SMS
+              </Button>
             </div>
           </CardContent>
         </Card>
