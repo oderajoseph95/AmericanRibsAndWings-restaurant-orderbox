@@ -9,7 +9,9 @@ type EventType =
   | "add_to_cart"
   | "checkout_start"
   | "checkout_stage"
-  | "checkout_complete";
+  | "checkout_complete"
+  | "reservation_lookup_success"
+  | "reservation_lookup_failed";
 
 export function useAnalytics() {
   const sessionId = useRef<string | null>(null);
