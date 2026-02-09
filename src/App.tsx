@@ -16,6 +16,7 @@ import Order from "./pages/Order";
 import OrderTracking from "./pages/OrderTracking";
 import ThankYou from "./pages/ThankYou";
 import MyOrders from "./pages/MyOrders";
+import Reserve from "./pages/Reserve";
 import AdminLayout from "./layouts/AdminLayout";
 import DriverLayout from "./layouts/DriverLayout";
 import Dashboard from "./pages/admin/Dashboard";
@@ -75,6 +76,7 @@ const App = () => (
                 <Route path="/order/:orderId" element={<OrderTracking />} />
                 <Route path="/thank-you/:orderId" element={<ThankYou />} />
                 <Route path="/my-orders" element={<MyOrders />} />
+                <Route path="/reserve" element={<Reserve />} />
                 <Route path="/auth" element={<AuthPage />} />
                 <Route path="/no-access" element={<NoAccess />} />
                 
