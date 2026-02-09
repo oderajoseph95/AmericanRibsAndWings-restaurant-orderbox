@@ -26,32 +26,8 @@ interface PreorderItem {
   quantity: number;
 }
 
-// Generate unique confirmation code for customer communication
-const generateConfirmationCode = async (): Promise<string> => {
-  const maxAttempts = 10;
-  
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    // Generate code: ARW-RES-XXXXX (5 digits)
-    const randomNum = Math.floor(10000 + Math.random() * 90000);
-    const code = `ARW-RES-${randomNum}`;
-    
-    // Check if code already exists
-    const { data, error } = await supabase
-      .from('reservations')
-      .select('id')
-      .eq('confirmation_code', code)
-      .maybeSingle();
-    
-    if (error) throw error;
-    
-    // If no existing reservation with this code, it's unique
-    if (!data) {
-      return code;
-    }
-  }
-  
-  throw new Error('Failed to generate unique confirmation code after maximum attempts');
-};
+// NOTE: We use a SINGLE code system - reservation_code is THE code for everything.
+// No separate confirmation_code is generated. The reservation_code assigned at creation is used throughout.
 
 const statusColors: Record<ReservationStatus, string> = {
   pending: 'bg-yellow-500/20 text-yellow-700 border-yellow-500/30',
@@ -139,22 +115,14 @@ export default function ReservationDetail() {
     mutationFn: async ({ newStatus }: { newStatus: ReservationStatus }) => {
       const { data: { user } } = await supabase.auth.getUser();
       
-      // Only generate confirmation code for pending → confirmed transition
-      let confirmationCode: string | undefined;
-      if (reservation?.status === 'pending' && newStatus === 'confirmed') {
-        confirmationCode = await generateConfirmationCode();
-      }
+      // SINGLE CODE SYSTEM: Use reservation_code for everything, no separate confirmation code
+      const reservationCode = reservation?.reservation_code;
 
       const updateData: Record<string, unknown> = {
         status: newStatus,
         status_changed_at: new Date().toISOString(),
         status_changed_by: user?.id || null,
       };
-
-      // Only include confirmation_code if we generated one
-      if (confirmationCode) {
-        updateData.confirmation_code = confirmationCode;
-      }
 
       // Track check-in with dedicated columns
       if (newStatus === 'checked_in') {
@@ -185,14 +153,14 @@ export default function ReservationDetail() {
         action: actionType,
         entityType: 'reservation',
         entityId: id,
-        entityName: reservation?.confirmation_code || reservation?.reservation_code,
+        entityName: reservationCode,
         oldValues: { status: reservation?.status },
-        newValues: { status: newStatus, confirmation_code: confirmationCode },
+        newValues: { status: newStatus },
         details: newStatus === 'checked_in' 
           ? 'Customer physically arrived and was checked in'
           : newStatus === 'completed'
             ? 'Reservation service completed'
-            : `Changed reservation status from ${reservation?.status} to ${newStatus}${confirmationCode ? ` (Confirmation: ${confirmationCode})` : ''}`,
+            : `Changed reservation status from ${reservation?.status} to ${newStatus}`,
       });
 
       // Log check-in to reservation_notifications for timeline
@@ -323,7 +291,7 @@ export default function ReservationDetail() {
           type: emailType,
           recipientEmail: reservation.email,
           reservationId: reservation.id,
-          reservationCode: confirmationCode || reservation.confirmation_code || reservation.reservation_code,
+          reservationCode: reservation.reservation_code,
           customerName: reservation.name,
           customerPhone: reservation.phone,
           customerEmail: reservation.email,
@@ -372,7 +340,7 @@ export default function ReservationDetail() {
           type: smsType,
           recipientPhone: reservation.phone,
           reservationId: reservation.id,
-          reservationCode: confirmationCode || reservation.confirmation_code || reservation.reservation_code,
+          reservationCode: reservation.reservation_code,
           customerName: reservation.name,
           reservationDate: smsFormattedDate,
           reservationTime: smsFormattedTime,
