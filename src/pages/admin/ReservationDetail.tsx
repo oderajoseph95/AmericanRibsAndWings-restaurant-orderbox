@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNow } from 'date-fns';
-import { ArrowLeft, CalendarDays, Users, Phone, Mail, MessageSquare, Clock, Hash, Check, X, CheckCircle, UserX, Loader2, StickyNote, Send } from 'lucide-react';
+import { ArrowLeft, CalendarDays, Users, Phone, Mail, MessageSquare, Clock, Hash, Check, X, CheckCircle, UserX, Loader2, StickyNote, Send, Ticket } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -21,6 +21,33 @@ interface PreorderItem {
   productName: string;
   quantity: number;
 }
+
+// Generate unique confirmation code for customer communication
+const generateConfirmationCode = async (): Promise<string> => {
+  const maxAttempts = 10;
+  
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    // Generate code: ARW-RES-XXXXX (5 digits)
+    const randomNum = Math.floor(10000 + Math.random() * 90000);
+    const code = `ARW-RES-${randomNum}`;
+    
+    // Check if code already exists
+    const { data, error } = await supabase
+      .from('reservations')
+      .select('id')
+      .eq('confirmation_code', code)
+      .maybeSingle();
+    
+    if (error) throw error;
+    
+    // If no existing reservation with this code, it's unique
+    if (!data) {
+      return code;
+    }
+  }
+  
+  throw new Error('Failed to generate unique confirmation code after maximum attempts');
+};
 
 const statusColors: Record<ReservationStatus, string> = {
   pending: 'bg-yellow-500/20 text-yellow-700 border-yellow-500/30',
@@ -63,13 +90,26 @@ export default function ReservationDetail() {
     mutationFn: async ({ newStatus }: { newStatus: ReservationStatus }) => {
       const { data: { user } } = await supabase.auth.getUser();
       
+      // Only generate confirmation code for pending → confirmed transition
+      let confirmationCode: string | undefined;
+      if (reservation?.status === 'pending' && newStatus === 'confirmed') {
+        confirmationCode = await generateConfirmationCode();
+      }
+
+      const updateData: Record<string, unknown> = {
+        status: newStatus,
+        status_changed_at: new Date().toISOString(),
+        status_changed_by: user?.id || null,
+      };
+
+      // Only include confirmation_code if we generated one
+      if (confirmationCode) {
+        updateData.confirmation_code = confirmationCode;
+      }
+
       const { error } = await supabase
         .from('reservations')
-        .update({ 
-          status: newStatus,
-          status_changed_at: new Date().toISOString(),
-          status_changed_by: user?.id || null,
-        })
+        .update(updateData)
         .eq('id', id!);
       
       if (error) throw error;
@@ -81,8 +121,8 @@ export default function ReservationDetail() {
         entityId: id,
         entityName: reservation?.reservation_code,
         oldValues: { status: reservation?.status },
-        newValues: { status: newStatus },
-        details: `Changed reservation status from ${reservation?.status} to ${newStatus}`,
+        newValues: { status: newStatus, confirmation_code: confirmationCode },
+        details: `Changed reservation status from ${reservation?.status} to ${newStatus}${confirmationCode ? ` (Confirmation: ${confirmationCode})` : ''}`,
       });
     },
     onSuccess: () => {
@@ -241,6 +281,15 @@ export default function ReservationDetail() {
                 <p className="font-medium">{reservation.reservation_code}</p>
               </div>
             </div>
+            {reservation.confirmation_code && (
+              <div className="flex items-center gap-3">
+                <Ticket className="h-4 w-4 text-muted-foreground" />
+                <div>
+                  <p className="text-sm text-muted-foreground">Confirmation Code</p>
+                  <p className="font-medium font-mono">{reservation.confirmation_code}</p>
+                </div>
+              </div>
+            )}
             <div className="flex items-center gap-3">
               <CalendarDays className="h-4 w-4 text-muted-foreground" />
               <div>
