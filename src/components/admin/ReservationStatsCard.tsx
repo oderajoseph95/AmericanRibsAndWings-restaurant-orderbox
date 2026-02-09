@@ -39,15 +39,15 @@ export function ReservationStatsCard({ dateFilter, customDateRange }: Reservatio
     }
   }, [dateFilter, customDateRange]);
 
-  // Total reservations in period (by reservation_date, not created_at)
+  // Total reservations in period (by created_at - when booking was made)
   const { data: totalCount, isLoading: loadingTotal } = useQuery({
     queryKey: ["reservation-stats", "total", dateFilter, dateRange.start.toISOString(), dateRange.end.toISOString()],
     queryFn: async () => {
       const { count, error } = await supabase
         .from("reservations")
         .select("*", { count: "exact", head: true })
-        .gte("reservation_date", format(dateRange.start, 'yyyy-MM-dd'))
-        .lte("reservation_date", format(dateRange.end, 'yyyy-MM-dd'));
+        .gte("created_at", dateRange.start.toISOString())
+        .lte("created_at", dateRange.end.toISOString());
       if (error) throw error;
       return count || 0;
     },
@@ -81,7 +81,7 @@ export function ReservationStatsCard({ dateFilter, customDateRange }: Reservatio
     },
   });
 
-  // No shows in period
+  // No shows in period (by created_at - when booking was made)
   const { data: noShowCount, isLoading: loadingNoShow } = useQuery({
     queryKey: ["reservation-stats", "no-show", dateFilter, dateRange.start.toISOString(), dateRange.end.toISOString()],
     queryFn: async () => {
@@ -89,8 +89,8 @@ export function ReservationStatsCard({ dateFilter, customDateRange }: Reservatio
         .from("reservations")
         .select("*", { count: "exact", head: true })
         .eq("status", "no_show")
-        .gte("reservation_date", format(dateRange.start, 'yyyy-MM-dd'))
-        .lte("reservation_date", format(dateRange.end, 'yyyy-MM-dd'));
+        .gte("created_at", dateRange.start.toISOString())
+        .lte("created_at", dateRange.end.toISOString());
       if (error) throw error;
       return count || 0;
     },
