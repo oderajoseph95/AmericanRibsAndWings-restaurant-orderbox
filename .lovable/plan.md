@@ -1,151 +1,179 @@
 
-
-# ISSUE R4.6 — Reservation Analytics (Admin-Only)
+# ISSUE R4.7 — Reservation Settings Panel (Admin)
 
 ## Overview
 
-Create a read-only analytics dashboard for reservation performance at `/admin/reservations/analytics`. This dashboard will provide owners and managers with visibility into reservation patterns, no-show rates, peak times, and pax distribution - all using reservation records only (no sales or payment data).
+Create a centralized, admin-only Reservation Settings page at `/admin/reservations/settings` where owners can configure reservation behavior without code changes. All currently hardcoded values will be made configurable and stored in the `settings` table.
 
 ---
 
 ## Current State Analysis
 
 ### Existing Infrastructure
-- **Reservation Status Enum**: `pending`, `confirmed`, `cancelled`, `cancelled_by_customer`, `completed`, `no_show`
-- **Reservations Table**: Contains `pax`, `reservation_date`, `reservation_time`, `status`, `created_at`
-- **Reports Page Pattern**: `src/pages/admin/Reports.tsx` provides excellent template with date filters, tabs, cards, and recharts
-- **RPC Pattern**: `get_funnel_counts` shows how to create server-side aggregation functions
-- **Role-Based Access**: Reports page already restricts access to owner/manager roles
-- **Admin Sidebar**: Easy to add new navigation item
+- **Settings Table**: Generic key-value store with JSON value field
+- **Existing Reservation Settings**:
+  - `store_hours`: `{open: "11:00", close: "21:00", timezone: "Asia/Manila"}`
+  - `reservation_capacity`: `{max_pax_per_slot: 40}`
+- **logAdminAction**: Audit logging helper already used in Settings.tsx
 
-### Key Architectural Decisions
-1. **Server-side Aggregation**: Use PostgreSQL RPC function to bypass 1000 row limit and ensure accuracy
-2. **Follow Reports.tsx Pattern**: Reuse existing UI patterns for consistency
-3. **No New Route in Sidebar**: Link from Reservations list page to reduce sidebar clutter
-4. **Read-Only**: No actions, just metrics display
+### Hardcoded Values to Make Configurable
+
+| Setting | Current Location | Hardcoded Value |
+|---------|-----------------|-----------------|
+| Store Hours | Settings table | 11:00-21:00 (already configurable) |
+| Capacity per Slot | Settings table | 40 pax (exists but not editable in UI) |
+| Slot Duration | ReservationForm.tsx | 30 minutes |
+| Cancellation Cutoff | SQL function | 2 hours |
+| No-Show Grace Period | process-no-shows Edge Function | 30 minutes |
+| First Reminder | ReservationDetail.tsx | 24 hours before |
+| Second Reminder | ReservationDetail.tsx | 3 hours before |
 
 ---
 
 ## Technical Implementation
 
-### 1. Database Changes - Create RPC Function
+### 1. Settings Data Structure
 
-Create `get_reservation_analytics` function that aggregates reservation data server-side:
+Store all reservation settings under a single key for atomic updates:
 
-```sql
-CREATE OR REPLACE FUNCTION get_reservation_analytics(
-  start_date DATE,
-  end_date DATE
-)
-RETURNS JSON
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  result JSON;
-BEGIN
-  SELECT json_build_object(
-    -- Core counts
-    'total', (SELECT COUNT(*) FROM reservations WHERE reservation_date >= start_date AND reservation_date <= end_date),
-    'pending', (SELECT COUNT(*) FROM reservations WHERE status = 'pending' AND reservation_date >= start_date AND reservation_date <= end_date),
-    'confirmed', (SELECT COUNT(*) FROM reservations WHERE status = 'confirmed' AND reservation_date >= start_date AND reservation_date <= end_date),
-    'cancelled', (SELECT COUNT(*) FROM reservations WHERE status = 'cancelled' AND reservation_date >= start_date AND reservation_date <= end_date),
-    'cancelled_by_customer', (SELECT COUNT(*) FROM reservations WHERE status = 'cancelled_by_customer' AND reservation_date >= start_date AND reservation_date <= end_date),
-    'completed', (SELECT COUNT(*) FROM reservations WHERE status = 'completed' AND reservation_date >= start_date AND reservation_date <= end_date),
-    'no_show', (SELECT COUNT(*) FROM reservations WHERE status = 'no_show' AND reservation_date >= start_date AND reservation_date <= end_date),
-    
-    -- Pax stats
-    'total_pax', (SELECT COALESCE(SUM(pax), 0) FROM reservations WHERE reservation_date >= start_date AND reservation_date <= end_date),
-    'avg_pax', (SELECT COALESCE(AVG(pax), 0) FROM reservations WHERE reservation_date >= start_date AND reservation_date <= end_date),
-    'min_pax', (SELECT COALESCE(MIN(pax), 0) FROM reservations WHERE reservation_date >= start_date AND reservation_date <= end_date),
-    'max_pax', (SELECT COALESCE(MAX(pax), 0) FROM reservations WHERE reservation_date >= start_date AND reservation_date <= end_date),
-    
-    -- Pax distribution buckets
-    'pax_1_2', (SELECT COUNT(*) FROM reservations WHERE pax BETWEEN 1 AND 2 AND reservation_date >= start_date AND reservation_date <= end_date),
-    'pax_3_4', (SELECT COUNT(*) FROM reservations WHERE pax BETWEEN 3 AND 4 AND reservation_date >= start_date AND reservation_date <= end_date),
-    'pax_5_6', (SELECT COUNT(*) FROM reservations WHERE pax BETWEEN 5 AND 6 AND reservation_date >= start_date AND reservation_date <= end_date),
-    'pax_7_plus', (SELECT COUNT(*) FROM reservations WHERE pax >= 7 AND reservation_date >= start_date AND reservation_date <= end_date),
-    
-    -- Day of week distribution (0 = Sunday, 6 = Saturday)
-    'day_distribution', (
-      SELECT COALESCE(json_agg(row_to_json(t)), '[]'::json)
-      FROM (
-        SELECT 
-          EXTRACT(DOW FROM reservation_date)::int as day_of_week,
-          COUNT(*) as count
-        FROM reservations
-        WHERE reservation_date >= start_date AND reservation_date <= end_date
-        GROUP BY EXTRACT(DOW FROM reservation_date)
-        ORDER BY day_of_week
-      ) t
-    ),
-    
-    -- Hourly distribution
-    'hour_distribution', (
-      SELECT COALESCE(json_agg(row_to_json(t)), '[]'::json)
-      FROM (
-        SELECT 
-          EXTRACT(HOUR FROM reservation_time)::int as hour,
-          COUNT(*) as count
-        FROM reservations
-        WHERE reservation_date >= start_date AND reservation_date <= end_date
-        GROUP BY EXTRACT(HOUR FROM reservation_time)
-        ORDER BY hour
-      ) t
-    ),
-    
-    -- Daily trend
-    'daily_trend', (
-      SELECT COALESCE(json_agg(row_to_json(t)), '[]'::json)
-      FROM (
-        SELECT 
-          reservation_date::text as date,
-          COUNT(*) as count
-        FROM reservations
-        WHERE reservation_date >= start_date AND reservation_date <= end_date
-        GROUP BY reservation_date
-        ORDER BY reservation_date
-      ) t
-    )
-  ) INTO result;
+```typescript
+// Key: 'reservation_settings'
+{
+  // Store Hours (for reservation context)
+  store_open: "11:00",
+  store_close: "21:00",
   
-  RETURN result;
-END;
-$$;
+  // Capacity
+  max_pax_per_slot: 40,
+  slot_duration_minutes: 30,
+  
+  // Reminders
+  reminder_first_hours: 24,      // 24h before
+  reminder_second_hours: 3,      // 3h before
+  reminders_enabled: true,
+  
+  // Cancellation
+  cancellation_cutoff_hours: 2,  // 2h before
+  
+  // No-Show
+  no_show_grace_minutes: 30      // 30 min after
+}
 ```
 
-### 2. Route Changes
+### 2. Create New Page: `src/pages/admin/ReservationSettings.tsx`
 
-Add new route in `App.tsx`:
-```tsx
-<Route path="reservations/analytics" element={<ReservationAnalytics />} />
+New settings page following the existing Settings.tsx patterns:
+
+**Layout Structure:**
 ```
+┌──────────────────────────────────────────────────────────────┐
+│ ← Back to Reservations                                       │
+│ Reservation Settings                                         │
+│ Configure reservation rules and behavior                     │
+└──────────────────────────────────────────────────────────────┘
 
-**Note**: Route is nested under admin, resulting in `/admin/reservations/analytics`
+┌──────────────────────────────────────────────────────────────┐
+│ Store Hours (Reservation Context)                            │
+│ Set when reservations are available                          │
+│ ┌─────────────────────┐ ┌─────────────────────┐              │
+│ │ Opening Time        │ │ Closing Time        │              │
+│ │ [11:00        ▼]    │ │ [21:00        ▼]    │              │
+│ └─────────────────────┘ └─────────────────────┘              │
+│ 🌏 Timezone: Asia/Manila (Philippines, UTC+8)                │
+│ ⓘ These hours control the time picker for reservations       │
+└──────────────────────────────────────────────────────────────┘
 
-### 3. Create New Page: `src/pages/admin/ReservationAnalytics.tsx`
+┌──────────────────────────────────────────────────────────────┐
+│ Capacity Settings                                            │
+│ Control how many guests can book per time slot               │
+│ ┌─────────────────────┐ ┌─────────────────────┐              │
+│ │ Max Guests per Slot │ │ Time Slot Duration  │              │
+│ │ [40            ]    │ │ [30 minutes   ▼]    │              │
+│ └─────────────────────┘ └─────────────────────┘              │
+│ ⓘ Reservations exceeding slot capacity will be rejected      │
+└──────────────────────────────────────────────────────────────┘
 
-New analytics page following the Reports.tsx pattern:
+┌──────────────────────────────────────────────────────────────┐
+│ Reminder Settings                                            │
+│ When to send reminder notifications to guests                │
+│ ┌─────────────────────────────────────────────┐              │
+│ │ [✓] Enable Automatic Reminders              │              │
+│ └─────────────────────────────────────────────┘              │
+│ ┌─────────────────────┐ ┌─────────────────────┐              │
+│ │ First Reminder      │ │ Second Reminder     │              │
+│ │ [24      ] hours    │ │ [3       ] hours    │              │
+│ │ before reservation  │ │ before reservation  │              │
+│ └─────────────────────┘ └─────────────────────┘              │
+│ ⓘ Changes apply to future reservations only                  │
+└──────────────────────────────────────────────────────────────┘
 
-**Features:**
-- Date range filter (last 30 days default, custom date picker)
-- Status multi-select filter
-- Summary cards (Total, Confirmed, No-Show, Completion Rate)
-- Status breakdown pie chart
-- Peak days bar chart (Mon-Sun)
-- Peak hours bar chart (hourly buckets)
-- Pax distribution pie chart
-- Daily trend line chart
+┌──────────────────────────────────────────────────────────────┐
+│ Cancellation Policy                                          │
+│ How close to reservation time customers can cancel           │
+│ ┌─────────────────────┐                                      │
+│ │ Cancellation Cutoff │                                      │
+│ │ [2       ] hours    │                                      │
+│ │ before reservation  │                                      │
+│ └─────────────────────┘                                      │
+│ ⓘ After this cutoff, customers must contact the store        │
+└──────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────┐
+│ No-Show Handling                                             │
+│ Grace period before marking as no-show                       │
+│ ┌─────────────────────┐                                      │
+│ │ Grace Period        │                                      │
+│ │ [30      ] minutes  │                                      │
+│ │ after reservation   │                                      │
+│ └─────────────────────┘                                      │
+│ ⓘ Confirmed reservations not checked in will be marked       │
+│   as no-show after this grace period                         │
+└──────────────────────────────────────────────────────────────┘
+```
 
 **Role-Based Access:**
-- Owner: Full access
-- Manager: View-only (same content)
-- Cashier/Employee/Driver: Denied (redirect to access denied)
+- Owner: Full edit access
+- Manager: View-only (show notice, disable inputs)
+- Others: Access denied
 
-### 4. Add Link from Reservations List
+### 3. Route Registration
 
-Update `src/pages/admin/Reservations.tsx` to add an "Analytics" button in the header area that links to `/admin/reservations/analytics`.
+Add to `App.tsx`:
+```tsx
+<Route path="reservations/settings" element={<ReservationSettings />} />
+```
+
+Must be before `reservations/:id` to avoid conflict.
+
+### 4. Update Edge Functions to Read Settings
+
+#### A. `process-no-shows/index.ts`
+- Read `no_show_grace_minutes` from settings table
+- Fallback to 30 if not set
+
+#### B. `cancel_reservation_by_customer` SQL Function
+- Read `cancellation_cutoff_hours` from settings
+- Replace hardcoded `INTERVAL '2 hours'`
+
+#### C. ReservationDetail.tsx (Reminder Scheduling)
+- Read `reminder_first_hours` and `reminder_second_hours` from settings
+- Replace hardcoded 24 and 3
+
+#### D. ReservationForm.tsx (Time Slots)
+- Read `slot_duration_minutes` and store hours from settings
+- Replace hardcoded 30-minute increment
+
+### 5. Navigation Updates
+
+Add "Settings" link to `/admin/reservations` page header:
+```tsx
+<Button variant="outline" asChild>
+  <Link to="/admin/reservations/settings">
+    <Settings className="h-4 w-4 mr-2" />
+    Settings
+  </Link>
+</Button>
+```
 
 ---
 
@@ -153,153 +181,113 @@ Update `src/pages/admin/Reservations.tsx` to add an "Analytics" button in the he
 
 | File | Action | Description |
 |------|--------|-------------|
-| **Database Migration** | CREATE | Create `get_reservation_analytics` RPC function |
-| `src/pages/admin/ReservationAnalytics.tsx` | CREATE | New analytics dashboard page |
-| `src/App.tsx` | MODIFY | Add route for `/admin/reservations/analytics` |
-| `src/pages/admin/Reservations.tsx` | MODIFY | Add "Analytics" button in header |
+| `src/pages/admin/ReservationSettings.tsx` | CREATE | New settings page with all controls |
+| `src/App.tsx` | MODIFY | Add route for `/admin/reservations/settings` |
+| `src/pages/admin/Reservations.tsx` | MODIFY | Add "Settings" button in header |
+| `supabase/functions/process-no-shows/index.ts` | MODIFY | Read grace period from settings |
+| **Database Migration** | CREATE | Update `cancel_reservation_by_customer` to read settings |
+| `src/pages/admin/ReservationDetail.tsx` | MODIFY | Read reminder timing from settings |
+| `src/components/reservation/ReservationForm.tsx` | MODIFY | Read slot duration from settings |
 
 ---
 
-## UI Components Structure
+## Settings Retrieval Pattern
 
-### Summary Cards Row (4 cards)
-```
-┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-│ Total           │ │ Confirmed       │ │ No-Show         │ │ Completion Rate │
-│ Reservations    │ │                 │ │                 │ │                 │
-│                 │ │                 │ │                 │ │                 │
-│      42         │ │      35         │ │      3          │ │     83.3%       │
-└─────────────────┘ └─────────────────┘ └─────────────────┘ └─────────────────┘
-```
-
-### Derived Rates Card
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ Key Rates                                                                   │
-│                                                                             │
-│  No-Show Rate: 8.5%    Confirmation Rate: 83%    Cancellation Rate: 12%     │
-│  (no_show/confirmed)   (confirmed/total)         (cancelled*/total)         │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Status Breakdown Pie Chart
-```
-┌─────────────────────────────────────────┐
-│ Reservations by Status                  │
-│                                         │
-│        [Pie Chart showing:              │
-│         - Pending (yellow)              │
-│         - Confirmed (green)             │
-│         - Completed (emerald)           │
-│         - Cancelled (red)               │
-│         - Cancelled by Customer (orange)│
-│         - No-Show (gray)]               │
-└─────────────────────────────────────────┘
-```
-
-### Peak Days Bar Chart
-```
-┌─────────────────────────────────────────┐
-│ Reservations by Day of Week             │
-│                                         │
-│ Mon ████████████ 15                     │
-│ Tue █████████ 12                        │
-│ Wed ██████ 8                            │
-│ Thu ████████ 10                         │
-│ Fri ███████████████ 18                  │
-│ Sat ████████████████████ 25             │
-│ Sun █████████████ 16                    │
-└─────────────────────────────────────────┘
-```
-
-### Peak Hours Bar Chart
-```
-┌─────────────────────────────────────────┐
-│ Reservations by Time Slot               │
-│                                         │
-│ [Bar chart showing hourly distribution] │
-│                                         │
-└─────────────────────────────────────────┘
-```
-
-### Pax Distribution
-```
-┌─────────────────────────────────────────┐
-│ Party Size Distribution                 │
-│                                         │
-│  1-2: 25%   3-4: 45%   5-6: 20%  7+: 10%│
-│                                         │
-│       [Horizontal bar or pie chart]     │
-└─────────────────────────────────────────┘
-```
-
-### Daily Trend
-```
-┌─────────────────────────────────────────┐
-│ Reservation Volume Over Time            │
-│                                         │
-│ [Line chart showing daily reservation   │
-│  count over selected date range]        │
-│                                         │
-└─────────────────────────────────────────┘
-```
-
----
-
-## Metrics Calculations
-
-| Metric | Formula |
-|--------|---------|
-| Total Reservations | COUNT(*) |
-| No-Show Rate | (no_show / confirmed) * 100 |
-| Confirmation Rate | (confirmed / total) * 100 |
-| Cancellation Rate | ((cancelled + cancelled_by_customer) / total) * 100 |
-| Completion Rate | (completed / (confirmed - cancelled*)) * 100 |
-| Average Pax | AVG(pax) |
-
----
-
-## Filter Controls
-
-### Date Range Selector
-- Default: Last 30 days
-- Quick presets: 7 days, 14 days, 30 days
-- Custom date picker for specific range
-
-### Status Filter (Optional, Multi-Select)
-- All statuses (default)
-- Specific status selection
-
----
-
-## Access Control Implementation
+For frontend components, use React Query to fetch settings:
 
 ```typescript
-// In ReservationAnalytics.tsx
-const { role } = useAuth();
+const { data: reservationSettings } = useQuery({
+  queryKey: ['reservation-settings'],
+  queryFn: async () => {
+    const { data, error } = await supabase
+      .from('settings')
+      .select('value')
+      .eq('key', 'reservation_settings')
+      .maybeSingle();
+    
+    if (error) throw error;
+    return data?.value as ReservationSettingsType || DEFAULT_SETTINGS;
+  },
+});
+```
 
-// Only owner and manager can access
-if (role !== 'owner' && role !== 'manager') {
-  return (
-    <div className="min-h-[400px] flex flex-col items-center justify-center gap-4 text-center">
-      <ShieldX className="h-16 w-16 text-muted-foreground" />
-      <h2 className="text-2xl font-bold">Access Denied</h2>
-      <p className="text-muted-foreground max-w-md">
-        You don't have permission to view reservation analytics.
-      </p>
-    </div>
-  );
-}
+For Edge Functions, query directly with service role:
+
+```typescript
+const { data: settings } = await supabase
+  .from('settings')
+  .select('value')
+  .eq('key', 'reservation_settings')
+  .maybeSingle();
+
+const gracePeriodMinutes = settings?.value?.no_show_grace_minutes || 30;
 ```
 
 ---
 
-## Performance Considerations
+## Default Values (Fallbacks)
 
-1. **Server-Side Aggregation**: All calculations done in PostgreSQL via RPC function
-2. **Indexed Queries**: Uses existing indexes on `reservation_date` and `status`
-3. **No Heavy Client Processing**: Chart data pre-aggregated server-side
-4. **No Pagination Needed**: Aggregated data only, not raw records
+If settings are not found, use these defaults:
+
+| Setting | Default |
+|---------|---------|
+| store_open | "11:00" |
+| store_close | "21:00" |
+| max_pax_per_slot | 40 |
+| slot_duration_minutes | 30 |
+| reminder_first_hours | 24 |
+| reminder_second_hours | 3 |
+| reminders_enabled | true |
+| cancellation_cutoff_hours | 2 |
+| no_show_grace_minutes | 30 |
+
+---
+
+## Audit Logging
+
+All settings changes are logged via `logAdminAction`:
+
+```typescript
+await logAdminAction({
+  action: 'update',
+  entityType: 'reservation_settings',
+  entityName: settingKey,
+  oldValues: { [settingKey]: oldValue },
+  newValues: { [settingKey]: newValue },
+  details: `Updated ${settingLabel} from ${oldValue} to ${newValue}`,
+});
+```
+
+---
+
+## Validation Rules
+
+| Setting | Validation |
+|---------|------------|
+| Store hours | Close must be after open |
+| Max pax per slot | Positive integer, 1-200 |
+| Slot duration | 15, 30, 45, or 60 minutes |
+| Reminder first | 1-72 hours |
+| Reminder second | 1-24 hours, less than first |
+| Cancellation cutoff | 0-24 hours |
+| No-show grace | 5-120 minutes |
+
+---
+
+## SQL Function Update
+
+Modify `cancel_reservation_by_customer` to read settings:
+
+```sql
+-- Fetch cutoff setting
+SELECT (value->>'cancellation_cutoff_hours')::INT 
+INTO v_cutoff_hours
+FROM settings 
+WHERE key = 'reservation_settings';
+
+v_cutoff_hours := COALESCE(v_cutoff_hours, 2);
+v_cutoff := v_reservation_datetime - (v_cutoff_hours || ' hours')::INTERVAL;
+```
 
 ---
 
@@ -307,31 +295,28 @@ if (role !== 'owner' && role !== 'manager') {
 
 | Criteria | Implementation |
 |----------|----------------|
-| Metrics match raw reservation data | Server-side RPC aggregation |
-| No-show rate is accurate | `no_show / confirmed * 100` |
-| Filters work correctly | Date range + status filters |
-| Access is role-restricted | Owner/Manager only |
-| UI is stable and readable | Following Reports.tsx pattern |
-| Read-only display | No action buttons |
-| No sales/payment data | Only reservation table used |
+| All listed settings are editable | Settings page with all 9 controls |
+| Role access is enforced | Owner: edit, Manager: view-only |
+| Changes apply immediately | Direct DB update, components re-query |
+| Audit logs are accurate | logAdminAction on every save |
+| No hardcoded reservation rules | All functions read from settings table |
 
 ---
 
 ## What This Creates
 
-1. `get_reservation_analytics` RPC function (server-side aggregation)
-2. `/admin/reservations/analytics` page with full dashboard
-3. Navigation link from Reservations list page
-4. Role-based access control (owner/manager only)
+1. `/admin/reservations/settings` page with full settings UI
+2. `reservation_settings` key in settings table
+3. Dynamic reading of settings in all reservation logic
+4. Audit trail for all changes
+5. Navigation link from Reservations list
 
 ---
 
 ## What This Does NOT Create
 
-- Sales or revenue metrics
-- Customer PII beyond aggregates
-- Comparison to previous periods (V2)
-- Data exports (V2)
-- Predictions or forecasting
-- Any write/edit capabilities
-
+- Per-day schedule overrides
+- Holiday schedules
+- Special event rules
+- Table assignment logic
+- Customer-facing settings UI
