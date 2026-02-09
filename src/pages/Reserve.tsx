@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,10 +8,49 @@ import { Footer } from "@/components/home/Footer";
 import { useStoreStatus } from "@/hooks/useStoreStatus";
 import { STORE_NAME, STORE_ADDRESS_LINE1, STORE_ADDRESS_LINE3 } from "@/lib/constants";
 import { useVisitorPresence } from "@/hooks/useVisitorPresence";
+import { ReservationForm } from "@/components/reservation/ReservationForm";
+import { ReservationConfirmation } from "@/components/reservation/ReservationConfirmation";
+
+interface ConfirmationData {
+  id: string;
+  code: string;
+  name: string;
+  pax: number;
+  date: string;
+  time: string;
+}
 
 export default function Reserve() {
   useVisitorPresence("/reserve");
   const { opensAt, closesAt, isLoading: storeStatusLoading } = useStoreStatus();
+  const [isConfirmed, setIsConfirmed] = useState(false);
+  const [confirmationData, setConfirmationData] = useState<ConfirmationData | null>(null);
+
+  // Handle successful reservation submission
+  const handleSuccess = (reservation: ConfirmationData) => {
+    setConfirmationData(reservation);
+    setIsConfirmed(true);
+  };
+
+  // Reset to form for new reservation
+  const handleNewReservation = () => {
+    setConfirmationData(null);
+    setIsConfirmed(false);
+  };
+
+  // Show confirmation screen if submitted
+  if (isConfirmed && confirmationData) {
+    return (
+      <ReservationConfirmation
+        reservationCode={confirmationData.code}
+        name={confirmationData.name}
+        pax={confirmationData.pax}
+        date={confirmationData.date}
+        time={confirmationData.time}
+        onNewReservation={handleNewReservation}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -46,17 +86,13 @@ export default function Reserve() {
           </p>
         </div>
 
-        {/* Form Placeholder Container */}
-        <Card className="mb-6">
-          <CardContent className="pt-6">
-            <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-8 text-center">
-              <CalendarDays className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
-              <p className="text-muted-foreground text-sm">
-                Reservation form coming soon
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+        {/* Reservation Form */}
+        <div className="mb-6">
+          <ReservationForm
+            onSuccess={handleSuccess}
+            storeHours={{ opensAt, closesAt }}
+          />
+        </div>
 
         {/* Store Info Section */}
         <Card>

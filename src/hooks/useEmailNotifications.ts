@@ -21,6 +21,7 @@ export type EmailType =
   | "payout_approved"
   | "payout_rejected"
   | "review_request"
+  | "new_reservation"
   | "test_email";
 
 export interface OrderItem {
@@ -60,6 +61,12 @@ export interface EmailNotificationPayload {
   isTest?: boolean;
   templateType?: string;
   testRecipientEmail?: string;
+  // Reservation fields
+  reservationId?: string;
+  reservationCode?: string;
+  reservationDate?: string;
+  reservationTime?: string;
+  pax?: number;
 }
 
 export async function sendEmailNotification(payload: EmailNotificationPayload): Promise<{ success: boolean; error?: string }> {
