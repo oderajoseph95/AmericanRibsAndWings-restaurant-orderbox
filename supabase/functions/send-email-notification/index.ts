@@ -1073,6 +1073,41 @@ function getDefaultTemplate(payload: EmailPayload): string {
       `;
       break;
 
+    case 'new_reservation':
+      content = `
+        <div class="content">
+          <h2>Reservation Request Received! 📋</h2>
+          <p>Hi ${customerName},</p>
+          <p>Thank you for requesting a table reservation at ${BUSINESS_NAME}. Our team will review and confirm your booking shortly.</p>
+          
+          <div class="order-box" style="background: #fef3c7; border-color: #fde68a;">
+            <div class="order-number" style="color: #92400e;">${payload.reservationCode || ''}</div>
+            <span class="status-badge status-warning">⏳ Pending Confirmation</span>
+          </div>
+
+          <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;">
+            <h3 style="margin: 0 0 15px; color: #374151;">📅 Requested Details</h3>
+            <table style="width: 100%;">
+              <tr><td style="padding: 5px 0; color: #6b7280; width: 100px;">Date:</td><td style="font-weight: 600;">${payload.reservationDate || ''}</td></tr>
+              <tr><td style="padding: 5px 0; color: #6b7280;">Time:</td><td style="font-weight: 600;">${payload.reservationTime || ''}</td></tr>
+              <tr><td style="padding: 5px 0; color: #6b7280;">Guests:</td><td style="font-weight: 600;">${payload.pax || 0} ${(payload.pax || 0) === 1 ? 'guest' : 'guests'}</td></tr>
+            </table>
+          </div>
+
+          <p style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 15px; margin: 20px 0;">
+            📱 You will receive an <strong>SMS</strong> and <strong>email</strong> once your reservation is confirmed.
+          </p>
+
+          <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 20px; margin: 20px 0; text-align: center;">
+            <h3 style="margin: 0 0 10px; color: #166534;">📍 Location</h3>
+            <p style="margin: 0; font-size: 16px; font-weight: 600;">${BUSINESS_NAME}</p>
+            <p style="margin: 5px 0 0;">${BUSINESS_ADDRESS}</p>
+            <p style="margin: 5px 0 0; color: #6b7280;">${BUSINESS_PHONE}</p>
+          </div>
+        </div>
+      `;
+      break;
+
     case 'reservation_confirmed':
       const preorderHtml = generatePreorderSummaryHtml(payload.preorderItems);
       content = `

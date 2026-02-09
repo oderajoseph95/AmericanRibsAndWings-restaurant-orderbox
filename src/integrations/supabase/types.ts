@@ -2112,38 +2112,22 @@ export type Database = {
         }
         Returns: string
       }
-      create_reservation:
-        | {
-            Args: {
-              p_email?: string
-              p_name: string
-              p_notes?: string
-              p_pax?: number
-              p_phone: string
-              p_reservation_date?: string
-              p_reservation_time?: string
-            }
-            Returns: {
-              id: string
-              reservation_code: string
-            }[]
-          }
-        | {
-            Args: {
-              p_email?: string
-              p_name: string
-              p_notes?: string
-              p_pax?: number
-              p_phone: string
-              p_preorder_items?: Json
-              p_reservation_date?: string
-              p_reservation_time?: string
-            }
-            Returns: {
-              id: string
-              reservation_code: string
-            }[]
-          }
+      create_reservation: {
+        Args: {
+          p_email?: string
+          p_name: string
+          p_notes?: string
+          p_pax?: number
+          p_phone: string
+          p_preorder_items?: Json
+          p_reservation_date?: string
+          p_reservation_time?: string
+        }
+        Returns: {
+          id: string
+          reservation_code: string
+        }[]
+      }
       generate_random_username: { Args: { role_name: string }; Returns: string }
       get_funnel_counts: {
         Args: { end_date: string; start_date: string }
