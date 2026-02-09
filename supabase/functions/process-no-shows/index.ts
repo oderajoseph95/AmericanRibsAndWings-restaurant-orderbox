@@ -9,7 +9,6 @@ const corsHeaders = {
 interface Reservation {
   id: string;
   reservation_code: string;
-  confirmation_code: string | null;
   name: string;
   phone: string;
   pax: number;
@@ -46,10 +45,10 @@ Deno.serve(async (req) => {
     const gracePeriodMinutes = (settingsData?.value as { no_show_grace_minutes?: number })?.no_show_grace_minutes || 30;
 
     // Query confirmed reservations past grace period
-    // Using raw SQL for timezone-aware datetime comparison
+    // SINGLE CODE SYSTEM: Only fetch reservation_code (no confirmation_code)
     const { data: eligibleReservations, error: queryError } = await supabase
       .from("reservations")
-      .select("id, reservation_code, confirmation_code, name, phone, pax, reservation_date, reservation_time")
+      .select("id, reservation_code, name, phone, pax, reservation_date, reservation_time")
       .eq("status", "confirmed")
       .returns<Reservation[]>();
 
@@ -133,7 +132,7 @@ Deno.serve(async (req) => {
           console.error(`Failed to update reservation ${reservation.reservation_code}:`, updateError);
           results.push({
             reservation_id: reservation.id,
-            reservation_code: reservation.confirmation_code || reservation.reservation_code,
+            reservation_code: reservation.reservation_code,
             success: false,
             error: updateError.message,
           });
@@ -176,7 +175,7 @@ Deno.serve(async (req) => {
             message: `${reservation.name} - ${formattedDate} at ${formattedTime} - ${reservation.pax} guests`,
             type: "reservation",
             metadata: {
-              reservation_code: reservation.confirmation_code || reservation.reservation_code,
+              reservation_code: reservation.reservation_code,
               customer_name: reservation.name,
               action_url: `/admin/reservations/${reservation.id}`,
             },
@@ -185,17 +184,17 @@ Deno.serve(async (req) => {
           await supabase.from("admin_notifications").insert(adminNotifications);
         }
 
-        console.log(`Successfully marked reservation ${reservation.confirmation_code || reservation.reservation_code} as no_show`);
+        console.log(`Successfully marked reservation ${reservation.reservation_code} as no_show`);
         results.push({
           reservation_id: reservation.id,
-          reservation_code: reservation.confirmation_code || reservation.reservation_code,
+          reservation_code: reservation.reservation_code,
           success: true,
         });
       } catch (err) {
         console.error(`Error processing reservation ${reservation.reservation_code}:`, err);
         results.push({
           reservation_id: reservation.id,
-          reservation_code: reservation.confirmation_code || reservation.reservation_code,
+          reservation_code: reservation.reservation_code,
           success: false,
           error: err instanceof Error ? err.message : "Unknown error",
         });

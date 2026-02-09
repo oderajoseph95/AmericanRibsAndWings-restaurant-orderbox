@@ -29,7 +29,6 @@ interface Reservation {
   reservation_date: string;
   reservation_time: string;
   status: string;
-  confirmation_code: string | null;
   reservation_code: string;
 }
 
@@ -264,8 +263,8 @@ serve(async (req: Request): Promise<Response> => {
           continue;
         }
         
-        // Build reminder message
-        const code = res.confirmation_code || res.reservation_code;
+        // Build reminder message - SINGLE CODE SYSTEM: use reservation_code only
+        const code = res.reservation_code;
         const dateFormatted = formatDateShort(res.reservation_date);
         const timeFormatted = formatTime(res.reservation_time);
         const messageType = `reservation_reminder_${reminder.reminder_type}`;

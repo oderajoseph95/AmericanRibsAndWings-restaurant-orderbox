@@ -640,8 +640,10 @@ function getDefaultSubject(type: string, orderNumber?: string, payload?: EmailPa
     payout_approved: `✅ Payout Approved!`,
     payout_rejected: `Payout Request Update`,
     review_request: `⭐ We'd love your feedback! - Order #${orderNumber}`,
+    // RESERVATION SUBJECTS - Using single reservation_code system
+    new_reservation: `📅 Reservation Request Received - ${payload?.reservationCode || ''}`,
     reservation_confirmed: `✅ Your Reservation is Confirmed! - ${payload?.reservationCode || ''}`,
-    reservation_cancelled: `Reservation Update - ${payload?.reservationCode || ''}`,
+    reservation_cancelled: `❌ Reservation Not Approved - ${payload?.reservationCode || ''}`,
     reservation_cancelled_by_customer: `Reservation Cancelled - ${payload?.reservationCode || ''}`,
     reservation_reminder: `🍽️ Reminder: Your ARW Reservation – ${payload?.reservationDate || ''} at ${payload?.reservationTime || ''}`,
   };
@@ -1323,7 +1325,12 @@ function getAdminNotificationSubject(type: string, orderNumber?: string, payload
     order_delivered: `🎉 Order #${orderNumber} Delivered`,
     order_completed: `✨ [COMPLETED] Order #${orderNumber}`,
     order_returned: `↩️ [RETURNED] Order #${orderNumber}`,
+    // RESERVATION ADMIN SUBJECTS - Using single reservation_code system
     new_reservation: `📅 [NEW RESERVATION] ${payload?.reservationCode} - ${payload?.pax} guests - ${payload?.customerName}`,
+    reservation_confirmed: `✅ [CONFIRMED] ${payload?.reservationCode} - ${payload?.pax} guests - ${payload?.customerName}`,
+    reservation_cancelled: `❌ [CANCELLED] ${payload?.reservationCode} - ${payload?.customerName}`,
+    reservation_cancelled_by_customer: `🚫 [CUSTOMER CANCELLED] ${payload?.reservationCode} - ${payload?.customerName}`,
+    // PAYOUT SUBJECTS
     payout_requested: `💰 [PAYOUT REQUEST] ${formatCurrency(payload?.payoutAmount)} - ${payload?.driverName}`,
     payout_approved: `✅ Payout Approved`,
     payout_rejected: `Payout Rejected`,
@@ -1456,6 +1463,76 @@ function getAdminNotificationTemplate(type: string, payload: EmailPayload): stri
 
         <p style="margin: 20px 0 10px; color: #6b7280; font-size: 13px;">
           Status: <strong style="color: #f59e0b;">Pending Confirmation</strong>
+        </p>
+      </div>
+    `;
+  } else if (type === 'reservation_confirmed') {
+    // Reservation confirmed notification for admin
+    const { reservationCode, reservationDate, reservationTime, pax } = payload;
+    content = `
+      <div class="content">
+        <p style="margin: 0 0 15px; font-size: 16px; font-weight: 600;">✅ Reservation Confirmed!</p>
+        
+        <div class="section" style="background: #dcfce7;">
+          <p class="section-title">Reservation Info</p>
+          <span class="order-number" style="color: #166534;">${reservationCode}</span><br>
+          <p style="margin: 10px 0 0;"><strong>${pax || 0} ${(pax || 0) === 1 ? 'guest' : 'guests'}</strong></p>
+        </div>
+
+        <div class="section">
+          <p class="section-title">📆 Date & Time</p>
+          <table>
+            <tr><td class="label">Date:</td><td><strong>${reservationDate}</strong></td></tr>
+            <tr><td class="label">Time:</td><td><strong>${reservationTime}</strong></td></tr>
+          </table>
+        </div>
+
+        <div class="section">
+          <p class="section-title">Customer</p>
+          <table>
+            <tr><td class="label">Name:</td><td><strong>${customerName}</strong></td></tr>
+            <tr><td class="label">Phone:</td><td><a href="tel:${customerPhone}" style="color: #ea580c;">${customerPhone}</a></td></tr>
+            ${customerEmail ? `<tr><td class="label">Email:</td><td>${customerEmail}</td></tr>` : ''}
+          </table>
+        </div>
+
+        <p style="margin: 20px 0 10px; color: #166534; font-weight: 600;">
+          ✅ Customer has been notified via SMS${customerEmail ? ' and email' : ''}.
+        </p>
+      </div>
+    `;
+  } else if (type === 'reservation_cancelled' || type === 'reservation_cancelled_by_customer') {
+    // Reservation cancelled notification for admin
+    const { reservationCode, reservationDate, reservationTime, pax } = payload;
+    const cancelledBy = type === 'reservation_cancelled_by_customer' ? 'Customer' : 'Admin';
+    content = `
+      <div class="content">
+        <p style="margin: 0 0 15px; font-size: 16px; font-weight: 600;">${type === 'reservation_cancelled_by_customer' ? '🚫' : '❌'} Reservation Cancelled${type === 'reservation_cancelled_by_customer' ? ' by Customer' : ''}</p>
+        
+        <div class="section" style="background: #fee2e2;">
+          <p class="section-title">Reservation Info</p>
+          <span class="order-number" style="color: #991b1b;">${reservationCode}</span><br>
+          <p style="margin: 10px 0 0;">${pax || 0} ${(pax || 0) === 1 ? 'guest' : 'guests'}</p>
+        </div>
+
+        <div class="section">
+          <p class="section-title">📆 Original Date & Time</p>
+          <table>
+            <tr><td class="label">Date:</td><td>${reservationDate}</td></tr>
+            <tr><td class="label">Time:</td><td>${reservationTime}</td></tr>
+          </table>
+        </div>
+
+        <div class="section">
+          <p class="section-title">Customer</p>
+          <table>
+            <tr><td class="label">Name:</td><td>${customerName}</td></tr>
+            <tr><td class="label">Phone:</td><td>${customerPhone}</td></tr>
+          </table>
+        </div>
+
+        <p style="margin: 20px 0 10px; color: #6b7280; font-size: 13px;">
+          Cancelled by: <strong>${cancelledBy}</strong>
         </p>
       </div>
     `;

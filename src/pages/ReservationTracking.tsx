@@ -30,7 +30,6 @@ type ReservationStatus = "pending" | "confirmed" | "checked_in" | "cancelled" | 
 
 interface ReservationData {
   reservation_code: string;
-  confirmation_code?: string | null;
   name: string;
   phone: string;
   email?: string | null;
@@ -192,23 +191,23 @@ export default function ReservationTracking() {
         const formattedDate = format(new Date(reservation.reservation_date), "MMM d");
         const formattedTime = formatReservationTime(reservation.reservation_time);
 
-        // Send SMS using local reservation data
+        // Send SMS using local reservation data - SINGLE CODE SYSTEM
         sendSmsNotification({
           type: "reservation_cancelled_by_customer",
           recipientPhone: reservation.phone,
-          reservationCode: reservation.confirmation_code || reservation.reservation_code,
+          reservationCode: reservation.reservation_code,
           customerName: reservation.name,
           reservationDate: formattedDate,
           reservationTime: formattedTime,
           pax: reservation.pax,
         }).catch(err => console.error("Failed to send cancellation SMS:", err));
 
-        // Send email if available using local reservation data
+        // Send email if available using local reservation data - SINGLE CODE SYSTEM
         if (reservation.email) {
           sendEmailNotification({
             type: "reservation_cancelled_by_customer",
             recipientEmail: reservation.email,
-            reservationCode: reservation.confirmation_code || reservation.reservation_code,
+            reservationCode: reservation.reservation_code,
             customerName: reservation.name,
             reservationDate: format(new Date(reservation.reservation_date), "MMMM d, yyyy"),
             reservationTime: formattedTime,
