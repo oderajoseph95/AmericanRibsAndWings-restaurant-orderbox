@@ -1993,6 +1993,19 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      check_slot_capacity: {
+        Args: {
+          p_requested_pax: number
+          p_reservation_date: string
+          p_reservation_time: string
+        }
+        Returns: {
+          available: boolean
+          current_pax: number
+          max_pax: number
+          remaining: number
+        }[]
+      }
       create_checkout_customer: {
         Args: { p_email?: string; p_name: string; p_phone?: string }
         Returns: string
