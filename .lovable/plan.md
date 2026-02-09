@@ -1,194 +1,133 @@
 
-# Plan: Enhanced Reservation Confirmation with Details & PDF Ticket
 
-## Problem Summary
+# Plan: Add Reservation Stats Cards to Admin Dashboard
 
-The current reservation confirmation screen is missing critical information:
+## Overview
 
-| Issue | Current State | Expected |
-|-------|--------------|----------|
-| Reservation Code | **NOT SHOWN** | Show `ARW-RSV-XXXX` prominently |
-| Customer Details | Only name shown | Show name, phone, email, notes |
-| Tracking Link | **NOT PROVIDED** | Give customers a way to track their reservation |
-| PDF Ticket | **NOT AVAILABLE** | Downloadable ticket with QR code |
+Add a new **ReservationStatsCard** component to the admin dashboard, placed above the ProductAnalyticsCard. This card will display 4 key reservation metrics that update based on the existing date filters (today, yesterday, week, month, custom).
 
----
+## Card Design
 
-## Solution Overview
+Based on the reservation lifecycle and what's most actionable for admins, I recommend these 4 cards:
 
-### Part 1: Update Confirmation Data Flow
+| Card | Metric | Color | Why It Matters |
+|------|--------|-------|----------------|
+| **Total Reservations** | Count of all reservations in period | Blue | Overall volume indicator |
+| **Pending Approval** | Status = `pending` | Orange | Action required - needs admin confirmation |
+| **Upcoming Confirmed** | Status = `confirmed` with future date | Green | Today's and upcoming confirmed bookings |
+| **No Shows** | Status = `no_show` in period | Red | Track reliability/losses |
 
-**File: `src/pages/Reserve.tsx`**
+## Technical Implementation
 
-Currently the `ConfirmationData` interface and `onSuccess` callback only pass:
-- id, name, pax, date, time
+### New Component: `src/components/admin/ReservationStatsCard.tsx`
 
-Need to expand to include:
-- `reservationCode` (ARW-RSV-XXXX)
-- `phone`
-- `email` (if provided)
-- `notes` (if provided)
+```
++-----------+-----------+-----------+-----------+
+| Total     | Pending   | Upcoming  | No Shows  |
+| Reserv.   | Approval  | Confirmed |           |
+|-----------|-----------|-----------|-----------|
+|    12     |     3     |     5     |     2     |
+| This week | Need conf | Next 7d   | This week |
++-----------+-----------+-----------+-----------+
+```
 
-### Part 2: Update ReservationForm to Pass Full Data
+**Props:**
+- `dateFilter: "today" | "yesterday" | "week" | "month" | "custom"`
+- `customDateRange?: { from: Date; to: Date } | null`
 
-**File: `src/components/reservation/ReservationForm.tsx`**
+**Queries:**
+1. **Total Reservations** - Count all reservations created in the date range
+2. **Pending Approval** - Count where `status = 'pending'` (NOT date-filtered - shows all pending)
+3. **Upcoming Confirmed** - Count where `status = 'confirmed'` AND `reservation_date >= today`
+4. **No Shows** - Count where `status = 'no_show'` in the date range
 
-Update the `onSuccess` callback at line 269-275 to pass all customer details:
+### Dashboard Integration
+
+**File:** `src/pages/admin/Dashboard.tsx`
+
+1. Import the new component (around line 18)
+2. Add it between the ConversionFunnelCard section and ProductAnalyticsCard (around line 607):
+
+```tsx
+{/* Reservation Stats */}
+<ReservationStatsCard dateFilter={dateFilter} customDateRange={customDateRange} />
+
+{/* Product Analytics */}
+<ProductAnalyticsCard dateFilter={dateFilter} customDateRange={customDateRange} />
+```
+
+### Component Structure
+
+```tsx
+// Grid layout matching the existing 4-card rows
+<Card>
+  <CardHeader>
+    <CardTitle>Reservations</CardTitle>
+    <Link to="/admin/reservations">View All</Link>
+  </CardHeader>
+  <CardContent>
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* 4 stat boxes */}
+    </div>
+  </CardContent>
+</Card>
+```
+
+### Query Logic
+
 ```typescript
-onSuccess({
-  id: reservation.id,
-  reservationCode: reservation.reservation_code,
-  name: name.trim(),
-  phone: normalizePhone(phone),
-  email: email.trim() || null,
-  pax: pax,
-  date: displayDate,
-  time: time,
-  notes: notes.trim() || null,
+// Total reservations for period
+const { data: totalCount } = useQuery({
+  queryKey: ['reservation-stats', 'total', dateFilter, ...],
+  queryFn: async () => {
+    const { count } = await supabase
+      .from('reservations')
+      .select('*', { count: 'exact', head: true })
+      .gte('created_at', dateRange.start.toISOString())
+      .lte('created_at', dateRange.end.toISOString());
+    return count || 0;
+  }
 });
-```
 
-### Part 3: Redesign ReservationConfirmation Component
+// Pending approval (NOT date filtered - shows all pending)
+const { data: pendingCount } = useQuery({
+  queryKey: ['reservation-stats', 'pending'],
+  queryFn: async () => {
+    const { count } = await supabase
+      .from('reservations')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pending');
+    return count || 0;
+  }
+});
 
-**File: `src/components/reservation/ReservationConfirmation.tsx`**
+// Upcoming confirmed (future dates only)
+const { data: upcomingCount } = useQuery({
+  queryKey: ['reservation-stats', 'upcoming'],
+  queryFn: async () => {
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const { count } = await supabase
+      .from('reservations')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'confirmed')
+      .gte('reservation_date', today);
+    return count || 0;
+  }
+});
 
-Expand the props interface and UI to show:
-
-1. **Reservation Code Card** (prominent, centered)
-   - Large `ARW-RSV-XXXX` code in a styled box
-   - "Save this code to track your reservation"
-
-2. **Customer Details Section**
-   - Name
-   - Phone (partially masked for privacy display)
-   - Email (if provided)
-   - Notes (if provided)
-
-3. **Reservation Details Section** (existing)
-   - Date, Time, Party Size
-
-4. **Action Buttons**
-   - "Download Ticket" → Generates PDF
-   - "Track Reservation" → Links to `/reserve/track`
-   - "Back to Home"
-   - "Make Another Reservation"
-
-### Part 4: Create PDF Ticket Generator Component
-
-**New File: `src/components/reservation/ReservationTicket.tsx`**
-
-Uses:
-- `jspdf` - PDF generation library
-- `qrcode.react` - QR code generation for React
-
-The ticket will include:
-- Restaurant logo/header
-- Reservation code (large)
-- QR code that links to tracking page
-- Customer name
-- Date, time, party size
-- Restaurant address & phone
-- "Present this ticket on arrival"
-
-### Part 5: Install Required Dependencies
-
-```bash
-npm install jspdf qrcode.react
-npm install -D @types/qrcode.react
-```
-
----
-
-## Detailed UI Design
-
-### Confirmation Screen Layout
-
-```
-┌────────────────────────────────────────┐
-│  ← Reservation Submitted               │
-│     American Ribs & Wings              │
-├────────────────────────────────────────┤
-│                                        │
-│            ✓ (success icon)            │
-│                                        │
-│      Reservation Submitted!            │
-│  Thank you, [Name]. Your request       │
-│  has been received.                    │
-│                                        │
-├────────────────────────────────────────┤
-│  ┌────────────────────────────────┐    │
-│  │     Your Reservation Code      │    │
-│  │                                │    │
-│  │     ARW-RSV-1234              │    │
-│  │                                │    │
-│  │  Save this code to track your  │    │
-│  │  reservation status            │    │
-│  └────────────────────────────────┘    │
-├────────────────────────────────────────┤
-│  Status: Pending Confirmation          │
-│  We will contact you to confirm        │
-├────────────────────────────────────────┤
-│  YOUR DETAILS                          │
-│  👤 Name: [Customer Name]              │
-│  📱 Phone: 0917****567                 │
-│  ✉️  Email: customer@email.com          │
-│  📝 Notes: Near the window please      │
-├────────────────────────────────────────┤
-│  RESERVATION DETAILS                   │
-│  📅 Date: February 17, 2026            │
-│  🕐 Time: 1:30 PM                      │
-│  👥 Party Size: 3 guests               │
-├────────────────────────────────────────┤
-│  ┌────────────────────────────────┐    │
-│  │  📥 Download Reservation Ticket │    │
-│  └────────────────────────────────┘    │
-│  ┌────────────────────────────────┐    │
-│  │  🔍 Track Your Reservation     │    │
-│  └────────────────────────────────┘    │
-│  ┌────────────────────────────────┐    │
-│  │       Back to Home             │    │
-│  └────────────────────────────────┘    │
-│  ┌────────────────────────────────┐    │
-│  │  ↺ Make Another Reservation    │    │
-│  └────────────────────────────────┘    │
-└────────────────────────────────────────┘
-```
-
-### PDF Ticket Layout
-
-```
-┌─────────────────────────────────────┐
-│  🍗 AMERICAN RIBS & WINGS           │
-│     Table Reservation Ticket        │
-├─────────────────────────────────────┤
-│                                     │
-│  ┌─────────────┐                    │
-│  │   QR CODE   │   ARW-RSV-1234    │
-│  │             │                    │
-│  │   (links    │   RESERVATION     │
-│  │    to       │   CODE            │
-│  │   tracking) │                    │
-│  └─────────────┘                    │
-│                                     │
-├─────────────────────────────────────┤
-│  Guest: Odera Joseph Echendu        │
-│  Party Size: 3 guests               │
-├─────────────────────────────────────┤
-│  📅 February 17, 2026               │
-│  🕐 1:30 PM                         │
-├─────────────────────────────────────┤
-│  Status: PENDING CONFIRMATION       │
-│  (Subject to confirmation)          │
-├─────────────────────────────────────┤
-│  📍 LOCATION                        │
-│  American Ribs & Wings              │
-│  Floridablanca, Pampanga            │
-│  📞 0917-XXX-XXXX                   │
-├─────────────────────────────────────┤
-│  Present this ticket on arrival     │
-│  Track status: arwfloridablanca.    │
-│  lovable.app/reserve/track          │
-└─────────────────────────────────────┘
+// No shows in period
+const { data: noShowCount } = useQuery({
+  queryKey: ['reservation-stats', 'no-show', dateFilter, ...],
+  queryFn: async () => {
+    const { count } = await supabase
+      .from('reservations')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'no_show')
+      .gte('created_at', dateRange.start.toISOString())
+      .lte('created_at', dateRange.end.toISOString());
+    return count || 0;
+  }
+});
 ```
 
 ---
@@ -197,47 +136,34 @@ npm install -D @types/qrcode.react
 
 | File | Action | Description |
 |------|--------|-------------|
-| `package.json` | Modify | Add `jspdf` and `qrcode.react` dependencies |
-| `src/pages/Reserve.tsx` | Modify | Expand ConfirmationData interface |
-| `src/components/reservation/ReservationForm.tsx` | Modify | Pass reservationCode, phone, email, notes to onSuccess |
-| `src/components/reservation/ReservationConfirmation.tsx` | Modify | Complete redesign with all details + download button |
-| `src/components/reservation/ReservationTicket.tsx` | Create | New component for PDF generation |
-| `src/lib/constants.ts` | Read | Get store details for ticket |
+| `src/components/admin/ReservationStatsCard.tsx` | **Create** | New component with 4 reservation stat boxes |
+| `src/pages/admin/Dashboard.tsx` | **Modify** | Import and add ReservationStatsCard above ProductAnalyticsCard |
 
 ---
 
-## Technical Notes
+## Visual Design
 
-### PDF Generation Approach
-
-Using `jspdf` for PDF creation and `qrcode.react` to generate a QR code, then converting it to base64 for embedding in the PDF:
-
-```typescript
-import jsPDF from 'jspdf';
-import { QRCodeCanvas } from 'qrcode.react';
-
-// 1. Render QR code to hidden canvas
-// 2. Get canvas as base64 image
-// 3. Add to PDF using doc.addImage()
-// 4. Trigger download with doc.save()
-```
-
-### QR Code Content
-
-The QR code will contain the tracking URL with pre-filled code:
-```
-https://arwfloridablanca.lovable.app/reserve/track?code=ARW-RSV-1234
-```
-
-This allows customers to scan and go directly to tracking (though they'll still need to enter their phone for security).
+The card will follow the existing ProductAnalyticsCard pattern with:
+- Single Card container with header + content
+- 4-column grid (2 cols on mobile, 4 on desktop)
+- Each stat box with:
+  - Icon + Title
+  - Large count number
+  - Subtitle with context
+- Color coding:
+  - Total: `bg-blue-500/10 text-blue-600`
+  - Pending: `bg-orange-500/10 text-orange-600` (with pulse if > 0)
+  - Upcoming: `bg-green-500/10 text-green-600`
+  - No Shows: `bg-red-500/10 text-red-600`
 
 ---
 
-## Email Attachment Note
+## Additional Features
 
-For PDF attachment in emails, this would require:
-1. Generating PDF on server-side (edge function)
-2. Base64 encoding the PDF
-3. Attaching to email via Resend API
+1. **Link to Reservations Page** - Header will include a "View All" link to `/admin/reservations`
+2. **Pending Pulse** - If pending > 0, show a subtle pulse animation to draw attention
+3. **Click Actions** - Each card is clickable, linking to filtered reservation views:
+   - Pending → `/admin/reservations?status=pending`
+   - Upcoming → `/admin/reservations?filter=upcoming`
+   - No Shows → `/admin/reservations?status=no_show`
 
-This is more complex and can be a Phase 2 enhancement. For now, the downloadable PDF on the confirmation screen provides the immediate value.
