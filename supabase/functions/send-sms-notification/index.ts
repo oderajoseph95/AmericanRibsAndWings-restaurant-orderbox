@@ -20,6 +20,12 @@ interface SmsPayload {
   totalAmount?: number;
   deliveryAddress?: string;
   reason?: string;
+  // Reservation fields
+  reservationId?: string;
+  reservationCode?: string;
+  reservationDate?: string;
+  reservationTime?: string;
+  pax?: number;
 }
 
 // Format Philippine phone number to standard format
@@ -146,6 +152,11 @@ function replaceVariables(content: string, payload: SmsPayload): string {
   result = result.replace(/\{\{total_amount\}\}/g, payload.totalAmount?.toLocaleString('en-PH', { minimumFractionDigits: 2 }) || "");
   result = result.replace(/\{\{delivery_address\}\}/g, payload.deliveryAddress || "");
   result = result.replace(/\{\{reason\}\}/g, payload.reason || "");
+  // Reservation variables
+  result = result.replace(/\{\{reservation_code\}\}/g, payload.reservationCode || "");
+  result = result.replace(/\{\{reservation_date\}\}/g, payload.reservationDate || "");
+  result = result.replace(/\{\{reservation_time\}\}/g, payload.reservationTime || "");
+  result = result.replace(/\{\{pax\}\}/g, String(payload.pax || ""));
   
   return result;
 }
@@ -180,11 +191,15 @@ async function logSms(
   }
 }
 
-// Get default message if no template found - now covers all 10 types
+// Get default message if no template found - now covers all types
 function getDefaultMessage(type: string, payload: SmsPayload): string {
   const orderNumber = payload.orderNumber || "";
   const driverName = payload.driverName || "";
   const reason = payload.reason || "";
+  const reservationCode = payload.reservationCode || "";
+  const reservationDate = payload.reservationDate || "";
+  const reservationTime = payload.reservationTime || "";
+  const pax = payload.pax || 0;
   
   const defaults: Record<string, string> = {
     // Original 5 types
@@ -194,12 +209,15 @@ function getDefaultMessage(type: string, payload: SmsPayload): string {
     order_out_for_delivery: `American Ribs & Wings: Your order #${orderNumber} is out for delivery! Your rider is on the way.`,
     order_delivered: `American Ribs & Wings: Your order #${orderNumber} has been delivered. Thank you for ordering! 🍗`,
     
-    // New 5 types
+    // Order status types
     order_rejected: `American Ribs & Wings: Your order #${orderNumber} could not be processed.${reason ? ` Reason: ${reason}` : ""} Please contact us for assistance.`,
     order_cancelled: `American Ribs & Wings: Your order #${orderNumber} has been cancelled.${reason ? ` ${reason}` : ""} If you have questions, please contact us.`,
     order_preparing: `American Ribs & Wings: Great news! Your order #${orderNumber} is now being prepared. We'll update you when it's ready!`,
     order_ready_for_pickup: `American Ribs & Wings: Your order #${orderNumber} is ready for pickup! Please proceed to our store in Floridablanca.`,
     order_completed: `American Ribs & Wings: Thank you for your order #${orderNumber}! We hope you enjoyed your meal. See you again soon! 🍗`,
+    
+    // Reservation type
+    reservation_received: `American Ribs & Wings: Reservation ${reservationCode} received for ${pax} guests on ${reservationDate} at ${reservationTime}. We'll confirm via SMS shortly.`,
     
     // Review request - MUST be under 140 characters
     review_request: `Loved your order? Review us! g.page/r/CX7_36IAlM8XEBM/review - American Ribs & Wings`,

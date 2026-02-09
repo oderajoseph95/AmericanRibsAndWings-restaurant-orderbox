@@ -107,6 +107,12 @@ interface EmailPayload {
   isTest?: boolean;
   templateType?: string;
   testRecipientEmail?: string;
+  // Reservation fields
+  reservationId?: string;
+  reservationCode?: string;
+  reservationDate?: string;
+  reservationTime?: string;
+  pax?: number;
 }
 
 // Format currency
@@ -153,6 +159,7 @@ function getTriggerEventLabel(type: string, orderType?: string): string {
     payout_requested: 'Payout Requested',
     payout_approved: 'Payout Approved',
     payout_rejected: 'Payout Rejected',
+    new_reservation: 'New Reservation',
     test_email: 'Test Email',
   };
   return labels[type] || type.replace(/_/g, ' ');
@@ -467,6 +474,7 @@ function getEmailTypeLabel(type: string): string {
     payout_requested: 'Payout Requested',
     payout_approved: 'Payout Approved',
     payout_rejected: 'Payout Rejected',
+    new_reservation: 'New Reservation',
   };
   return labels[type] || type.replace(/_/g, ' ');
 }
@@ -500,6 +508,11 @@ function replaceVariables(text: string, payload: EmailPayload): string {
   result = result.replace(/\{\{order_items\}\}/g, generateOrderItemsHtml(payload.orderItems));
   result = result.replace(/\{\{order_summary\}\}/g, generateOrderSummaryHtml(payload));
   result = result.replace(/\{\{customer_info\}\}/g, generateCustomerInfoHtml(payload));
+  // Reservation variables
+  result = result.replace(/\{\{reservation_code\}\}/g, payload.reservationCode || '');
+  result = result.replace(/\{\{reservation_date\}\}/g, payload.reservationDate || '');
+  result = result.replace(/\{\{reservation_time\}\}/g, payload.reservationTime || '');
+  result = result.replace(/\{\{pax\}\}/g, String(payload.pax || ''));
   
   // Handle conditionals
   const conditionalRegex = /\{\{#if (\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g;
@@ -1098,6 +1111,7 @@ function getAdminNotificationSubject(type: string, orderNumber?: string, payload
     order_delivered: `🎉 Order #${orderNumber} Delivered`,
     order_completed: `✨ [COMPLETED] Order #${orderNumber}`,
     order_returned: `↩️ [RETURNED] Order #${orderNumber}`,
+    new_reservation: `📅 [NEW RESERVATION] ${payload?.reservationCode} - ${payload?.pax} guests - ${payload?.customerName}`,
     payout_requested: `💰 [PAYOUT REQUEST] ${formatCurrency(payload?.payoutAmount)} - ${payload?.driverName}`,
     payout_approved: `✅ Payout Approved`,
     payout_rejected: `Payout Rejected`,
@@ -1189,6 +1203,48 @@ function getAdminNotificationTemplate(type: string, payload: EmailPayload): stri
         ` : ''}
 
         <a href="${orderLink}" class="cta">View Order in Admin →</a>
+      </div>
+    `;
+  } else if (type === 'new_reservation') {
+    // Reservation notification
+    const { reservationCode, reservationDate, reservationTime, pax } = payload;
+    content = `
+      <div class="content">
+        <p style="margin: 0 0 15px; font-size: 16px; font-weight: 600;">📅 New Table Reservation!</p>
+        
+        <div class="section">
+          <p class="section-title">Reservation Info</p>
+          <span class="order-number">${reservationCode}</span><br>
+          <p style="margin: 10px 0 0;"><strong>${pax || 0} ${(pax || 0) === 1 ? 'guest' : 'guests'}</strong></p>
+        </div>
+
+        <div class="section">
+          <p class="section-title">📆 Date & Time</p>
+          <table>
+            <tr><td class="label">Date:</td><td><strong>${reservationDate}</strong></td></tr>
+            <tr><td class="label">Time:</td><td><strong>${reservationTime}</strong></td></tr>
+          </table>
+        </div>
+
+        <div class="section">
+          <p class="section-title">Customer</p>
+          <table>
+            <tr><td class="label">Name:</td><td><strong>${customerName}</strong></td></tr>
+            <tr><td class="label">Phone:</td><td><a href="tel:${customerPhone}" style="color: #ea580c;">${customerPhone}</a></td></tr>
+            ${customerEmail ? `<tr><td class="label">Email:</td><td>${customerEmail}</td></tr>` : ''}
+          </table>
+        </div>
+
+        ${notes ? `
+        <div class="section" style="background: #fef3c7;">
+          <p class="section-title">📝 Special Requests</p>
+          <p style="margin: 0; font-style: italic;">${notes}</p>
+        </div>
+        ` : ''}
+
+        <p style="margin: 20px 0 10px; color: #6b7280; font-size: 13px;">
+          Status: <strong style="color: #f59e0b;">Pending Confirmation</strong>
+        </p>
       </div>
     `;
   } else if (type === 'payout_requested') {

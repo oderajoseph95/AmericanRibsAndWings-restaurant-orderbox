@@ -1419,6 +1419,51 @@ export type Database = {
           },
         ]
       }
+      reservations: {
+        Row: {
+          created_at: string | null
+          email: string | null
+          id: string
+          name: string
+          notes: string | null
+          pax: number
+          phone: string
+          reservation_code: string
+          reservation_date: string
+          reservation_time: string
+          status: Database["public"]["Enums"]["reservation_status"]
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          email?: string | null
+          id?: string
+          name: string
+          notes?: string | null
+          pax: number
+          phone: string
+          reservation_code: string
+          reservation_date: string
+          reservation_time: string
+          status?: Database["public"]["Enums"]["reservation_status"]
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          email?: string | null
+          id?: string
+          name?: string
+          notes?: string | null
+          pax?: number
+          phone?: string
+          reservation_code?: string
+          reservation_date?: string
+          reservation_time?: string
+          status?: Database["public"]["Enums"]["reservation_status"]
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       sales_pop_config: {
         Row: {
           created_at: string | null
@@ -1896,6 +1941,21 @@ export type Database = {
         }
         Returns: string
       }
+      create_reservation: {
+        Args: {
+          p_email?: string
+          p_name: string
+          p_notes?: string
+          p_pax?: number
+          p_phone: string
+          p_reservation_date?: string
+          p_reservation_time?: string
+        }
+        Returns: {
+          id: string
+          reservation_code: string
+        }[]
+      }
       generate_random_username: { Args: { role_name: string }; Returns: string }
       get_funnel_counts: {
         Args: { end_date: string; start_date: string }
@@ -1961,6 +2021,12 @@ export type Database = {
         | "cancelled"
       order_type: "dine_in" | "pickup" | "delivery"
       product_type: "simple" | "flavored" | "bundle" | "unlimited"
+      reservation_status:
+        | "pending"
+        | "confirmed"
+        | "cancelled"
+        | "completed"
+        | "no_show"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2114,6 +2180,13 @@ export const Constants = {
       ],
       order_type: ["dine_in", "pickup", "delivery"],
       product_type: ["simple", "flavored", "bundle", "unlimited"],
+      reservation_status: [
+        "pending",
+        "confirmed",
+        "cancelled",
+        "completed",
+        "no_show",
+      ],
     },
   },
 } as const

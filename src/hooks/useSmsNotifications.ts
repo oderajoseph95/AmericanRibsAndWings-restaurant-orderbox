@@ -12,6 +12,7 @@ export type SmsType =
   | "order_ready_for_pickup"
   | "order_completed"
   | "review_request"
+  | "reservation_received"
   | "test";
 
 export interface SmsNotificationPayload {
@@ -25,6 +26,12 @@ export interface SmsNotificationPayload {
   totalAmount?: number;
   deliveryAddress?: string;
   reason?: string;
+  // Reservation fields
+  reservationId?: string;
+  reservationCode?: string;
+  reservationDate?: string;
+  reservationTime?: string;
+  pax?: number;
 }
 
 export async function sendSmsNotification(payload: SmsNotificationPayload): Promise<{ success: boolean; error?: string }> {
