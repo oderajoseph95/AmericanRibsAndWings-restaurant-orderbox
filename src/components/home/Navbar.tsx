@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Menu, ShoppingBag, ShoppingCart } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
@@ -11,8 +12,16 @@ import { usePersistedCart } from "@/hooks/usePersistedCart";
 import { useStoreStatus } from "@/hooks/useStoreStatus";
 import type { CartItem } from "@/pages/Order";
 
+interface NavLinkItem {
+  name: string;
+  href: string;
+  isRoute?: boolean;
+  matchPaths?: string[];
+}
+
 export function Navbar() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, role } = useAuth();
   const isAdmin = role === 'owner' || role === 'manager';
   const [isScrolled, setIsScrolled] = useState(false);
@@ -29,13 +38,24 @@ export function Navbar() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  const navLinks = [
-    { name: "Home", href: "/" },
+  const navLinks: NavLinkItem[] = [
+    { name: "Home", href: "/", isRoute: true },
     { name: "Menu", href: "#menu" },
     { name: "About", href: "#about" },
     { name: "Location", href: "#location" },
-    { name: "Reserve", href: "/reservenow" },
+    { name: "Reserve", href: "/reservenow", isRoute: true, matchPaths: ["/reservenow", "/reserve"] },
   ];
+
+  // Check if a nav link is active based on current route
+  const isLinkActive = (link: NavLinkItem): boolean => {
+    if (!link.isRoute) return false;
+    if (link.matchPaths) {
+      return link.matchPaths.some(path => 
+        location.pathname === path || location.pathname.startsWith(path + '/')
+      );
+    }
+    return location.pathname === link.href;
+  };
 
   // Cart calculations
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
@@ -116,15 +136,34 @@ export function Navbar() {
 
         {/* Desktop Nav */}
         <div className="hidden md:flex items-center gap-8">
-          {navLinks.map((link) => (
-            <a
-              key={link.name}
-              href={link.href}
-              className="text-foreground hover:text-primary transition-colors font-medium"
-            >
-              {link.name}
-            </a>
-          ))}
+          {navLinks.map((link) => {
+            const isActive = isLinkActive(link);
+            
+            if (link.isRoute) {
+              return (
+                <Link
+                  key={link.name}
+                  to={link.href}
+                  className={cn(
+                    "text-foreground hover:text-primary transition-colors font-medium",
+                    isActive && "text-primary"
+                  )}
+                >
+                  {link.name}
+                </Link>
+              );
+            }
+            
+            return (
+              <a
+                key={link.name}
+                href={link.href}
+                className="text-foreground hover:text-primary transition-colors font-medium"
+              >
+                {link.name}
+              </a>
+            );
+          })}
         </div>
 
         {/* Desktop: Cart + Notification + Order Now */}
@@ -215,16 +254,36 @@ export function Navbar() {
             </SheetTrigger>
             <SheetContent side="right" className="w-[280px] bg-white">
               <div className="flex flex-col gap-6 mt-8">
-                {navLinks.map((link) => (
-                  <a
-                    key={link.name}
-                    href={link.href}
-                    onClick={() => setIsOpen(false)}
-                    className="text-lg font-medium text-foreground hover:text-primary transition-colors"
-                  >
-                    {link.name}
-                  </a>
-                ))}
+                {navLinks.map((link) => {
+                  const isActive = isLinkActive(link);
+                  
+                  if (link.isRoute) {
+                    return (
+                      <Link
+                        key={link.name}
+                        to={link.href}
+                        onClick={() => setIsOpen(false)}
+                        className={cn(
+                          "text-lg font-medium text-foreground hover:text-primary transition-colors",
+                          isActive && "text-primary"
+                        )}
+                      >
+                        {link.name}
+                      </Link>
+                    );
+                  }
+                  
+                  return (
+                    <a
+                      key={link.name}
+                      href={link.href}
+                      onClick={() => setIsOpen(false)}
+                      className="text-lg font-medium text-foreground hover:text-primary transition-colors"
+                    >
+                      {link.name}
+                    </a>
+                  );
+                })}
                 <Button asChild className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-full mt-4">
                   <Link to="/order" onClick={() => setIsOpen(false)}>
                     <ShoppingBag className="mr-2 h-4 w-4" />
