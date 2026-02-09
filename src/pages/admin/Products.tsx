@@ -132,9 +132,15 @@ export default function Products() {
   const saveMutation = useMutation({
     mutationFn: async (product: Partial<Tables<'products'>> & { name: string }) => {
       if (editingProduct) {
+        // Regenerate slug if name changed
+        const updatedProduct = { ...product };
+        if (product.name !== editingProduct.name) {
+          updatedProduct.slug = generateSlug(product.name) + '-' + editingProduct.id.substring(0, 8);
+        }
+        
         const { error } = await supabase
           .from('products')
-          .update(product)
+          .update(updatedProduct)
           .eq('id', editingProduct.id);
         if (error) throw error;
 
@@ -148,6 +154,10 @@ export default function Products() {
           newValues: { name: product.name, price: product.price, is_active: product.is_active },
         });
       } else {
+        // Generate slug with random suffix for new products
+        const slugSuffix = crypto.randomUUID().substring(0, 8);
+        const generatedSlug = generateSlug(product.name) + '-' + slugSuffix;
+        
         const { data, error } = await supabase.from('products').insert({
           name: product.name,
           sku: product.sku,
@@ -158,6 +168,7 @@ export default function Products() {
           is_active: product.is_active,
           stock_enabled: product.stock_enabled,
           image_url: product.image_url,
+          slug: generatedSlug,
         }).select().single();
         if (error) throw error;
 
