@@ -1,53 +1,224 @@
-# Reservation Communication & Tracking - Implementation Status
 
-## ✅ ISSUE R3.1 — Reservation Confirmation Code Generation
-**Status: IMPLEMENTED**
 
-- Added `confirmation_code` column to reservations table
-- Created unique partial index for confirmation codes
-- Code generated only on `pending` → `confirmed` transition
-- Format: `ARW-RES-XXXXX` (5-digit numeric suffix)
-- Display added to admin reservation detail view
+# ISSUE R3.3 — Customer Reservation Confirmation (SMS)
 
-## ✅ ISSUE R3.2 — Customer Reservation Confirmation (Email)
-**Status: IMPLEMENTED**
+## Overview
 
-### Changes Made:
-
-1. **Email Types Added**:
-   - `reservation_confirmed` - sent when pending → confirmed
-   - `reservation_cancelled` - sent when pending → cancelled
-
-2. **Files Modified**:
-   - `src/hooks/useEmailNotifications.ts` - Added new email types and `preorderItems` field
-   - `src/pages/admin/ReservationDetail.tsx` - Added email sending after status change
-   - `supabase/functions/send-email-notification/index.ts` - Added templates, subjects, labels
-
-3. **Email Templates**:
-   - Confirmation email includes: confirmation code, date, time, party size, pre-orders (if any), business location
-   - Cancellation email includes: reservation code, original details, apology message, contact info
-
-4. **Trigger Conditions**:
-   - Email sent only if customer provided an email address
-   - Email sent only on `pending` → `confirmed` or `pending` → `cancelled`
-   - Email failure does NOT block status change (non-blocking)
-
-5. **Pre-order Summary**:
-   - Displays pre-order items with "Not Paid" label
-   - Only shown in confirmation emails
+Send SMS confirmation to customers when their reservation status changes from `pending` to `confirmed` or `pending` to `cancelled`. Unlike email (which depends on customer providing an email), SMS is sent to all customers since phone number is required.
 
 ---
 
-## Upcoming Issues
+## Current System Analysis
 
-### 🟡 ISSUE R3.3 — Customer Reservation Confirmation (SMS)
-**Status: PLANNED**
+### Existing SMS Infrastructure
+- **Edge Function**: `supabase/functions/send-sms-notification/index.ts` handles all SMS via Semaphore
+- **Hook**: `src/hooks/useSmsNotifications.ts` provides `sendSmsNotification()` function
+- **Existing Types**: `reservation_received` already exists for new reservation notification
+- **Reservation Variables**: Already supported in edge function (reservationCode, reservationDate, reservationTime, pax)
 
-### 🟡 ISSUE R3.4 — Reservation Tracking Page
-**Status: PLANNED**
+### Key Observation
+The SMS infrastructure already supports reservation fields - we only need to:
+1. Add two new SMS types
+2. Add default message templates
+3. Trigger SMS sending in the status mutation
 
-### 🟡 ISSUE R3.5 — Admin Resend Controls
-**Status: PLANNED**
+---
 
-### 🟡 ISSUE R3.6 — Communication Logging
-**Status: PLANNED**
+## Technical Implementation
+
+### 1. Add New SMS Types to Hook
+
+**File: `src/hooks/useSmsNotifications.ts`**
+
+Add to `SmsType` union:
+```typescript
+| "reservation_confirmed"
+| "reservation_cancelled"
+```
+
+---
+
+### 2. Add Default SMS Templates in Edge Function
+
+**File: `supabase/functions/send-sms-notification/index.ts`**
+
+Add to `getDefaultMessage()` function (~line 204):
+```typescript
+// Reservation confirmation types
+reservation_confirmed: `Your reservation is CONFIRMED.\nCode: ${reservationCode}\n${reservationDate}, ${reservationTime} - ${pax} guests\nSee you soon! - American Ribs & Wings`,
+
+reservation_cancelled: `Your reservation was not approved.\nCode: ${reservationCode}\nPlease contact us if you have questions.\n- American Ribs & Wings`,
+```
+
+**Message Format Rules:**
+- No emojis
+- No URLs
+- Clear status wording
+- Under 160 characters (single SMS segment)
+- Includes: confirmation code, date, time, pax
+
+---
+
+### 3. Add SMS Sending to Status Mutation
+
+**File: `src/pages/admin/ReservationDetail.tsx`**
+
+#### A. Add import:
+```typescript
+import { sendSmsNotification } from '@/hooks/useSmsNotifications';
+```
+
+#### B. Add SMS sending after email sending block:
+
+```typescript
+// Send customer SMS notification (always - phone is required)
+if (reservation?.phone && (newStatus === 'confirmed' || newStatus === 'cancelled')) {
+  const smsType = newStatus === 'confirmed' ? 'reservation_confirmed' : 'reservation_cancelled';
+  
+  // Format date and time for SMS
+  const formattedDate = format(new Date(reservation.reservation_date), 'MMM d');
+  const [hours, minutes] = reservation.reservation_time.split(':');
+  const timeDate = new Date();
+  timeDate.setHours(parseInt(hours), parseInt(minutes));
+  const formattedTime = format(timeDate, 'h:mm a');
+  
+  // Send SMS (fire and forget - don't block status update)
+  sendSmsNotification({
+    type: smsType,
+    recipientPhone: reservation.phone,
+    reservationId: reservation.id,
+    reservationCode: confirmationCode || reservation.confirmation_code || reservation.reservation_code,
+    customerName: reservation.name,
+    reservationDate: formattedDate,
+    reservationTime: formattedTime,
+    pax: reservation.pax,
+  }).then(result => {
+    if (!result.success) {
+      console.error('Failed to send reservation SMS:', result.error);
+    } else {
+      console.log('Reservation SMS sent successfully');
+    }
+  }).catch(err => {
+    console.error('SMS notification error:', err);
+  });
+}
+```
+
+---
+
+## Files to Modify
+
+| File | Change |
+|------|--------|
+| `src/hooks/useSmsNotifications.ts` | Add `reservation_confirmed`, `reservation_cancelled` types |
+| `src/pages/admin/ReservationDetail.tsx` | Add SMS sending after status change, import hook |
+| `supabase/functions/send-sms-notification/index.ts` | Add default message templates for reservation SMS |
+
+---
+
+## SMS Content
+
+### Confirmed SMS (~120 characters)
+```
+Your reservation is CONFIRMED.
+Code: ARW-RES-48321
+Jan 12, 7:00 PM - 4 guests
+See you soon! - American Ribs & Wings
+```
+
+### Cancelled SMS (~95 characters)
+```
+Your reservation was not approved.
+Code: ARW-RES-48321
+Please contact us if you have questions.
+- American Ribs & Wings
+```
+
+**Rules applied:**
+- No emojis
+- No URLs
+- Clear status wording
+- Transactional tone
+- Under SMS character limits
+
+---
+
+## Trigger Conditions
+
+| Status Change | Send SMS? | SMS Type |
+|---------------|-----------|----------|
+| pending → confirmed | YES | `reservation_confirmed` |
+| pending → cancelled | YES | `reservation_cancelled` |
+| confirmed → completed | NO | - |
+| confirmed → no_show | NO | - |
+| Creation (pending) | NO | - |
+
+---
+
+## Key Differences from Email (R3.2)
+
+| Aspect | Email | SMS |
+|--------|-------|-----|
+| Condition | Only if email exists | Always (phone required) |
+| Content | Full details + pre-orders | Short, essential info only |
+| Format | HTML template | Plain text |
+| Character limit | None | ~160 chars |
+| URLs | Future tracking link | None |
+
+---
+
+## Failure Handling
+
+```text
+Admin clicks "Confirm Reservation"
+     ↓
+Database updated (status + confirmation_code)
+     ↓
+[Success?]───NO──→ Show error toast, stop
+     ↓ YES
+Log admin action
+     ↓
+Toast success shown
+     ↓
+Send Email (async, if email exists)
+     ↓
+Send SMS (async, always)
+     ↓
+[SMS fails?]───YES──→ Log error (no user impact)
+     ↓ NO
+SMS delivered
+```
+
+**Key principle:** SMS failure does NOT block status change.
+
+---
+
+## Logging
+
+SMS logs recorded in `sms_logs` table:
+- `recipient_phone`
+- `sms_type` (reservation_confirmed / reservation_cancelled)
+- `status` (sent / failed)
+- `message_id` (from Semaphore)
+- `metadata` (includes reservation details)
+- `created_at`
+
+---
+
+## What This Creates
+
+- Two new SMS types: `reservation_confirmed`, `reservation_cancelled`
+- Default message templates (short, transactional)
+- Non-blocking SMS sending on status change
+- SMS logging for audit trail
+
+---
+
+## What This Does NOT Create
+
+- Email logic (R3.2 - already implemented)
+- Tracking pages (R3.4)
+- Admin resend controls (R3.5)
+- Marketing messages
+- SMS on reservation creation
+
