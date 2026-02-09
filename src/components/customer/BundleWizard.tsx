@@ -277,6 +277,10 @@ export function BundleWizard({
         displayName = 'Fries';
       } else if (displayName.toLowerCase().includes('juice')) {
         displayName = '1L Juice';
+      } else if (displayName.toLowerCase().includes('wine')) {
+        displayName = 'Red Wine';
+      } else if (displayName.toLowerCase().includes('cake')) {
+        displayName = 'Bento Cake';
       }
       
       return {
@@ -514,13 +518,17 @@ export function BundleWizard({
                         displayName = 'Plain Rice';
                       } else if (displayName.toLowerCase().includes('java rice')) {
                         displayName = 'Java Rice';
-                      } else if (displayName.toLowerCase().includes('coleslaw')) {
-                        displayName = 'Coleslaw';
-                      } else if (displayName.toLowerCase().includes('fries')) {
-                        displayName = 'Fries';
-                      } else if (displayName.toLowerCase().includes('juice')) {
-                        displayName = '1L Juice';
-                      }
+      } else if (displayName.toLowerCase().includes('coleslaw')) {
+        displayName = 'Coleslaw';
+      } else if (displayName.toLowerCase().includes('fries')) {
+        displayName = 'Fries';
+      } else if (displayName.toLowerCase().includes('juice')) {
+        displayName = '1L Juice';
+      } else if (displayName.toLowerCase().includes('wine')) {
+        displayName = 'Red Wine';
+      } else if (displayName.toLowerCase().includes('cake')) {
+        displayName = 'Bento Cake';
+      }
                       
                       const qty = comp.quantity || 1;
                       const showUpgradePrice = isPlainRice && hasPlainRice && riceUpgrade === 'java';
