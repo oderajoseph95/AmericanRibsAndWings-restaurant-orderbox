@@ -1,160 +1,337 @@
 
-# ISSUE R5.2 — Reservation Completion Control (Admin)
 
-✅ **COMPLETED**
+# ISSUE R5.3 — Reservation Timeline & Status History (Admin)
 
 ## Overview
 
-Add explicit completion tracking for reservations, mirroring the check-in implementation from R5.1. This ensures reservations close cleanly with full audit attribution when staff marks service as concluded.
+Add a read-only, chronological timeline component to the admin reservation detail page showing every meaningful lifecycle event with attribution (System vs Admin vs Customer).
 
 ---
 
 ## Current State Analysis
 
-### Already Implemented
-- "Mark Completed" button exists for `checked_in` status
-- Status transitions to `completed` via existing mutation
-- Customer tracking page shows "Completed" status
-- Check-in tracking pattern already established in R5.1
+### Data Sources Available
 
-### Missing for R5.2
-- `completed_at` and `completed_by` database columns
-- Completion timestamp/admin tracking in the mutation
-- Completion attribution display in admin detail
-- Query for completion admin name
-- Audit logging for `reservation_completed` action
-- Timeline entry for completion event
+1. **`reservations` table columns**:
+   - `created_at` - When reservation was submitted
+   - `status_changed_at` - Last status change timestamp
+   - `status_changed_by` - Last admin who changed status (UUID or "system_no_show_job")
+   - `checked_in_at` / `checked_in_by` - Check-in tracking
+   - `completed_at` / `completed_by` - Completion tracking
+   - `confirmation_code` - Set when confirmed (indicates confirmation happened)
+
+2. **`reservation_notifications` table**:
+   - Already tracks events with `channel`, `message_type`, `trigger_type`, `created_at`, `sent_by_admin_id`
+   - Message types logged: `check_in`, `completed`, `no_show_auto_closure`, email/SMS notifications
+   - Trigger types: `automatic`, `manual`
+
+3. **`admin_logs` table**:
+   - Logs all admin actions with `action`, `entity_id`, `created_at`, `display_name`
+   - Actions: `reservation_checked_in`, `reservation_completed`, `status_change`, `resend_email`, etc.
+
+### Key Insight
+The `admin_logs` table already contains the most complete audit trail of reservation events with admin attribution. We can query this table filtered by `entity_type = 'reservation'` and `entity_id` to build the timeline. For events triggered by customers or system, we'll use `reservation_notifications` and the reservation's own timestamps.
 
 ---
 
 ## Technical Implementation
 
-### 1. Database Migration
+### 1. Timeline Data Query Strategy
 
-Add dedicated columns for completion tracking (mirroring check-in):
+Build timeline from multiple sources, merged and sorted by timestamp:
 
-```sql
--- Add dedicated columns for completion tracking
-ALTER TABLE reservations 
-ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ,
-ADD COLUMN IF NOT EXISTS completed_by UUID REFERENCES auth.users(id);
-```
+**Source A: Reservation Core Events** (from `reservations` table)
+- `created_at` → "Reservation Created" (by Customer)
 
-### 2. Update Status Mutation
+**Source B: Admin Actions** (from `admin_logs` table)
+- All logs where `entity_type = 'reservation'` and `entity_id = reservation.id`
+- Includes: confirmation, rejection, check-in, completion, no-show, resends
 
-Modify the mutation in `ReservationDetail.tsx` to track completion:
+**Source C: System Events** (from `reservation_notifications` table)
+- System-triggered events (channel = 'system')
+- No-show auto-closure (`no_show_auto_closure`)
+
+### 2. Timeline Event Type Mapping
 
 ```typescript
-// Track completion with dedicated columns
-if (newStatus === 'completed') {
-  updateData.completed_at = new Date().toISOString();
-  updateData.completed_by = user?.id || null;
+interface TimelineEvent {
+  id: string;
+  timestamp: string;
+  eventType: 
+    | 'created'
+    | 'confirmed'
+    | 'rejected'
+    | 'cancelled_by_customer'
+    | 'checked_in'
+    | 'completed'
+    | 'no_show'
+    | 'notification_sent'
+    | 'reminder_sent';
+  triggerSource: 'system' | 'admin' | 'customer';
+  adminName?: string;
+  details?: string;
 }
 ```
 
-### 3. Update Audit Logging
+### 3. Create ReservationTimeline Component
 
-Add `reservation_completed` action type:
+New component: `src/components/admin/ReservationTimeline.tsx`
 
-```typescript
-const actionType = newStatus === 'checked_in' 
-  ? 'reservation_checked_in' 
-  : newStatus === 'completed'
-    ? 'reservation_completed'
-    : 'status_change';
+**UI Structure:**
+```
+┌──────────────────────────────────────────────────────────────┐
+│ 📋 Timeline                                                   │
+│ Chronological history of this reservation                    │
+└──────────────────────────────────────────────────────────────┘
+│                                                               │
+│  ○─── Created                                                 │
+│  │    Feb 9, 2026 at 10:15 AM                                │
+│  │    by Customer                                             │
+│  │                                                            │
+│  ●─── Confirmed                                               │
+│  │    Feb 9, 2026 at 10:22 AM                                │
+│  │    by Admin (Joseph)                                       │
+│  │                                                            │
+│  ○─── Reminder Sent                                           │
+│  │    Feb 10, 2026 at 6:00 PM                                │
+│  │    by System (24h reminder)                               │
+│  │                                                            │
+│  ●─── Checked In                                              │
+│  │    Feb 11, 2026 at 7:12 PM                                │
+│  │    by Admin (Leiramariel)                                  │
+│  │                                                            │
+│  ●─── Completed                                               │
+│       Feb 11, 2026 at 8:34 PM                                │
+│       by Admin (Maria)                                        │
+│                                                               │
+└───────────────────────────────────────────────────────────────┘
 ```
 
-### 4. Add Timeline Entry
+**Visual Styling:**
+- Vertical timeline with connecting line
+- Filled circles (●) for staff actions - stronger emphasis
+- Hollow circles (○) for system/customer events - muted styling
+- Icons per event type (CheckCircle, XCircle, Clock, Bell, etc.)
+- Newest events at bottom (chronological oldest → newest)
 
-Log completion to `reservation_notifications` table:
+### 4. Query Implementation
 
 ```typescript
-if (newStatus === 'completed' && reservation) {
-  await supabase.from('reservation_notifications').insert({
-    reservation_id: reservation.id,
-    channel: 'system',
-    recipient: 'internal',
-    status: 'sent',
-    trigger_type: 'manual',
-    message_type: 'completed',
+// New query in ReservationDetail.tsx
+const { data: timelineEvents = [], isLoading: timelineLoading } = useQuery({
+  queryKey: ['reservation-timeline', id],
+  queryFn: async () => {
+    // 1. Get admin logs for this reservation
+    const { data: adminLogs, error: logsError } = await supabase
+      .from('admin_logs')
+      .select('id, action, created_at, display_name, details, old_values, new_values')
+      .eq('entity_type', 'reservation')
+      .eq('entity_id', id!)
+      .order('created_at', { ascending: true });
+    
+    if (logsError) throw logsError;
+    
+    // 2. Get system notifications for this reservation
+    const { data: notifications, error: notifError } = await supabase
+      .from('reservation_notifications')
+      .select('id, created_at, channel, message_type, trigger_type')
+      .eq('reservation_id', id!)
+      .eq('channel', 'system')
+      .order('created_at', { ascending: true });
+    
+    if (notifError) throw notifError;
+    
+    // 3. Build unified timeline
+    const events: TimelineEvent[] = [];
+    
+    // Add reservation creation event
+    if (reservation?.created_at) {
+      events.push({
+        id: 'creation',
+        timestamp: reservation.created_at,
+        eventType: 'created',
+        triggerSource: 'customer',
+      });
+    }
+    
+    // Map admin logs to timeline events
+    adminLogs?.forEach(log => {
+      events.push(mapAdminLogToEvent(log));
+    });
+    
+    // Map system notifications
+    notifications?.forEach(notif => {
+      events.push(mapNotificationToEvent(notif));
+    });
+    
+    // Sort by timestamp ascending (oldest first)
+    return events.sort((a, b) => 
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+  },
+  enabled: !!id && !!reservation,
+});
+```
+
+### 5. Event Label & Icon Mapping
+
+```typescript
+const eventConfig: Record<string, { label: string; icon: LucideIcon; color: string }> = {
+  created: { 
+    label: 'Reservation Created', 
+    icon: Plus, 
+    color: 'text-gray-500' 
+  },
+  confirmed: { 
+    label: 'Confirmed', 
+    icon: CheckCircle, 
+    color: 'text-green-600' 
+  },
+  rejected: { 
+    label: 'Rejected', 
+    icon: XCircle, 
+    color: 'text-red-600' 
+  },
+  cancelled_by_customer: { 
+    label: 'Cancelled by Customer', 
+    icon: XCircle, 
+    color: 'text-orange-600' 
+  },
+  checked_in: { 
+    label: 'Checked In', 
+    icon: UserCheck, 
+    color: 'text-blue-600' 
+  },
+  completed: { 
+    label: 'Completed', 
+    icon: CheckCircle, 
+    color: 'text-emerald-600' 
+  },
+  no_show: { 
+    label: 'Marked as No-Show', 
+    icon: UserX, 
+    color: 'text-gray-600' 
+  },
+  reminder_sent: { 
+    label: 'Reminder Sent', 
+    icon: Bell, 
+    color: 'text-amber-500' 
+  },
+  notification_sent: { 
+    label: 'Notification Sent', 
+    icon: Send, 
+    color: 'text-blue-500' 
+  },
+};
+```
+
+### 6. Attribution Display
+
+Format the trigger source clearly:
+
+```typescript
+const getAttributionText = (event: TimelineEvent): string => {
+  switch (event.triggerSource) {
+    case 'admin':
+      return event.adminName 
+        ? `by Admin (${event.adminName})` 
+        : 'by Admin';
+    case 'system':
+      return 'by System';
+    case 'customer':
+      return 'by Customer';
+    default:
+      return '';
+  }
+};
+```
+
+---
+
+## Files to Create/Modify
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/components/admin/ReservationTimeline.tsx` | CREATE | New timeline component with vertical UI |
+| `src/pages/admin/ReservationDetail.tsx` | MODIFY | Add timeline query and render component |
+
+---
+
+## Component Placement
+
+The timeline will be placed **after the Reservation Summary** and **before the Internal Notes** section, as specified in the requirements:
+
+```
+Order of cards on /admin/reservations/:id:
+1. Header with Back button and Status badge
+2. Reservation Summary (existing)
+3. Customer Details (existing)
+4. Pre-orders (conditional, existing)
+5. Notes from Customer (conditional, existing)
+6. Actions (conditional, existing)
+7. Resend Notifications (conditional, existing)
+8. Notification History (existing) - will keep for detailed logs
+9. **Timeline (NEW - R5.3)**
+10. Internal Notes (existing)
+11. Metadata footer (existing)
+```
+
+---
+
+## Action Mapping from admin_logs
+
+Map `action` values from `admin_logs` to timeline event types:
+
+| admin_logs.action | eventType | triggerSource |
+|-------------------|-----------|---------------|
+| `status_change` (new=confirmed) | `confirmed` | `admin` |
+| `status_change` (new=cancelled) | `rejected` | `admin` |
+| `reservation_checked_in` | `checked_in` | `admin` |
+| `reservation_completed` | `completed` | `admin` |
+| `status_change` (new=no_show) | `no_show` | `admin` |
+| `resend_email` | `notification_sent` | `admin` |
+| `resend_sms` | `notification_sent` | `admin` |
+
+---
+
+## Notification Mapping from reservation_notifications
+
+Map `message_type` values to timeline events:
+
+| message_type | eventType | triggerSource |
+|--------------|-----------|---------------|
+| `no_show_auto_closure` | `no_show` | `system` |
+| `check_in` | `checked_in` | (skip - already in admin_logs) |
+| `completed` | `completed` | (skip - already in admin_logs) |
+| `reminder_24h`, `reminder_3h`, etc. | `reminder_sent` | `system` |
+
+---
+
+## Customer Cancellation Event
+
+For customer-initiated cancellations, check if `status = 'cancelled_by_customer'` and no admin log exists - this indicates customer self-cancellation:
+
+```typescript
+// If status is cancelled_by_customer and status_changed_by is not in admin_logs,
+// add a customer cancellation event at status_changed_at
+if (reservation.status === 'cancelled_by_customer') {
+  events.push({
+    id: 'customer-cancellation',
+    timestamp: reservation.status_changed_at,
+    eventType: 'cancelled_by_customer',
+    triggerSource: 'customer',
   });
 }
 ```
 
-### 5. Add Completion Admin Query
-
-Query the admin who completed the reservation:
-
-```typescript
-const { data: completedByAdmin } = useQuery({
-  queryKey: ['completed-by-admin', reservation?.completed_by],
-  queryFn: async () => {
-    if (!reservation?.completed_by) return null;
-    
-    const { data, error } = await supabase
-      .from('user_roles')
-      .select('display_name, username')
-      .eq('user_id', reservation.completed_by)
-      .maybeSingle();
-    
-    if (error) throw error;
-    return data?.display_name || data?.username || 'Admin';
-  },
-  enabled: !!reservation?.completed_by,
-});
-```
-
-### 6. Add Completion Attribution Display
-
-Display completion info in the summary section (after check-in attribution):
-
-```typescript
-{/* Completion Attribution */}
-{reservation.completed_at && (
-  <div className="flex items-center gap-3">
-    <CheckCircle className="h-4 w-4 text-emerald-600" />
-    <div>
-      <p className="text-sm text-muted-foreground">Completed</p>
-      <p className="font-medium">
-        {format(new Date(reservation.completed_at), 'h:mm a')}
-        {completedByAdmin && ` by ${completedByAdmin}`}
-      </p>
-    </div>
-  </div>
-)}
-```
-
 ---
 
-## Files to Modify
+## Graceful Degradation
 
-| File | Action | Description |
-|------|--------|-------------|
-| **Database Migration** | CREATE | Add `completed_at` and `completed_by` columns |
-| `src/pages/admin/ReservationDetail.tsx` | MODIFY | Add completion tracking to mutation, add query for admin name, add attribution display |
-
----
-
-## UI Changes
-
-### Admin Reservation Detail - Summary Section
-
-After a reservation is completed, the summary will show:
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│ Reservation Summary                                          │
-│ ┌─────────────────────────────────────────────────────────┐  │
-│ │ ✓ Checked In           ✓ Completed                     │  │
-│ │ 7:12 PM by Joseph      8:34 PM by Maria                │  │
-│ └─────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────┘
-```
-
-### Status Badge
-
-Completed reservations will show:
-- Badge: "Completed" (emerald green styling) - already implemented
+If timeline fails to load:
+- Display error message within the timeline card
+- Reservation detail page continues to work
+- Timeline uses its own loading state
 
 ---
 
@@ -162,38 +339,29 @@ Completed reservations will show:
 
 | Criteria | Implementation |
 |----------|----------------|
-| Completion button appears correctly | Already exists for `checked_in` status |
-| Status transitions correctly | Already works, just adding dedicated tracking |
-| Completed reservations are terminal | Already enforced by action card visibility |
-| Timestamps and admin attribution saved | New `completed_at` and `completed_by` columns |
-| No automation modifies completed records | process-no-shows only queries `confirmed` status |
-| Audit logging | `reservation_completed` action type |
-
----
-
-## System Interactions
-
-Completed reservations are automatically:
-- **Excluded from**: No-show automation (already filters by `confirmed` only)
-- **Excluded from**: Reminder jobs (already only schedules for `confirmed`)
-- **Included in**: Analytics (already counted in `get_reservation_analytics`)
+| All lifecycle events appear correctly | Query admin_logs + reservation_notifications + reservation timestamps |
+| Timestamps are accurate | Display actual timestamps from source data |
+| Trigger attribution is clear | "by Admin (Name)" / "by System" / "by Customer" |
+| UI is readable and stable | Vertical timeline with icons, colors, clear typography |
+| Timeline is immutable | Read-only component, no actions |
 
 ---
 
 ## What This Creates
 
-1. `completed_at` and `completed_by` columns in reservations table
-2. Completion tracking in the status mutation
-3. Completion attribution display (time + admin name)
-4. Audit logging with `reservation_completed` action
-5. Timeline entry for completion event
+1. New `ReservationTimeline.tsx` component
+2. Timeline query combining multiple data sources
+3. Visual timeline UI with icons and attribution
+4. Clear distinction between System / Admin / Customer actions
+5. Chronological event ordering
 
 ---
 
 ## What This Does NOT Create
 
-- Auto-completion after time
-- Feedback collection
-- Ratings
-- Table assignment release
-- Staff performance tracking
+- Customer-facing timelines
+- Export functionality
+- Filtering or searching events
+- Editing past events
+- Additional database tables (uses existing data)
+
