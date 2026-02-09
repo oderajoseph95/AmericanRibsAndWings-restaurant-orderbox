@@ -16,6 +16,7 @@ import { ActivityFeed } from '@/components/admin/ActivityFeed';
 import { LiveVisitorsCard } from '@/components/admin/LiveVisitorsCard';
 import { ConversionFunnelCard } from '@/components/admin/ConversionFunnelCard';
 import { ProductAnalyticsCard } from '@/components/admin/ProductAnalyticsCard';
+import { ReservationStatsCard } from '@/components/admin/ReservationStatsCard';
 import { DashboardCommandHeader } from '@/components/admin/DashboardCommandHeader';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -604,6 +605,9 @@ export default function Dashboard() {
           <ConversionFunnelCard dateFilter={dateFilter} customDateRange={customDateRange} />
         </div>
       </div>
+
+      {/* Reservation Stats */}
+      <ReservationStatsCard dateFilter={dateFilter} customDateRange={customDateRange} />
 
       {/* Product Analytics */}
       <ProductAnalyticsCard dateFilter={dateFilter} customDateRange={customDateRange} />
