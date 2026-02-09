@@ -38,11 +38,13 @@ import {
   Crown,
   MessageSquare,
   ShoppingBasket,
+  CalendarDays,
 } from 'lucide-react';
 
 const navItems = [
   { title: 'Dashboard', url: '/admin', icon: LayoutDashboard, roles: ['owner', 'manager', 'cashier'] },
   { title: 'Orders', url: '/admin/orders', icon: ShoppingCart, roles: ['owner', 'manager', 'cashier'] },
+  { title: 'Reservations', url: '/admin/reservations', icon: CalendarDays, roles: ['owner', 'manager', 'cashier'] },
   { title: 'Products', url: '/admin/products', icon: Package, roles: ['owner', 'manager', 'cashier'] },
   { title: 'Categories', url: '/admin/categories', icon: FolderTree, roles: ['owner', 'manager', 'cashier'] },
   { title: 'Flavors', url: '/admin/flavors', icon: Flame, roles: ['owner', 'manager', 'cashier'] },
