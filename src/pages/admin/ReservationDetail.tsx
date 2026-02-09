@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNow } from 'date-fns';
-import { ArrowLeft, CalendarDays, Users, Phone, Mail, MessageSquare, Clock, Hash, Check, X, CheckCircle, UserX, Loader2, StickyNote, Send, Ticket, RefreshCw } from 'lucide-react';
+import { ArrowLeft, CalendarDays, Users, Phone, Mail, MessageSquare, Clock, Hash, Check, X, CheckCircle, UserX, Loader2, StickyNote, Send, Ticket, RefreshCw, History } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -65,6 +65,42 @@ const statusLabels: Record<ReservationStatus, string> = {
   cancelled: 'Cancelled',
   completed: 'Completed',
   no_show: 'No Show',
+};
+
+// Helper to log reservation notification to the audit table
+const logReservationNotification = async ({
+  reservationId,
+  channel,
+  recipient,
+  status,
+  triggerType,
+  messageType,
+  errorMessage,
+  adminId,
+}: {
+  reservationId: string;
+  channel: 'email' | 'sms';
+  recipient: string;
+  status: 'sent' | 'failed';
+  triggerType: 'automatic' | 'manual';
+  messageType: string;
+  errorMessage?: string;
+  adminId?: string;
+}) => {
+  try {
+    await supabase.from('reservation_notifications').insert({
+      reservation_id: reservationId,
+      channel,
+      recipient,
+      status,
+      trigger_type: triggerType,
+      message_type: messageType,
+      error_message: errorMessage || null,
+      sent_by_admin_id: adminId || null,
+    });
+  } catch (err) {
+    console.error('Failed to log reservation notification:', err);
+  }
 };
 
 export default function ReservationDetail() {
@@ -161,6 +197,16 @@ export default function ReservationDetail() {
             quantity: item.quantity,
           })),
         }).then(result => {
+          // Log to reservation_notifications audit table
+          logReservationNotification({
+            reservationId: reservation.id,
+            channel: 'email',
+            recipient: reservation.email!,
+            status: result.success ? 'sent' : 'failed',
+            triggerType: 'automatic',
+            messageType: emailType,
+            errorMessage: result.error,
+          });
           if (!result.success) {
             console.error('Failed to send reservation email:', result.error);
           } else {
@@ -193,6 +239,16 @@ export default function ReservationDetail() {
           reservationTime: smsFormattedTime,
           pax: reservation.pax,
         }).then(result => {
+          // Log to reservation_notifications audit table
+          logReservationNotification({
+            reservationId: reservation.id,
+            channel: 'sms',
+            recipient: reservation.phone,
+            status: result.success ? 'sent' : 'failed',
+            triggerType: 'automatic',
+            messageType: smsType,
+            errorMessage: result.error,
+          });
           if (!result.success) {
             console.error('Failed to send reservation SMS:', result.error);
           } else {
@@ -219,6 +275,22 @@ export default function ReservationDetail() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('reservation_notes')
+        .select('*')
+        .eq('reservation_id', id!)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!id,
+  });
+
+  // Query for notification history
+  const { data: notificationLogs = [], isLoading: logsLoading } = useQuery({
+    queryKey: ['reservation-notifications', id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('reservation_notifications')
         .select('*')
         .eq('reservation_id', id!)
         .order('created_at', { ascending: false });
@@ -299,6 +371,18 @@ export default function ReservationDetail() {
         })),
       });
       
+      // Log to reservation_notifications audit table
+      await logReservationNotification({
+        reservationId: reservation.id,
+        channel: 'email',
+        recipient: reservation.email,
+        status: result.success ? 'sent' : 'failed',
+        triggerType: 'manual',
+        messageType: emailType,
+        errorMessage: result.error,
+        adminId: user?.id,
+      });
+      
       await logAdminAction({
         action: 'resend_email',
         entityType: 'reservation',
@@ -309,6 +393,7 @@ export default function ReservationDetail() {
       });
       
       if (result.success) {
+        queryClient.invalidateQueries({ queryKey: ['reservation-notifications', id] });
         toast.success('Email resent successfully');
       } else {
         toast.error('Failed to resend email: ' + result.error);
@@ -345,6 +430,18 @@ export default function ReservationDetail() {
         pax: reservation.pax,
       });
       
+      // Log to reservation_notifications audit table
+      await logReservationNotification({
+        reservationId: reservation.id,
+        channel: 'sms',
+        recipient: reservation.phone,
+        status: result.success ? 'sent' : 'failed',
+        triggerType: 'manual',
+        messageType: smsType,
+        errorMessage: result.error,
+        adminId: user?.id,
+      });
+      
       await logAdminAction({
         action: 'resend_sms',
         entityType: 'reservation',
@@ -355,6 +452,7 @@ export default function ReservationDetail() {
       });
       
       if (result.success) {
+        queryClient.invalidateQueries({ queryKey: ['reservation-notifications', id] });
         toast.success('SMS resent successfully');
       } else {
         toast.error('Failed to resend SMS: ' + result.error);
@@ -682,6 +780,85 @@ export default function ReservationDetail() {
           </CardContent>
         </Card>
       )}
+
+      {/* Notification History */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <History className="h-5 w-5 text-muted-foreground" />
+            Notification History
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Audit log of all emails and SMS sent for this reservation
+          </p>
+        </CardHeader>
+        <CardContent>
+          {logsLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </div>
+          ) : notificationLogs.length > 0 ? (
+            <div className="space-y-2">
+              {notificationLogs.map((log) => (
+                <div 
+                  key={log.id}
+                  className="flex flex-wrap items-center gap-2 p-3 bg-muted/50 rounded-lg text-sm"
+                >
+                  {/* Channel Badge */}
+                  <Badge variant="outline" className={
+                    log.channel === 'email' 
+                      ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800' 
+                      : 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800'
+                  }>
+                    {log.channel === 'email' ? (
+                      <Mail className="h-3 w-3 mr-1" />
+                    ) : (
+                      <MessageSquare className="h-3 w-3 mr-1" />
+                    )}
+                    {log.channel === 'email' ? 'Email' : 'SMS'}
+                  </Badge>
+                  
+                  {/* Status Badge */}
+                  <Badge variant="outline" className={
+                    log.status === 'sent' 
+                      ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800' 
+                      : 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800'
+                  }>
+                    {log.status === 'sent' ? 'Sent' : 'Failed'}
+                  </Badge>
+                  
+                  {/* Trigger Type Badge */}
+                  <Badge variant="secondary" className="text-xs">
+                    {log.trigger_type === 'automatic' ? 'Auto' : 'Manual'}
+                  </Badge>
+                  
+                  {/* Recipient */}
+                  <span className="text-muted-foreground">
+                    → {log.recipient}
+                  </span>
+                  
+                  {/* Timestamp */}
+                  <span className="text-xs text-muted-foreground ml-auto">
+                    {format(new Date(log.created_at), 'MMM d, h:mm a')}
+                  </span>
+                  
+                  {/* Error message if failed */}
+                  {log.status === 'failed' && log.error_message && (
+                    <div className="w-full mt-1 text-xs text-destructive">
+                      Error: {log.error_message}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No notifications have been sent for this reservation.
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Internal Notes */}
       <Card>

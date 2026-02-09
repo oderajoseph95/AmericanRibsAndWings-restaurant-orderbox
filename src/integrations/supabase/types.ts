@@ -1454,6 +1454,53 @@ export type Database = {
           },
         ]
       }
+      reservation_notifications: {
+        Row: {
+          channel: string
+          created_at: string | null
+          error_message: string | null
+          id: string
+          message_type: string
+          recipient: string
+          reservation_id: string
+          sent_by_admin_id: string | null
+          status: string
+          trigger_type: string
+        }
+        Insert: {
+          channel: string
+          created_at?: string | null
+          error_message?: string | null
+          id?: string
+          message_type: string
+          recipient: string
+          reservation_id: string
+          sent_by_admin_id?: string | null
+          status?: string
+          trigger_type: string
+        }
+        Update: {
+          channel?: string
+          created_at?: string | null
+          error_message?: string | null
+          id?: string
+          message_type?: string
+          recipient?: string
+          reservation_id?: string
+          sent_by_admin_id?: string | null
+          status?: string
+          trigger_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reservation_notifications_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reservations: {
         Row: {
           confirmation_code: string | null
