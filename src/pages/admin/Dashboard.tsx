@@ -17,6 +17,7 @@ import { LiveVisitorsCard } from '@/components/admin/LiveVisitorsCard';
 import { ConversionFunnelCard } from '@/components/admin/ConversionFunnelCard';
 import { ProductAnalyticsCard } from '@/components/admin/ProductAnalyticsCard';
 import { ReservationStatsCard } from '@/components/admin/ReservationStatsCard';
+import { TodayReservationsAlert } from '@/components/admin/TodayReservationsAlert';
 import { DashboardCommandHeader } from '@/components/admin/DashboardCommandHeader';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -595,6 +596,8 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Today's Reservations Alert - Prominent at top */}
+      <TodayReservationsAlert />
 
       {/* Live Visitors & Conversion Funnel */}
       <div className="grid gap-4 grid-cols-1 lg:grid-cols-3 items-stretch">
