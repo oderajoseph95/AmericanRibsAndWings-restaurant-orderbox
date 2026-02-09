@@ -1,6 +1,8 @@
 
 # ISSUE R5.2 — Reservation Completion Control (Admin)
 
+✅ **COMPLETED**
+
 ## Overview
 
 Add explicit completion tracking for reservations, mirroring the check-in implementation from R5.1. This ensures reservations close cleanly with full audit attribution when staff marks service as concluded.

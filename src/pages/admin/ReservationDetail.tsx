@@ -163,6 +163,12 @@ export default function ReservationDetail() {
         updateData.checked_in_by = user?.id || null;
       }
 
+      // Track completion with dedicated columns (R5.2)
+      if (newStatus === 'completed') {
+        updateData.completed_at = new Date().toISOString();
+        updateData.completed_by = user?.id || null;
+      }
+
       const { error } = await supabase
         .from('reservations')
         .update(updateData)
@@ -171,7 +177,11 @@ export default function ReservationDetail() {
       if (error) throw error;
 
       // Log admin action
-      const actionType = newStatus === 'checked_in' ? 'reservation_checked_in' : 'status_change';
+      const actionType = newStatus === 'checked_in' 
+        ? 'reservation_checked_in' 
+        : newStatus === 'completed'
+          ? 'reservation_completed'
+          : 'status_change';
       await logAdminAction({
         action: actionType,
         entityType: 'reservation',
@@ -181,7 +191,9 @@ export default function ReservationDetail() {
         newValues: { status: newStatus, confirmation_code: confirmationCode },
         details: newStatus === 'checked_in' 
           ? 'Customer physically arrived and was checked in'
-          : `Changed reservation status from ${reservation?.status} to ${newStatus}${confirmationCode ? ` (Confirmation: ${confirmationCode})` : ''}`,
+          : newStatus === 'completed'
+            ? 'Reservation service completed'
+            : `Changed reservation status from ${reservation?.status} to ${newStatus}${confirmationCode ? ` (Confirmation: ${confirmationCode})` : ''}`,
       });
 
       // Log check-in to reservation_notifications for timeline
@@ -193,6 +205,18 @@ export default function ReservationDetail() {
           status: 'sent',
           trigger_type: 'manual',
           message_type: 'check_in',
+        });
+      }
+
+      // Log completion to reservation_notifications for timeline (R5.2)
+      if (newStatus === 'completed' && reservation) {
+        await supabase.from('reservation_notifications').insert({
+          reservation_id: reservation.id,
+          channel: 'system',
+          recipient: 'internal',
+          status: 'sent',
+          trigger_type: 'manual',
+          message_type: 'completed',
         });
       }
 
@@ -440,6 +464,24 @@ export default function ReservationDetail() {
       return data?.display_name || data?.username || 'Admin';
     },
     enabled: !!reservation?.checked_in_by,
+  });
+
+  // Query for completion admin name (only when reservation has completed_by) - R5.2
+  const { data: completedByAdmin } = useQuery({
+    queryKey: ['completed-by-admin', reservation?.completed_by],
+    queryFn: async () => {
+      if (!reservation?.completed_by) return null;
+      
+      const { data, error } = await supabase
+        .from('user_roles')
+        .select('display_name, username')
+        .eq('user_id', reservation.completed_by)
+        .maybeSingle();
+      
+      if (error) throw error;
+      return data?.display_name || data?.username || 'Admin';
+    },
+    enabled: !!reservation?.completed_by,
   });
 
   // Mutation for adding notes
@@ -738,6 +780,19 @@ export default function ReservationDetail() {
                   <p className="font-medium">
                     {format(new Date(reservation.checked_in_at), 'h:mm a')}
                     {checkedInByAdmin && ` by ${checkedInByAdmin}`}
+                  </p>
+                </div>
+              </div>
+            )}
+            {/* Completion Attribution - R5.2 */}
+            {reservation.completed_at && (
+              <div className="flex items-center gap-3">
+                <CheckCircle className="h-4 w-4 text-emerald-600" />
+                <div>
+                  <p className="text-sm text-muted-foreground">Completed</p>
+                  <p className="font-medium">
+                    {format(new Date(reservation.completed_at), 'h:mm a')}
+                    {completedByAdmin && ` by ${completedByAdmin}`}
                   </p>
                 </div>
               </div>
