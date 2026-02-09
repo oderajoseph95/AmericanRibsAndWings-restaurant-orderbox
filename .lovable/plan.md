@@ -1,204 +1,257 @@
 
 
-# ISSUE R5.5 — Reservation Navigation & Discoverability
+# Plan: Extend Pickup/Delivery Dates + Admin Order Editing
 
 ## Overview
 
-Enhance the navigation component to properly highlight the "Reserve" link as active when users are on any reservation-related route (`/reservenow`, `/reserve`, `/reserve/track`).
+This plan addresses two requests:
+1. **Extend pickup/delivery date window to 30 days** (currently 3 days)
+2. **Add admin ability to edit orders** (pickup/delivery date, time, line items, customer info)
 
 ---
 
-## Current State Analysis
+## Part 1: Extend Pickup/Delivery Date Window to 30 Days
 
-### Already Implemented (from R5.4)
-- "Reserve" link exists in `navLinks` array pointing to `/reservenow`
-- Visible in both desktop and mobile hamburger menu
-- Mobile navigation already includes "Reserve"
+### Current State
+In `src/components/customer/CheckoutSheet.tsx`, date selection is limited by this logic:
 
-### What's Missing for R5.5
-1. **Active state highlighting** - The navbar uses plain `<a>` tags without active state detection
-2. **Route-aware links** - The "Reserve" link uses `<a href>` instead of React Router's routing components
-3. **Multi-route active detection** - Need to highlight "Reserve" when on `/reservenow`, `/reserve`, or `/reserve/track`
-
-### Available Infrastructure
-- `NavLink` component (`src/components/NavLink.tsx`) exists and wraps React Router's `NavLink` with `activeClassName` support
-- Uses `useLocation` from react-router-dom for path detection
-
----
-
-## Technical Implementation
-
-### 1. Update Navbar to Use React Router for Route Links
-
-Change the navigation links to distinguish between:
-- **Hash links** (`#menu`, `#about`, `#location`) - Keep as `<a>` tags for scroll behavior
-- **Route links** (`/`, `/reservenow`) - Use React Router `Link` or custom logic for active states
-
-### 2. Add Active State Detection for Reserve Section
-
-Use `useLocation` to detect if the current path is within the reservation journey:
-
+**Line 1129 (Pickup Date Calendar):**
 ```typescript
-import { useLocation } from "react-router-dom";
-
-// Inside component
-const location = useLocation();
-
-// Check if on any reservation route
-const isReservationActive = ['/reservenow', '/reserve', '/reserve/track'].some(
-  path => location.pathname === path || location.pathname.startsWith(path + '/')
-);
+disabled={date => isBefore(date, startOfDay(new Date())) || isBefore(addDays(new Date(), 3), date)}
 ```
 
-### 3. Update Link Rendering Logic
-
-Modify the navLinks rendering to:
-- Use `<Link>` for route-based navigation
-- Apply active styling based on current route
-- Keep `<a>` for hash-based links (scrolling to sections)
-
+**Line 1313 (Delivery Date Calendar):**
 ```typescript
-// Updated navLinks structure
-const navLinks = [
-  { name: "Home", href: "/", isRoute: true },
-  { name: "Menu", href: "#menu", isRoute: false },
-  { name: "About", href: "#about", isRoute: false },
-  { name: "Location", href: "#location", isRoute: false },
-  { name: "Reserve", href: "/reservenow", isRoute: true, matchPaths: ['/reservenow', '/reserve'] },
-];
-
-// Rendering logic
-{navLinks.map((link) => {
-  const isActive = link.isRoute 
-    ? link.matchPaths 
-      ? link.matchPaths.some(p => location.pathname.startsWith(p))
-      : location.pathname === link.href
-    : false;
-  
-  if (link.isRoute) {
-    return (
-      <Link
-        key={link.name}
-        to={link.href}
-        className={cn(
-          "text-foreground hover:text-primary transition-colors font-medium",
-          isActive && "text-primary"
-        )}
-      >
-        {link.name}
-      </Link>
-    );
-  }
-  
-  return (
-    <a key={link.name} href={link.href} className="...">
-      {link.name}
-    </a>
-  );
-})}
+disabled={date => isBefore(date, startOfDay(new Date())) || isBefore(addDays(new Date(), 3), date)}
 ```
+
+Both currently limit to **today + 3 days**.
+
+### Solution
+Change `addDays(new Date(), 3)` to `addDays(new Date(), 30)` in both locations.
+
+### Files to Modify
+| File | Change |
+|------|--------|
+| `src/components/customer/CheckoutSheet.tsx` | Update 2 calendar `disabled` props from 3 to 30 days |
 
 ---
 
-## Files to Modify
+## Part 2: Admin Order Editing Capability
+
+### Current State
+The admin order detail panel (`src/pages/admin/Orders.tsx`) currently displays order information in **read-only mode**:
+- Pickup/delivery date/time shown as formatted text
+- Line items shown as a list
+- Customer info shown as text
+- No inline editing capability
+
+### Solution
+Create a comprehensive **Order Edit Dialog** component that allows admins to:
+1. Edit pickup date and time (for pickup orders)
+2. Edit delivery date and time (for delivery orders)
+3. Edit line items (quantity, remove items)
+4. Edit customer information (name, phone, email)
+5. Edit internal notes (already exists)
+6. Edit delivery address (for delivery orders)
+
+### Implementation Approach
+
+#### A. Create New Component: `OrderEditDialog.tsx`
+
+New file: `src/components/admin/OrderEditDialog.tsx`
+
+**Features:**
+- Modal dialog triggered by "Edit Order" button in order detail sheet
+- Tabs or sections for different editable areas:
+  - **Schedule Tab**: Date/time pickers for pickup or delivery
+  - **Items Tab**: List of line items with quantity adjustment and remove option
+  - **Customer Tab**: Editable name, phone, email fields
+  - **Delivery Tab** (if delivery order): Editable address
+
+**Schedule Editing:**
+- Date picker allowing today to 30 days in future
+- Time picker using same slot generation logic as checkout
+- Different fields based on order type (pickup vs delivery)
+
+**Line Items Editing:**
+- Display each item with current quantity
+- +/- buttons to adjust quantity
+- Remove button with confirmation
+- Auto-recalculate subtotal and total when items change
+
+**Customer Info Editing:**
+- Editable fields for name, phone, email
+- Phone validation (Philippine format)
+- Update linked customer record
+
+#### B. Add Edit Button to Order Detail Sheet
+
+In `src/pages/admin/Orders.tsx`, add an "Edit Order" button at the top of the order detail sheet that opens the edit dialog.
+
+**Placement:** Near the order header, visible for all active orders
+
+#### C. Add Edit Mutations
+
+Create mutations for:
+1. `updateOrderSchedule` - Update pickup_date, pickup_time, delivery_date, delivery_time
+2. `updateOrderItems` - Update item quantities, remove items, recalculate totals
+3. `updateOrderCustomer` - Update customer name, phone, email
+
+#### D. Logging & Audit Trail
+
+All edits will be logged via `logAdminAction()` with:
+- Old values
+- New values
+- Details of what was changed
+
+---
+
+## Technical Details
+
+### File Changes Summary
 
 | File | Action | Description |
 |------|--------|-------------|
-| `src/components/home/Navbar.tsx` | MODIFY | Add useLocation, update link rendering with active states |
+| `src/components/customer/CheckoutSheet.tsx` | MODIFY | Change date limit from 3 to 30 days in 2 locations |
+| `src/components/admin/OrderEditDialog.tsx` | CREATE | New comprehensive order editing dialog |
+| `src/pages/admin/Orders.tsx` | MODIFY | Add Edit button and integrate OrderEditDialog |
 
----
+### OrderEditDialog Component Structure
 
-## Active State Rules
-
-| Route | "Reserve" Active |
-|-------|------------------|
-| `/reservenow` | Yes |
-| `/reserve` | Yes |
-| `/reserve/track` | Yes |
-| `/reserve/track/ABC123` | Yes |
-| `/order` | No |
-| `/` | No |
-
----
-
-## Visual Changes
-
-### Desktop Navigation
-- **Inactive**: `text-foreground` (default text color)
-- **Active**: `text-primary` (brand color)
-- **Hover**: `hover:text-primary` (already applied)
-
-### Mobile Navigation
-- Same active state styling applied in hamburger menu
-- Clear visual distinction when on reservation routes
-
----
-
-## Implementation Details
-
-### Import Changes
 ```typescript
-import { Link, useNavigate, useLocation } from "react-router-dom";
-```
-
-### NavLinks Data Structure Update
-```typescript
-interface NavLinkItem {
-  name: string;
-  href: string;
-  isRoute?: boolean;
-  matchPaths?: string[];
+interface OrderEditDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  order: Order;
+  orderItems: OrderItem[];
+  onSuccess: () => void;
 }
 
-const navLinks: NavLinkItem[] = [
-  { name: "Home", href: "/", isRoute: true },
-  { name: "Menu", href: "#menu" },
-  { name: "About", href: "#about" },
-  { name: "Location", href: "#location" },
-  { name: "Reserve", href: "/reservenow", isRoute: true, matchPaths: ["/reservenow", "/reserve"] },
-];
+// Sections/Tabs:
+// 1. Schedule - pickup/delivery date & time
+// 2. Items - line items with quantity edit
+// 3. Customer - name, phone, email
+// 4. Delivery - address (if delivery order)
 ```
 
-### Active Check Function
-```typescript
-const isLinkActive = (link: NavLinkItem): boolean => {
-  if (!link.isRoute) return false;
-  if (link.matchPaths) {
-    return link.matchPaths.some(path => 
-      location.pathname === path || location.pathname.startsWith(path + '/')
-    );
-  }
-  return location.pathname === link.href;
-};
+### Database Updates
+
+**For Schedule Changes:**
+```sql
+UPDATE orders SET 
+  pickup_date = ?, pickup_time = ? -- or delivery_date, delivery_time
+WHERE id = ?
 ```
 
+**For Line Item Changes:**
+```sql
+-- Update quantity
+UPDATE order_items SET quantity = ?, subtotal = ?, line_total = ? WHERE id = ?
+
+-- Delete item
+DELETE FROM order_items WHERE id = ?
+
+-- Recalculate order totals
+UPDATE orders SET subtotal = ?, total_amount = ? WHERE id = ?
+```
+
+**For Customer Changes:**
+```sql
+UPDATE customers SET name = ?, phone = ?, email = ? WHERE id = ?
+```
+
+### UI/UX Design
+
+**Edit Button Location:**
+- In the order detail sheet header, next to the status badge
+- Icon: Pencil (Edit) icon
+- Label: "Edit Order"
+
+**Dialog Layout:**
+```
+┌─────────────────────────────────────────────────┐
+│  Edit Order #ORD-20260209-ABC123                │
+├─────────────────────────────────────────────────┤
+│  [Schedule] [Items] [Customer] [Delivery?]      │
+├─────────────────────────────────────────────────┤
+│                                                 │
+│  Schedule Tab Content:                          │
+│  ┌─────────────────────────────────────────┐   │
+│  │ Pickup/Delivery Date:  [Date Picker]    │   │
+│  │ Pickup/Delivery Time:  [Time Select]    │   │
+│  └─────────────────────────────────────────┘   │
+│                                                 │
+├─────────────────────────────────────────────────┤
+│              [Cancel]  [Save Changes]           │
+└─────────────────────────────────────────────────┘
+```
+
+**Items Tab Layout:**
+```
+┌─────────────────────────────────────────────────┐
+│  Line Items                                     │
+├─────────────────────────────────────────────────┤
+│  Babyback Ribs (1 Slab)         ₱649           │
+│  [-] 2 [+]  Subtotal: ₱1,298    [Remove]       │
+│                                                 │
+│  Chicken Wings (6pcs)            ₱199          │
+│  [-] 1 [+]  Subtotal: ₱199      [Remove]       │
+├─────────────────────────────────────────────────┤
+│  New Subtotal: ₱1,497                          │
+│  Delivery Fee: ₱60                             │
+│  New Total: ₱1,557                             │
+└─────────────────────────────────────────────────┘
+```
+
+### Time Slot Generation
+
+Reuse existing time slot generation functions from checkout:
+- Pickup: 11 AM - 9 PM (15-min intervals)
+- Delivery: 12 PM - 8 PM (15-min intervals)
+
+For admin editing, we can allow past times on the selected date (flexibility for corrections).
+
+### Validation Rules
+
+1. **Date Range**: Today to 30 days in future
+2. **Time Slots**: Within operating hours
+3. **Quantity**: Minimum 1, maximum reasonable limit
+4. **Phone**: Philippine format validation
+5. **Email**: Standard email validation
+
+### Notifications After Edit
+
+When significant changes are made (date/time changes), optionally:
+- Send customer notification about updated schedule
+- Log the change for audit purposes
+
 ---
 
-## Acceptance Criteria Mapping
+## Safety & Backwards Compatibility
 
-| Criteria | Implementation |
-|----------|----------------|
-| "Reserve" appears in global navigation | Already done in R5.4 |
-| Clicking routes to /reservenow | Already done in R5.4, now using React Router Link |
-| Active state highlights correctly | useLocation + matchPaths for `/reservenow`, `/reserve`, `/reserve/track` |
-| Ordering flow remains untouched | No changes to Order Now button or cart |
-| Mobile navigation includes "Reserve" | Already done in R5.4, active state added |
+1. **No database schema changes required** - All fields already exist in orders and order_items tables
+2. **Existing checkout flow unchanged** - Only extending date range
+3. **Existing order display unchanged** - Only adding edit capability
+4. **All changes logged** - Full audit trail via admin_logs
 
 ---
 
-## What This Creates
+## Acceptance Criteria
 
-1. Route-aware navigation links using React Router
-2. Active state highlighting for "Reserve" across all reservation routes
-3. Consistent visual feedback for current location
-4. Clean separation between route links (React Router) and hash links (scroll)
+### Part 1: Extended Date Range
+- Customers can select pickup dates up to 30 days in the future
+- Customers can select delivery dates up to 30 days in the future
+- Today remains the minimum date
 
----
-
-## What This Does NOT Create
-
-- Admin sidebar changes (out of scope)
-- Footer links (out of scope)
-- Analytics tracking (out of scope)
-- Changes to Order Now or cart flow
+### Part 2: Admin Order Editing
+- Admin can click "Edit Order" button on any order
+- Admin can change pickup/delivery date and time
+- Admin can adjust line item quantities
+- Admin can remove line items (with confirmation)
+- Admin can edit customer name, phone, email
+- Admin can edit delivery address (for delivery orders)
+- All changes are logged with old/new values
+- Totals auto-recalculate when items change
+- Toast notifications confirm successful saves
 
