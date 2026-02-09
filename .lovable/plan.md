@@ -1,391 +1,297 @@
 
 
-# ISSUE R3.6 — Reservation Notification Log
+# ISSUE R4.1 — Automated Reservation Reminder Engine
 
 ## Overview
 
-Create an audit log system for all reservation-related email and SMS messages. This provides observability for admins to verify what communications were sent, when, to whom, and their delivery status.
+Build an automated reminder system that sends SMS and email notifications to customers before their confirmed reservations. This reduces no-shows and improves operational reliability by eliminating manual follow-ups.
 
 ---
 
-## Current System Analysis
+## Current State Analysis
 
-### Existing Logging Infrastructure
-- **Email logs**: `email_logs` table logs all emails, has `order_id` but NO `reservation_id`
-- **SMS logs**: `sms_logs` table logs all SMS messages, has `order_id` but NO `reservation_id`
-- **Both edge functions**: Already log sends/failures but don't track `reservation_id`
+### Infrastructure Available
+- **pg_net**: Enabled (version 0.19.5)
+- **pg_cron**: NOT enabled - must be enabled first
+- **SMS System**: Semaphore via `send-sms-notification` edge function
+- **Email System**: Resend via `send-email-notification` edge function
+- **Reservation Table**: Has `reservation_date`, `reservation_time`, `phone` (required), `email` (optional), `status`, `confirmation_code`
+- **Existing Audit Logging**: `reservation_notifications` table for tracking all sends
 
-### Problem
-When emails/SMS are sent for reservations (R3.2, R3.3, R3.5), the reservation ID is not captured in existing logs, making it impossible to query "what was sent for reservation X?"
+### Admin Backup Numbers
+From settings: `["+639214080286", "+639569669710", "+639762074276"]`
 
 ---
 
 ## Technical Implementation
 
-### 1. Create New `reservation_notifications` Table
-
-Create a dedicated table for reservation notification audit trail:
+### Step 1: Enable pg_cron Extension
 
 ```sql
-CREATE TABLE public.reservation_notifications (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  reservation_id uuid NOT NULL REFERENCES public.reservations(id) ON DELETE CASCADE,
-  channel text NOT NULL CHECK (channel IN ('email', 'sms')),
-  recipient text NOT NULL,
-  status text NOT NULL DEFAULT 'sent' CHECK (status IN ('sent', 'failed')),
-  trigger_type text NOT NULL CHECK (trigger_type IN ('automatic', 'manual')),
-  message_type text NOT NULL,
-  error_message text,
-  sent_by_admin_id uuid REFERENCES auth.users(id),
-  created_at timestamptz DEFAULT now()
-);
-
--- Index for efficient lookup by reservation
-CREATE INDEX idx_reservation_notifications_reservation_id 
-  ON public.reservation_notifications(reservation_id);
-
--- Index for chronological ordering
-CREATE INDEX idx_reservation_notifications_created_at 
-  ON public.reservation_notifications(created_at DESC);
-
--- Enable RLS
-ALTER TABLE public.reservation_notifications ENABLE ROW LEVEL SECURITY;
-
--- Admins can view all logs
-CREATE POLICY "Admins can view reservation notifications"
-  ON public.reservation_notifications FOR SELECT
-  USING (is_admin(auth.uid()));
-
--- System/Admins can insert logs
-CREATE POLICY "Admins can insert reservation notifications"
-  ON public.reservation_notifications FOR INSERT
-  WITH CHECK (is_admin(auth.uid()));
-
--- Allow edge functions to insert (service role)
-CREATE POLICY "Service role can insert reservation notifications"
-  ON public.reservation_notifications FOR INSERT
-  WITH CHECK (true);
+-- Enable pg_cron extension
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+GRANT USAGE ON SCHEMA cron TO postgres;
 ```
 
-### 2. Update Email & SMS Sending to Log Reservation Notifications
-
-Modify `ReservationDetail.tsx` to log notifications after each send.
-
-#### A. Create logging helper function
-
-```typescript
-// Helper to log reservation notification
-const logReservationNotification = async ({
-  reservationId,
-  channel,
-  recipient,
-  status,
-  triggerType,
-  messageType,
-  errorMessage,
-  adminId,
-}: {
-  reservationId: string;
-  channel: 'email' | 'sms';
-  recipient: string;
-  status: 'sent' | 'failed';
-  triggerType: 'automatic' | 'manual';
-  messageType: string;
-  errorMessage?: string;
-  adminId?: string;
-}) => {
-  try {
-    await supabase.from('reservation_notifications').insert({
-      reservation_id: reservationId,
-      channel,
-      recipient,
-      status,
-      trigger_type: triggerType,
-      message_type: messageType,
-      error_message: errorMessage || null,
-      sent_by_admin_id: adminId || null,
-    });
-  } catch (err) {
-    console.error('Failed to log reservation notification:', err);
-  }
-};
-```
-
-#### B. Update automatic sends (status mutation)
-
-Add logging after the email/SMS promise chains (~line 163-204):
-
-For Email:
-```typescript
-.then(result => {
-  // Log to reservation_notifications
-  logReservationNotification({
-    reservationId: reservation.id,
-    channel: 'email',
-    recipient: reservation.email!,
-    status: result.success ? 'sent' : 'failed',
-    triggerType: 'automatic',
-    messageType: emailType,
-    errorMessage: result.error,
-  });
-  // existing console.log...
-})
-```
-
-For SMS:
-```typescript
-.then(result => {
-  // Log to reservation_notifications
-  logReservationNotification({
-    reservationId: reservation.id,
-    channel: 'sms',
-    recipient: reservation.phone,
-    status: result.success ? 'sent' : 'failed',
-    triggerType: 'automatic',
-    messageType: smsType,
-    errorMessage: result.error,
-  });
-  // existing console.log...
-})
-```
-
-#### C. Update manual resend handlers
-
-Add logging after `handleResendEmail` and `handleResendSms` send attempts:
-
-```typescript
-// In handleResendEmail, after sendEmailNotification call
-await logReservationNotification({
-  reservationId: reservation.id,
-  channel: 'email',
-  recipient: reservation.email!,
-  status: result.success ? 'sent' : 'failed',
-  triggerType: 'manual',
-  messageType: emailType,
-  errorMessage: result.error,
-  adminId: user?.id,
-});
-
-// In handleResendSms, after sendSmsNotification call
-await logReservationNotification({
-  reservationId: reservation.id,
-  channel: 'sms',
-  recipient: reservation.phone,
-  status: result.success ? 'sent' : 'failed',
-  triggerType: 'manual',
-  messageType: smsType,
-  errorMessage: result.error,
-  adminId: user?.id,
-});
-```
-
-### 3. Add Notification History UI Section
-
-Add a new Card component to display the notification log on the reservation detail page. Place it after the "Resend Notifications" card and before "Internal Notes".
-
-#### A. Add Query for Notification Logs
-
-```typescript
-// Query for notification history
-const { data: notificationLogs = [], isLoading: logsLoading } = useQuery({
-  queryKey: ['reservation-notifications', id],
-  queryFn: async () => {
-    const { data, error } = await supabase
-      .from('reservation_notifications')
-      .select('*')
-      .eq('reservation_id', id!)
-      .order('created_at', { ascending: false });
-    
-    if (error) throw error;
-    return data;
-  },
-  enabled: !!id,
-});
-```
-
-#### B. Add UI Card
-
-```tsx
-{/* Notification History */}
-<Card>
-  <CardHeader>
-    <CardTitle className="text-lg flex items-center gap-2">
-      <History className="h-5 w-5 text-muted-foreground" />
-      Notification History
-    </CardTitle>
-    <p className="text-sm text-muted-foreground">
-      Audit log of all emails and SMS sent for this reservation
-    </p>
-  </CardHeader>
-  <CardContent>
-    {logsLoading ? (
-      <div className="space-y-2">
-        <Skeleton className="h-12 w-full" />
-        <Skeleton className="h-12 w-full" />
-      </div>
-    ) : notificationLogs.length > 0 ? (
-      <div className="space-y-2">
-        {notificationLogs.map((log) => (
-          <div 
-            key={log.id}
-            className="flex flex-wrap items-center gap-2 p-3 bg-muted/50 rounded-lg text-sm"
-          >
-            {/* Channel Badge */}
-            <Badge variant="outline" className={
-              log.channel === 'email' 
-                ? 'bg-blue-50 text-blue-700 border-blue-200' 
-                : 'bg-purple-50 text-purple-700 border-purple-200'
-            }>
-              {log.channel === 'email' ? (
-                <Mail className="h-3 w-3 mr-1" />
-              ) : (
-                <MessageSquare className="h-3 w-3 mr-1" />
-              )}
-              {log.channel === 'email' ? 'Email' : 'SMS'}
-            </Badge>
-            
-            {/* Status Badge */}
-            <Badge variant="outline" className={
-              log.status === 'sent' 
-                ? 'bg-green-50 text-green-700 border-green-200' 
-                : 'bg-red-50 text-red-700 border-red-200'
-            }>
-              {log.status === 'sent' ? 'Sent' : 'Failed'}
-            </Badge>
-            
-            {/* Trigger Type Badge */}
-            <Badge variant="secondary" className="text-xs">
-              {log.trigger_type === 'automatic' ? 'Auto' : 'Manual'}
-            </Badge>
-            
-            {/* Recipient */}
-            <span className="text-muted-foreground">
-              → {log.recipient}
-            </span>
-            
-            {/* Timestamp */}
-            <span className="text-xs text-muted-foreground ml-auto">
-              {format(new Date(log.created_at), 'MMM d, h:mm a')}
-            </span>
-            
-            {/* Error message if failed */}
-            {log.status === 'failed' && log.error_message && (
-              <div className="w-full mt-1 text-xs text-red-600">
-                Error: {log.error_message}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    ) : (
-      <p className="text-sm text-muted-foreground text-center py-4">
-        No notifications have been sent for this reservation.
-      </p>
-    )}
-  </CardContent>
-</Card>
-```
-
-### 4. Add Required Import
-
-Add `History` icon to the lucide-react imports:
-```typescript
-import { ..., History } from 'lucide-react';
-```
-
----
-
-## UI Placement
-
-```text
-┌─────────────────────────────────────┐
-│ ← Reservation Details      [Status] │
-├─────────────────────────────────────┤
-│ Reservation Summary Card            │
-├─────────────────────────────────────┤
-│ Customer Information Card           │
-├─────────────────────────────────────┤
-│ Pre-Order Selections Card           │
-├─────────────────────────────────────┤
-│ Actions Card (if pending/confirmed) │
-├─────────────────────────────────────┤
-│ Resend Notifications Card           │
-├─────────────────────────────────────┤
-│ 📋 Notification History Card  ← NEW │
-│    [Email] [Sent] [Auto] → email    │
-│    [SMS] [Sent] [Auto] → phone      │
-├─────────────────────────────────────┤
-│ Internal Notes Card                 │
-├─────────────────────────────────────┤
-│ Metadata                            │
-└─────────────────────────────────────┘
-```
-
----
-
-## Log Entry Display Format
-
-Each log entry shows (left to right):
-1. **Channel badge**: Email (blue) or SMS (purple)
-2. **Status badge**: Sent (green) or Failed (red)
-3. **Trigger badge**: Auto or Manual
-4. **Recipient**: Email address or phone number
-5. **Timestamp**: "Feb 9, 2:30 PM"
-6. **Error** (if failed): Shown on second line in red
-
----
-
-## Data Model Summary
+### Step 2: Create Reservation Reminders Table
 
 | Column | Type | Description |
 |--------|------|-------------|
 | id | uuid | Primary key |
 | reservation_id | uuid | FK to reservations |
-| channel | text | 'email' or 'sms' |
-| recipient | text | Email address or phone number |
-| status | text | 'sent' or 'failed' |
-| trigger_type | text | 'automatic' or 'manual' |
-| message_type | text | 'reservation_confirmed' / 'reservation_cancelled' |
+| reminder_type | text | '24h' or '3h' |
+| scheduled_for | timestamptz | When to send |
+| status | text | 'pending', 'sent', 'failed', 'cancelled' |
+| created_at | timestamptz | When scheduled |
+| sent_at | timestamptz | When actually sent |
 | error_message | text | Error details if failed |
-| sent_by_admin_id | uuid | Admin who triggered (for manual sends) |
-| created_at | timestamptz | When the notification was sent |
+
+```sql
+CREATE TABLE public.reservation_reminders (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  reservation_id uuid NOT NULL REFERENCES public.reservations(id) ON DELETE CASCADE,
+  reminder_type text NOT NULL CHECK (reminder_type IN ('24h', '3h')),
+  scheduled_for timestamptz NOT NULL,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed', 'cancelled')),
+  created_at timestamptz DEFAULT now(),
+  sent_at timestamptz,
+  error_message text,
+  
+  -- Unique constraint to prevent duplicate reminders
+  CONSTRAINT unique_reservation_reminder UNIQUE (reservation_id, reminder_type)
+);
+
+CREATE INDEX idx_reservation_reminders_due 
+  ON public.reservation_reminders(status, scheduled_for);
+
+CREATE INDEX idx_reservation_reminders_reservation_id 
+  ON public.reservation_reminders(reservation_id);
+
+ALTER TABLE public.reservation_reminders ENABLE ROW LEVEL SECURITY;
+
+-- Admins can view all
+CREATE POLICY "Admins can view reservation reminders"
+  ON public.reservation_reminders FOR SELECT
+  USING (is_admin(auth.uid()));
+
+-- Admins can insert
+CREATE POLICY "Admins can insert reservation reminders"
+  ON public.reservation_reminders FOR INSERT
+  WITH CHECK (is_admin(auth.uid()));
+
+-- Admins can update
+CREATE POLICY "Admins can update reservation reminders"
+  ON public.reservation_reminders FOR UPDATE
+  USING (is_admin(auth.uid()));
+```
+
+### Step 3: Create Edge Function `send-reservation-reminder`
+
+**File: `supabase/functions/send-reservation-reminder/index.ts`**
+
+This function:
+1. Queries `reservation_reminders` for due reminders (`status = 'pending'` AND `scheduled_for <= now()`)
+2. Joins with `reservations` to get customer details
+3. Verifies reservation is still `confirmed` (skip if cancelled/rejected)
+4. Sends SMS to customer (primary channel)
+5. Sends email to customer if email exists (secondary channel)
+6. Sends SMS copies to admin backup numbers
+7. Logs to `reservation_notifications` table for audit
+8. Updates reminder status to `sent` or `failed`
+
+**SMS Template:**
+```text
+ARW Reminder 🍽️
+
+Hi {{name}},
+Reminder for your reservation today at {{time}} for {{pax}} guests.
+
+Code: {{code}}
+📍 American Ribs & Wings – Floridablanca
+
+See you soon!
+```
+
+**Email Subject:**
+```text
+Reminder: Your ARW Reservation – {{date}} at {{time}}
+```
+
+### Step 4: Schedule pg_cron Job
+
+```sql
+SELECT cron.schedule(
+  'send-reservation-reminders',
+  '*/15 * * * *', -- Every 15 minutes
+  $$
+  SELECT net.http_post(
+    url:='https://saxwbdwmuzkmxztagfot.supabase.co/functions/v1/send-reservation-reminder',
+    headers:='{"Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNheHdiZHdtdXprbXh6dGFnZm90Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcyMjM0NDUsImV4cCI6MjA4Mjc5OTQ0NX0.cMcSJxeh3DcPYQtrDxC8x4VwMLApABa_nu_MCBZh9OA"}'::jsonb,
+    body:='{}'::jsonb
+  ) as request_id;
+  $$
+);
+```
+
+### Step 5: Update ReservationDetail.tsx
+
+When status changes to **confirmed**:
+1. Calculate reminder windows (24h and 3h before reservation datetime)
+2. Insert reminder records into `reservation_reminders` table
+3. For immediate reminders (less than 3h away), call edge function directly
+
+When status changes to **cancelled** or **rejected**:
+1. Update all pending reminders for this reservation to `status = 'cancelled'`
+
+### Step 6: Add Reminder Type Support
+
+**Update `src/hooks/useSmsNotifications.ts`:**
+- Add `reservation_reminder` type
+
+**Update `supabase/functions/send-sms-notification/index.ts`:**
+- Add `reservation_reminder` default message template
+
+**Update `src/hooks/useEmailNotifications.ts`:**
+- Add `reservation_reminder` type
+
+---
+
+## Reminder Scheduling Logic
+
+When a reservation is confirmed at time T, with reservation at time R (date + time in Philippines timezone):
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│ Case 1: R - T > 24 hours                                    │
+│   → Schedule 24h reminder for R - 24h                       │
+│   → Schedule 3h reminder for R - 3h                         │
+├─────────────────────────────────────────────────────────────┤
+│ Case 2: 3h < R - T ≤ 24 hours                               │
+│   → Skip 24h reminder (too late)                            │
+│   → Schedule 3h reminder for R - 3h                         │
+├─────────────────────────────────────────────────────────────┤
+│ Case 3: R - T ≤ 3 hours                                     │
+│   → Send one immediate reminder NOW                         │
+│   → No scheduled reminders                                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Edge Function Flow
+
+```text
+┌─────────────────────────────────────┐
+│ Cron triggers every 15 minutes     │
+└──────────────┬──────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────┐
+│ Query due reminders:                │
+│ status='pending' AND                │
+│ scheduled_for <= now()              │
+│ LIMIT 50                            │
+└──────────────┬──────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────┐
+│ For each reminder:                  │
+│ 1. Fetch reservation details        │
+│ 2. Check status = 'confirmed'       │
+│    If not → mark cancelled, skip    │
+│ 3. Format date/time for PH timezone │
+│ 4. Send SMS to customer phone       │
+│ 5. Send SMS to admin backup numbers │
+│ 6. Send email if customer has email │
+│ 7. Log to reservation_notifications │
+│ 8. Update reminder status           │
+└─────────────────────────────────────┘
+```
 
 ---
 
 ## Files to Create/Modify
 
-| File | Change |
-|------|--------|
-| **Database** | Create `reservation_notifications` table with RLS policies |
-| `src/pages/admin/ReservationDetail.tsx` | Add logging helper, update sends to log, add Notification History UI |
+| File | Action | Description |
+|------|--------|-------------|
+| **Database Migration** | CREATE | Enable pg_cron, create `reservation_reminders` table, schedule cron job |
+| `supabase/functions/send-reservation-reminder/index.ts` | CREATE | New edge function for processing reminders |
+| `supabase/config.toml` | MODIFY | Add `send-reservation-reminder` function config |
+| `src/pages/admin/ReservationDetail.tsx` | MODIFY | Add reminder scheduling on confirm, cancellation on reject |
+| `src/hooks/useSmsNotifications.ts` | MODIFY | Add `reservation_reminder` type |
+| `src/hooks/useEmailNotifications.ts` | MODIFY | Add `reservation_reminder` type |
+| `supabase/functions/send-sms-notification/index.ts` | MODIFY | Add `reservation_reminder` default template |
+| `supabase/functions/send-email-notification/index.ts` | MODIFY | Add `reservation_reminder` subject and template |
 
 ---
 
-## Security
+## Duplication Prevention
 
-- **RLS enabled**: Only admins can read/write logs
-- **Append-only**: No UPDATE or DELETE policies
-- **Immutable**: Logs cannot be edited once created
-- **Audit trail**: Admin ID captured for manual resends
+Each reminder uniquely identified by composite key: `(reservation_id, reminder_type)`
+
+**Before sending:**
+1. Check reminder `status = 'pending'`
+2. Check reservation `status = 'confirmed'`
+3. Immediately update status to `sent` after successful send
+
+**Result:** Even if cron runs multiple times, each reminder is only sent once.
+
+---
+
+## Admin Backup SMS Copies
+
+For reminder SMS, always send copies to the configured admin backup numbers:
+- `+639214080286`
+- `+639569669710`
+
+These are silent copies - the edge function sends SMS to these numbers automatically, just like it does for order SMS notifications.
+
+---
+
+## Logging Integration
+
+All reminder sends logged to `reservation_notifications` table:
+- **channel**: 'email' or 'sms'
+- **trigger_type**: 'automatic'
+- **message_type**: 'reservation_reminder_24h' or 'reservation_reminder_3h'
+- **status**: 'sent' or 'failed'
+- **recipient**: Customer phone/email or admin backup number
+
+Visible in admin reservation detail under "Notification History".
+
+---
+
+## Acceptance Criteria Mapping
+
+| Criteria | Implementation |
+|----------|----------------|
+| Confirmed reservations receive reminders automatically | Cron job + edge function every 15 min |
+| SMS is always sent when phone exists | Phone is required for reservations |
+| Email is sent only when email exists | Conditional check in edge function |
+| No reminders for cancelled/rejected | Status check before sending |
+| Reminders are never duplicated | Unique constraint + status check |
+| All reminders are logged | reservation_notifications table |
 
 ---
 
 ## What This Creates
 
-- New `reservation_notifications` table
-- Logging of all email and SMS sends (automatic + manual)
-- Both successes and failures logged
-- Admin UI to view notification history per reservation
-- Clear distinction between automatic and manual sends
-- Error messages visible for failed sends
+1. `reservation_reminders` table for scheduling
+2. `send-reservation-reminder` edge function
+3. pg_cron job running every 15 minutes
+4. Reminder scheduling on confirmation
+5. Reminder cancellation on rejection
+6. SMS + Email templates for reminders
+7. Admin backup SMS copies
+8. Full audit logging
 
 ---
 
 ## What This Does NOT Create
 
-- Message sending logic (already exists in R3.2, R3.3, R3.5)
-- Message editing capabilities
-- Automatic retry functionality
-- Global notification dashboard
-- Marketing message tracking
+- Manual reminder sending UI
+- Reminder customization UI
+- WhatsApp/Messenger/Push notifications
+- Analytics dashboards
+- 24h reminder toggle (configurable later in R4.7)
 
