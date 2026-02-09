@@ -1,285 +1,124 @@
 
-# Fix: Reservation System - Complete Database & Notification Fix
+
+# Fix: Reservation Module - Single Code & Email Subjects
 
 ## Problem Summary
 
-The reservation system has **TWO critical database errors** that must be fixed:
+| Issue | Status |
+|-------|--------|
+| Two reservation codes (`ARW-RSV-XXXX` + `ARW-RES-XXXXX`) | **NONSENSE - MUST FIX** |
+| Customer email "Order #undefined Update" | Missing `new_reservation` in subject function |
+| Admin email wrong subject on confirm | Missing `reservation_confirmed` in admin subject function |
 
-**Error 1 (Current)**: `FOR UPDATE is not allowed with aggregate functions`
-- The `create_reservation` function uses `FOR UPDATE` with `SUM(pax)`, which PostgreSQL does not allow
+## Root Cause Analysis
 
-**Error 2 (Hidden)**: `check_slot_capacity` function has a `TIME` to `TIMESTAMP` casting issue (same error we fixed before)
+### Why Two Codes Exist
+- **Line 30-54 in `ReservationDetail.tsx`**: When admin clicks "Confirm", it generates a SECOND code (`ARW-RES-XXXXX`) called `confirmation_code`
+- This is completely unnecessary - we already have `reservation_code`
+
+### Email Subject Bugs
+- **Line 621-649 in `send-email-notification/index.ts`**: `getDefaultSubject()` is MISSING `new_reservation`
+- **Line 1310-1332**: `getAdminNotificationSubject()` is MISSING `reservation_confirmed`
 
 ---
 
-## Solution Overview
+## Solution: Single Code System
 
-### Part 1: Fix `create_reservation` Function
+### Part 1: Remove `confirmation_code` Generation
 
-The problem is this SQL:
-```sql
-SELECT COALESCE(SUM(pax), 0) INTO v_current_pax
-FROM reservations
-WHERE ...
-FOR UPDATE;  -- CANNOT use with SUM()!
+**File:** `src/pages/admin/ReservationDetail.tsx`
+
+**Delete** the `generateConfirmationCode()` function (lines 29-54) and remove all references to it.
+
+When admin confirms:
+- DO NOT generate a new code
+- Just change status to `confirmed`
+- Use existing `reservation_code` for all notifications
+
+### Part 2: Update ReservationDetail.tsx Status Update
+
+Remove confirmation code generation from the mutation:
+- Delete lines 143-146 (confirmation code generation on confirm)
+- Delete lines 154-157 (adding confirmation_code to updateData)
+- Change all references from `confirmationCode || reservation.confirmation_code || reservation.reservation_code` to just `reservation.reservation_code`
+
+### Part 3: Fix Email Subject Functions
+
+**File:** `supabase/functions/send-email-notification/index.ts`
+
+**Add `new_reservation` to `getDefaultSubject()` (around line 646):**
+```typescript
+new_reservation: `📅 Reservation Request Received - ${payload?.reservationCode || ''}`,
 ```
 
-**Fix**: Use a CTE (Common Table Expression) to first lock the rows, then aggregate:
-```sql
-WITH locked_reservations AS (
-  SELECT id
-  FROM reservations
-  WHERE reservation_date = p_reservation_date
-    AND reservation_time >= v_slot_start
-    AND reservation_time < v_slot_end
-    AND status IN ('pending', 'confirmed')
-  FOR UPDATE  -- Lock the rows first
-)
-SELECT COALESCE(SUM(r.pax), 0) INTO v_current_pax
-FROM reservations r
-JOIN locked_reservations lr ON r.id = lr.id;  -- Then aggregate
+**Add `reservation_confirmed` to `getAdminNotificationSubject()` (around line 1326):**
+```typescript
+reservation_confirmed: `✅ [CONFIRMED] ${payload?.reservationCode} - ${payload?.pax} guests - ${payload?.customerName}`,
+reservation_cancelled: `❌ [CANCELLED] ${payload?.reservationCode} - ${payload?.customerName}`,
+reservation_cancelled_by_customer: `🚫 [CUSTOMER CANCELLED] ${payload?.reservationCode} - ${payload?.customerName}`,
 ```
 
-### Part 2: Fix `check_slot_capacity` Function
+### Part 4: Add Admin Templates for Confirmation/Cancellation
 
-Same TIME casting issue - apply the same fix to calculate slot boundaries using TIME arithmetic.
+**File:** `supabase/functions/send-email-notification/index.ts`
 
----
+Add templates in `getAdminNotificationTemplate()` for:
+- `reservation_confirmed` 
+- `reservation_cancelled`
+- `reservation_cancelled_by_customer`
 
-## Database Migration SQL
+### Part 5: Clean Up All Other Files
 
-```sql
--- ===========================================
--- FIX 1: create_reservation function
--- Error: FOR UPDATE is not allowed with aggregate functions
--- Solution: Use CTE to lock rows first, then aggregate
--- ===========================================
+Update these files to use only `reservation_code`:
+- `src/pages/ReservationTracking.tsx` - Remove `confirmation_code` references
+- `supabase/functions/process-no-shows/index.ts` - Use only `reservation_code`
+- `supabase/functions/send-reservation-reminder/index.ts` - Use only `reservation_code`
+- Database functions that reference both codes
 
-CREATE OR REPLACE FUNCTION public.create_reservation(
-  p_name text, 
-  p_phone text, 
-  p_email text DEFAULT NULL::text, 
-  p_pax integer DEFAULT 2, 
-  p_reservation_date date DEFAULT NULL::date, 
-  p_reservation_time time without time zone DEFAULT NULL::time without time zone, 
-  p_notes text DEFAULT NULL::text, 
-  p_preorder_items jsonb DEFAULT NULL::jsonb
-)
-RETURNS TABLE(id uuid, reservation_code text)
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $function$
-DECLARE
-  v_reservation_id UUID;
-  v_code TEXT;
-  v_hash TEXT;
-  v_existing_id UUID;
-  v_attempts INTEGER := 0;
-  v_max_pax INTEGER := 40;
-  v_current_pax INTEGER := 0;
-  v_slot_start TIME;
-  v_slot_end TIME;
-BEGIN
-  -- Validate required fields
-  IF p_name IS NULL OR TRIM(p_name) = '' THEN
-    RAISE EXCEPTION 'Name is required';
-  END IF;
-  
-  IF p_phone IS NULL OR TRIM(p_phone) = '' THEN
-    RAISE EXCEPTION 'Phone is required';
-  END IF;
-  
-  IF p_pax < 1 OR p_pax > 20 THEN
-    RAISE EXCEPTION 'Party size must be between 1 and 20';
-  END IF;
+### Part 6: Database Cleanup (Optional)
 
-  IF p_reservation_date IS NULL THEN
-    RAISE EXCEPTION 'Reservation date is required';
-  END IF;
-
-  IF p_reservation_time IS NULL THEN
-    RAISE EXCEPTION 'Reservation time is required';
-  END IF;
-  
-  -- ========== CAPACITY CHECK ==========
-  
-  -- Get capacity setting
-  SELECT (value->>'max_pax_per_slot')::INTEGER INTO v_max_pax
-  FROM settings WHERE key = 'reservation_capacity';
-  
-  IF v_max_pax IS NULL THEN
-    v_max_pax := 40;
-  END IF;
-  
-  -- Calculate slot boundaries using TIME arithmetic
-  v_slot_start := (
-    (EXTRACT(HOUR FROM p_reservation_time)::INTEGER * INTERVAL '1 hour') +
-    (FLOOR(EXTRACT(MINUTE FROM p_reservation_time) / 30) * INTERVAL '30 minutes')
-  )::TIME;
-  v_slot_end := v_slot_start + INTERVAL '30 minutes';
-  
-  -- FIX: Use CTE to lock rows first, then aggregate
-  -- (FOR UPDATE cannot be used with aggregate functions)
-  WITH locked_reservations AS (
-    SELECT reservations.id
-    FROM reservations
-    WHERE reservation_date = p_reservation_date
-      AND reservation_time >= v_slot_start
-      AND reservation_time < v_slot_end
-      AND status IN ('pending', 'confirmed')
-    FOR UPDATE
-  )
-  SELECT COALESCE(SUM(r.pax), 0) INTO v_current_pax
-  FROM reservations r
-  JOIN locked_reservations lr ON r.id = lr.id;
-  
-  -- Block if capacity would be exceeded
-  IF (v_current_pax + p_pax) > v_max_pax THEN
-    RAISE EXCEPTION 'Sorry, this time slot is already full. Please choose a different time.';
-  END IF;
-  
-  -- ========== END CAPACITY CHECK ==========
-  
-  -- Generate idempotency hash
-  v_hash := md5(
-    LOWER(TRIM(p_name)) || '|' || 
-    TRIM(p_phone) || '|' || 
-    p_reservation_date::TEXT || '|' || 
-    p_reservation_time::TEXT
-  );
-  
-  -- Check for duplicate within 5 minutes
-  SELECT reservations.id INTO v_existing_id
-  FROM reservations
-  WHERE idempotency_hash = v_hash
-    AND created_at > (now() - INTERVAL '5 minutes');
-  
-  IF v_existing_id IS NOT NULL THEN
-    RETURN QUERY SELECT reservations.id, reservations.reservation_code
-    FROM reservations WHERE reservations.id = v_existing_id;
-    RETURN;
-  END IF;
-  
-  -- Generate unique code
-  LOOP
-    v_code := 'ARW-RSV-' || LPAD(FLOOR(RANDOM() * 10000)::TEXT, 4, '0');
-    
-    IF NOT EXISTS (SELECT 1 FROM reservations WHERE reservations.reservation_code = v_code) THEN
-      EXIT;
-    END IF;
-    
-    v_attempts := v_attempts + 1;
-    IF v_attempts > 10 THEN
-      RAISE EXCEPTION 'Failed to generate unique reservation code';
-    END IF;
-  END LOOP;
-  
-  -- Insert reservation
-  INSERT INTO reservations (
-    reservation_code, name, phone, email, pax,
-    reservation_date, reservation_time, notes,
-    status, preorder_items, idempotency_hash
-  ) VALUES (
-    v_code, TRIM(p_name), TRIM(p_phone), NULLIF(TRIM(p_email), ''),
-    p_pax, p_reservation_date, p_reservation_time,
-    NULLIF(TRIM(p_notes), ''), 'pending', p_preorder_items, v_hash
-  )
-  RETURNING reservations.id INTO v_reservation_id;
-  
-  RETURN QUERY SELECT v_reservation_id, v_code;
-END;
-$function$;
-
--- ===========================================
--- FIX 2: check_slot_capacity function
--- Fix the TIME->TIMESTAMP casting issue
--- ===========================================
-
-CREATE OR REPLACE FUNCTION public.check_slot_capacity(
-  p_reservation_date date, 
-  p_reservation_time time without time zone, 
-  p_requested_pax integer
-)
-RETURNS TABLE(available boolean, current_pax integer, max_pax integer, remaining integer)
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $function$
-DECLARE
-  v_max_pax INTEGER := 40;
-  v_current_pax INTEGER := 0;
-  v_slot_start TIME;
-  v_slot_end TIME;
-BEGIN
-  -- Get capacity setting
-  SELECT (value->>'max_pax_per_slot')::INTEGER INTO v_max_pax
-  FROM settings WHERE key = 'reservation_capacity';
-  
-  IF v_max_pax IS NULL THEN
-    v_max_pax := 40;
-  END IF;
-  
-  -- Calculate slot boundaries using TIME arithmetic (no TIMESTAMP cast)
-  v_slot_start := (
-    (EXTRACT(HOUR FROM p_reservation_time)::INTEGER * INTERVAL '1 hour') +
-    (FLOOR(EXTRACT(MINUTE FROM p_reservation_time) / 30) * INTERVAL '30 minutes')
-  )::TIME;
-  v_slot_end := v_slot_start + INTERVAL '30 minutes';
-  
-  -- Sum pax for this slot (no FOR UPDATE needed for read-only check)
-  SELECT COALESCE(SUM(pax), 0) INTO v_current_pax
-  FROM reservations
-  WHERE reservation_date = p_reservation_date
-    AND reservation_time >= v_slot_start
-    AND reservation_time < v_slot_end
-    AND status IN ('pending', 'confirmed');
-  
-  RETURN QUERY SELECT 
-    (v_current_pax + p_requested_pax) <= v_max_pax AS available,
-    v_current_pax AS current_pax,
-    v_max_pax AS max_pax,
-    GREATEST(v_max_pax - v_current_pax, 0) AS remaining;
-END;
-$function$;
-```
+The `confirmation_code` column can remain in the database (existing data), but we stop populating it. No migration needed - just code changes.
 
 ---
 
-## Summary of Changes
+## Files to Change
 
-| Component | Change |
-|-----------|--------|
-| `create_reservation` function | Use CTE to lock rows first, then aggregate (fixes `FOR UPDATE` with aggregate error) |
-| `check_slot_capacity` function | Fix TIME arithmetic (same pattern as create_reservation) |
-
----
-
-## Notification Flow (Already Implemented)
-
-The notification system is already correctly implemented:
-
-1. **On Reservation Submit** → SMS + Email (type: `reservation_received`)
-2. **On Admin Confirm** → SMS + Email (type: `reservation_confirmed`) + Schedule 6 reminders
-3. **Reminders** → 12h, 6h, 3h, 1h, 30min, 15min before reservation
-
----
-
-## Files Already Correct (No Changes Needed)
-
-- `src/components/reservation/ReservationForm.tsx` - Already sends notifications
-- `src/pages/admin/ReservationDetail.tsx` - Already schedules 6 reminder intervals
-- `supabase/functions/send-sms-notification/index.ts` - Already handles reservation types
-- `supabase/functions/send-email-notification/index.ts` - Already has reservation templates
-- `supabase/functions/send-reservation-reminder/index.ts` - Already processes reminders
+| File | Changes |
+|------|---------|
+| `src/pages/admin/ReservationDetail.tsx` | Remove `generateConfirmationCode()` function and all `confirmation_code` references |
+| `supabase/functions/send-email-notification/index.ts` | Add missing email types to subject functions, add admin templates |
+| `src/pages/ReservationTracking.tsx` | Use only `reservation_code` |
+| `supabase/functions/process-no-shows/index.ts` | Use only `reservation_code` |
+| `supabase/functions/send-reservation-reminder/index.ts` | Use only `reservation_code` |
 
 ---
 
 ## After This Fix
 
-Once the database migration is applied:
+**Single Code System:**
+```
+Customer submits → ARW-RSV-1234 (this is THE code)
+Admin confirms → Same code: ARW-RSV-1234
+Customer gets SMS/Email → Uses ARW-RSV-1234
+Reminders → Uses ARW-RSV-1234
+```
 
-1. Customer can submit reservation → Gets SMS + Email ("pending confirmation")
-2. Admin confirms → Customer gets SMS + Email ("confirmed") + 6 reminders scheduled
-3. Reminders auto-send at 12h, 6h, 3h, 1h, 30min, 15min before reservation time
-4. Reservation appears in admin dashboard immediately
+**Email Subjects Fixed:**
+```
+NEW RESERVATION (Customer): "📅 Reservation Request Received - ARW-RSV-1234"
+NEW RESERVATION (Admin): "📅 [NEW RESERVATION] ARW-RSV-1234 - 3 guests - John"
+CONFIRMED (Customer): "✅ Your Reservation is Confirmed! - ARW-RSV-1234"  
+CONFIRMED (Admin): "✅ [CONFIRMED] ARW-RSV-1234 - 3 guests - John"
+```
+
+---
+
+## Technical Changes Summary
+
+1. **Delete** `generateConfirmationCode()` function from ReservationDetail.tsx
+2. **Remove** all logic that sets `confirmation_code` field
+3. **Replace** all `confirmation_code || reservation_code` with just `reservation_code`
+4. **Add** `new_reservation` to customer subject dictionary
+5. **Add** `reservation_confirmed`, `reservation_cancelled`, `reservation_cancelled_by_customer` to admin subject dictionary
+6. **Add** admin email templates for reservation confirmations and cancellations
+
