@@ -1,289 +1,236 @@
 
 
-# ISSUE R1.4 — Reservation Submission & State Creation
+# ISSUE R2.1 — Admin Reservation List View
 
 ## Overview
 
-Align the current reservation implementation with R1.4's strict requirements. The current implementation went too far by including notifications and reservation codes. This plan strips back to the correct scope: **pure state creation only**.
-
----
-
-## Gap Analysis
-
-| Requirement | Current State | Action |
-|---|---|---|
-| Database record creation | ✅ Done | Keep |
-| Status defaults to `pending` | ✅ Done | Keep |
-| `preorder_items` column | ❌ Missing | Add column |
-| Client-side submit lock | ✅ Done | Keep |
-| Server-side idempotency | ❌ Missing | Add hash check |
-| SMS/Email notifications | ❌ Incorrectly added | **Remove** |
-| Reservation codes shown | ❌ Incorrectly added | **Remove from UI** |
-| Success state shows "Pending" | ❌ Shows code instead | **Fix** |
+Create an admin-facing list page at `/admin/reservations` that displays all reservation records. This is a **read-only operational list** with status badges, basic filtering, pagination, and row navigation to detail view.
 
 ---
 
 ## Technical Implementation
 
-### 1. Database Migration - Add `preorder_items` Column & Idempotency
+### 1. Create Reservations Admin Page
 
-Add nullable JSONB column for optional pre-order selections:
+**File:** `src/pages/admin/Reservations.tsx`
 
-```sql
--- Add preorder_items column for R1.3 optional menu selections
-ALTER TABLE reservations ADD COLUMN IF NOT EXISTS preorder_items JSONB;
+A new admin page following the established patterns from `Customers.tsx` and `Orders.tsx`:
 
--- Add idempotency_hash column for duplicate prevention
-ALTER TABLE reservations ADD COLUMN IF NOT EXISTS idempotency_hash TEXT;
+Key features:
+- Uses `@tanstack/react-query` for data fetching with `supabase.from('reservations')`
+- Responsive design: Table layout for desktop, MobileCard for mobile
+- Status filter dropdown (All, Pending, Confirmed, Cancelled, Completed, No Show)
+- Date filter tabs (Upcoming, Today, Past)
+- Default ordering: Soonest reservation first (ascending by `reservation_date` + `reservation_time`)
+- Pagination with 15 items per page
+- Row click navigates to `/admin/reservations/:id` (detail view in R2.2)
+- Empty state with clear messaging
 
--- Create unique index on idempotency_hash (allow nulls)
-CREATE UNIQUE INDEX IF NOT EXISTS reservations_idempotency_hash_idx 
-ON reservations (idempotency_hash) 
-WHERE idempotency_hash IS NOT NULL;
-```
-
-### 2. Update RPC Function - Add Idempotency Check
-
-Modify `create_reservation` to:
-- Accept optional `preorder_items` parameter
-- Generate idempotency hash from (name + phone + date + time)
-- Check for existing reservation with same hash within 5 minutes
-- Reject duplicate attempts
-
-```sql
-CREATE OR REPLACE FUNCTION create_reservation(
-  p_name TEXT,
-  p_phone TEXT,
-  p_email TEXT DEFAULT NULL,
-  p_pax INTEGER DEFAULT 2,
-  p_reservation_date DATE DEFAULT NULL,
-  p_reservation_time TIME DEFAULT NULL,
-  p_notes TEXT DEFAULT NULL,
-  p_preorder_items JSONB DEFAULT NULL  -- NEW
-)
-RETURNS TABLE(id UUID, reservation_code TEXT)
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $$
-DECLARE
-  v_reservation_id UUID;
-  v_code TEXT;
-  v_hash TEXT;
-  v_existing_id UUID;
-  v_attempts INTEGER := 0;
-BEGIN
-  -- Validation (unchanged)
-  IF p_name IS NULL OR TRIM(p_name) = '' THEN
-    RAISE EXCEPTION 'Name is required';
-  END IF;
-  
-  IF p_phone IS NULL OR TRIM(p_phone) = '' THEN
-    RAISE EXCEPTION 'Phone is required';
-  END IF;
-  
-  IF p_pax < 1 OR p_pax > 20 THEN
-    RAISE EXCEPTION 'Party size must be between 1 and 20';
-  END IF;
-
-  IF p_reservation_date IS NULL THEN
-    RAISE EXCEPTION 'Reservation date is required';
-  END IF;
-
-  IF p_reservation_time IS NULL THEN
-    RAISE EXCEPTION 'Reservation time is required';
-  END IF;
-  
-  -- Generate idempotency hash
-  v_hash := md5(
-    LOWER(TRIM(p_name)) || '|' || 
-    TRIM(p_phone) || '|' || 
-    p_reservation_date::TEXT || '|' || 
-    p_reservation_time::TEXT
-  );
-  
-  -- Check for duplicate within 5 minutes
-  SELECT reservations.id INTO v_existing_id
-  FROM reservations
-  WHERE idempotency_hash = v_hash
-    AND created_at > (now() - INTERVAL '5 minutes');
-  
-  IF v_existing_id IS NOT NULL THEN
-    -- Return existing reservation (idempotent)
-    RETURN QUERY SELECT reservations.id, reservations.reservation_code
-    FROM reservations WHERE reservations.id = v_existing_id;
-    RETURN;
-  END IF;
-  
-  -- Generate unique code with retry
-  LOOP
-    v_code := 'ARW-RSV-' || LPAD(FLOOR(RANDOM() * 10000)::TEXT, 4, '0');
+**Data Query:**
+```typescript
+const { data: reservationsData, isLoading } = useQuery({
+  queryKey: ['admin-reservations', statusFilter, dateFilter, currentPage],
+  queryFn: async () => {
+    const from = (currentPage - 1) * ITEMS_PER_PAGE;
+    const to = from + ITEMS_PER_PAGE - 1;
     
-    IF NOT EXISTS (SELECT 1 FROM reservations WHERE reservations.reservation_code = v_code) THEN
-      EXIT;
-    END IF;
+    let query = supabase
+      .from('reservations')
+      .select('*', { count: 'exact' })
+      .order('reservation_date', { ascending: true })
+      .order('reservation_time', { ascending: true })
+      .range(from, to);
+
+    // Status filter
+    if (statusFilter !== 'all') {
+      query = query.eq('status', statusFilter);
+    }
     
-    v_attempts := v_attempts + 1;
-    IF v_attempts > 10 THEN
-      RAISE EXCEPTION 'Failed to generate unique reservation code';
-    END IF;
-  END LOOP;
-  
-  -- Insert reservation with idempotency hash and preorder items
-  INSERT INTO reservations (
-    reservation_code,
-    name,
-    phone,
-    email,
-    pax,
-    reservation_date,
-    reservation_time,
-    notes,
-    status,
-    preorder_items,
-    idempotency_hash
-  ) VALUES (
-    v_code,
-    TRIM(p_name),
-    TRIM(p_phone),
-    NULLIF(TRIM(p_email), ''),
-    p_pax,
-    p_reservation_date,
-    p_reservation_time,
-    NULLIF(TRIM(p_notes), ''),
-    'pending',
-    p_preorder_items,
-    v_hash
-  )
-  RETURNING reservations.id INTO v_reservation_id;
-  
-  RETURN QUERY SELECT v_reservation_id, v_code;
-END;
-$$;
+    // Date filter
+    const today = format(new Date(), 'yyyy-MM-dd');
+    if (dateFilter === 'upcoming') {
+      query = query.gte('reservation_date', today);
+    } else if (dateFilter === 'today') {
+      query = query.eq('reservation_date', today);
+    } else if (dateFilter === 'past') {
+      query = query.lt('reservation_date', today);
+    }
+
+    const { data, error, count } = await query;
+    if (error) throw error;
+    return { reservations: data, totalCount: count || 0 };
+  },
+});
 ```
 
 ---
 
-### 3. Update ReservationForm.tsx - Remove Notifications
+### 2. Status Badge Colors
 
-**Changes:**
-1. Remove SMS and Email notification imports
-2. Remove notification triggers from `handleSubmit`
-3. Keep reservation code in callback (stored in DB, just not shown yet)
+Following the established pattern from Orders page:
+
+```typescript
+const statusColors: Record<Enums<'reservation_status'>, string> = {
+  pending: 'bg-yellow-500/20 text-yellow-700 border-yellow-500/30',
+  confirmed: 'bg-green-500/20 text-green-700 border-green-500/30',
+  cancelled: 'bg-red-500/20 text-red-700 border-red-500/30',
+  completed: 'bg-emerald-500/20 text-emerald-700 border-emerald-500/30',
+  no_show: 'bg-gray-500/20 text-gray-700 border-gray-500/30',
+};
+
+const statusLabels: Record<Enums<'reservation_status'>, string> = {
+  pending: 'Pending',
+  confirmed: 'Confirmed',
+  cancelled: 'Cancelled',
+  completed: 'Completed',
+  no_show: 'No Show',
+};
+```
+
+---
+
+### 3. Table Columns (Desktop)
+
+| Column | Content |
+|--------|---------|
+| Date | `reservation_date` formatted as "Feb 14, 2025" |
+| Time | `reservation_time` formatted as "7:00 PM" |
+| Customer | `name` |
+| Guests | `pax` with "guests" label |
+| Status | Badge with status color |
+| Created | `created_at` formatted as "2d ago" or date |
+
+---
+
+### 4. Mobile Card Layout
+
+Each card shows:
+- Date & time as header
+- Customer name
+- Pax count badge
+- Status badge
+- Created timestamp (subtle)
+
+---
+
+### 5. Filters UI
+
+**Status Filter (Dropdown):**
+- All
+- Pending
+- Confirmed
+- Cancelled
+- Completed
+- No Show
+
+**Date Filter (Tabs/Buttons):**
+- Upcoming (default)
+- Today
+- Past
+
+---
+
+### 6. Empty State
+
+When no reservations exist:
+```tsx
+<div className="text-center py-12 text-muted-foreground">
+  <CalendarDays className="h-12 w-12 mx-auto mb-4 opacity-50" />
+  <p className="font-medium">No reservations yet</p>
+  <p className="text-sm mt-1">
+    Reservations submitted by customers will appear here
+  </p>
+</div>
+```
+
+---
+
+### 7. Add Route to App.tsx
+
+**File:** `src/App.tsx`
+
+Add the `/admin/reservations` route and import:
 
 ```tsx
-// REMOVE these imports:
-// import { sendSmsNotification } from "@/hooks/useSmsNotifications";
-// import { sendEmailNotification } from "@/hooks/useEmailNotifications";
+// Add import
+import Reservations from "./pages/admin/Reservations";
 
-// REMOVE this entire block from handleSubmit (lines 207-235):
-// Promise.allSettled([
-//   sendSmsNotification({...}),
-//   sendEmailNotification({...}),
-// ]).then((results) => {...});
-
-// The rest of the submission logic remains unchanged
+// Add route inside admin routes (around line 100)
+<Route path="reservations" element={<Reservations />} />
 ```
 
 ---
 
-### 4. Update ReservationConfirmation.tsx - Show Pending Status
+### 8. Add Sidebar Navigation
 
-**Changes:**
-1. Remove reservation code display
-2. Show "Status: Pending confirmation" instead
-3. Simplify messaging to match R1.4 requirements
+**File:** `src/components/admin/AdminSidebar.tsx`
+
+Add Reservations to the navigation items (positioned after Orders for operational flow):
 
 ```tsx
-// REMOVE the reservation code card entirely (lines 64-75)
+import { CalendarDays } from 'lucide-react';
 
-// REPLACE with simple pending status:
-<Card className="mb-6 border-amber-500/20 bg-amber-500/5">
-  <CardContent className="pt-6 text-center">
-    <p className="text-sm text-muted-foreground mb-1">Status</p>
-    <p className="text-xl font-semibold text-amber-600">
-      Pending Confirmation
-    </p>
-    <p className="text-xs text-muted-foreground mt-2">
-      We will contact you to confirm this reservation
-    </p>
-  </CardContent>
-</Card>
+// In navItems array, after Orders:
+{ title: 'Reservations', url: '/admin/reservations', icon: CalendarDays, roles: ['owner', 'manager', 'cashier'] },
 ```
+
+Note: Although sidebar changes are technically R2.5, adding basic navigation is essential for accessing this page. The sidebar entry is minimal and read-only.
 
 ---
 
-### 5. Update Reserve.tsx ConfirmationData Interface
-
-Remove `code` from the interface since we're not displaying it:
-
-```tsx
-interface ConfirmationData {
-  id: string;
-  // code: string;  // REMOVE - not needed for R1.4
-  name: string;
-  pax: number;
-  date: string;
-  time: string;
-}
-```
-
----
-
-## Files to Modify
+## Files to Create/Modify
 
 | File | Change |
-|---|---|
-| **Database** | Add `preorder_items` column, `idempotency_hash` column + index |
-| **Database** | Update `create_reservation` RPC with idempotency + preorder |
-| `src/components/reservation/ReservationForm.tsx` | Remove notification imports and triggers |
-| `src/components/reservation/ReservationConfirmation.tsx` | Replace code display with "Pending" status |
-| `src/pages/Reserve.tsx` | Remove `code` from ConfirmationData interface |
+|------|--------|
+| `src/pages/admin/Reservations.tsx` | **Create** - New admin reservation list page |
+| `src/App.tsx` | Add `/admin/reservations` route |
+| `src/components/admin/AdminSidebar.tsx` | Add Reservations nav item |
 
 ---
 
-## What This Delivers
+## What This Creates
 
-- Reservation record is created exactly once
-- Status defaults to `pending`
-- Pre-order items can be stored (nullable, for R1.3)
-- Double-submit prevented (client + server-side idempotency)
-- Clear error handling with retry capability
-- Success screen shows "Pending Confirmation"
-
----
-
-## What This Removes/Prevents
-
-- NO SMS notifications (removed)
-- NO Email notifications (removed)
-- NO reservation code displayed to user (code exists in DB but hidden)
-- NO confirmation messaging about SMS
+- `/admin/reservations` route (protected, admin only)
+- Reservation list with date, time, name, pax, status
+- Read-only status badges (no actions)
+- Status filter (dropdown)
+- Date filter (upcoming/today/past)
+- Pagination (15 items per page)
+- Row click → navigate to `/admin/reservations/:id`
+- Empty state with clear messaging
+- Mobile-responsive layout
 
 ---
 
-## Anti-Double-Submit Implementation
+## What This Does NOT Create
 
-**Client-side:**
-- `isSubmitting` state disables button immediately on click
-- Button stays disabled until response received
+- Status editing
+- Admin notes
+- Notifications panel
+- Customer-facing actions
+- Reservation detail view (R2.2)
+- Sidebar changes beyond basic nav entry
 
-**Server-side:**
-- MD5 hash of (name + phone + date + time) stored in `idempotency_hash`
-- Unique index prevents duplicate inserts
-- 5-minute window check returns existing reservation if duplicate detected
-- Back button resubmission returns same reservation ID (idempotent)
+---
+
+## Accessibility & UX
+
+- Table is horizontally scrollable on smaller screens
+- Badges have sufficient color contrast
+- Row hover states indicate clickability
+- Loading skeleton while fetching
+- Clear filter reset option
+- Page count visible in pagination
 
 ---
 
 ## Result
 
 After implementation:
-- Customer submits form at `/reserve`
-- Reservation created with `status = 'pending'`
-- Pre-order selections stored in `preorder_items`
-- Customer sees: "Pending Confirmation" status
-- No SMS/Email sent
-- No reservation code shown
-- Refresh returns same reservation (no duplicate)
+- Admins can access `/admin/reservations` from sidebar
+- All reservations displayed in sortable list
+- Quick status identification via badges
+- Filter by status and date range
+- Navigate to individual reservation details
+- Answers: "What reservations do we have coming up?"
 
