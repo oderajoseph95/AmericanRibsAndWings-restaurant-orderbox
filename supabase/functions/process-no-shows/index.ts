@@ -36,7 +36,14 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const gracePeriodMinutes = 30;
+    // Fetch grace period from settings
+    const { data: settingsData } = await supabase
+      .from("settings")
+      .select("value")
+      .eq("key", "reservation_settings")
+      .maybeSingle();
+
+    const gracePeriodMinutes = (settingsData?.value as { no_show_grace_minutes?: number })?.no_show_grace_minutes || 30;
 
     // Query confirmed reservations past grace period
     // Using raw SQL for timezone-aware datetime comparison

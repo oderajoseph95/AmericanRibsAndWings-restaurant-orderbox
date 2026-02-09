@@ -30,7 +30,10 @@ type ReservationStatus = "pending" | "confirmed" | "cancelled" | "cancelled_by_c
 
 interface ReservationData {
   reservation_code: string;
+  confirmation_code?: string | null;
   name: string;
+  phone: string;
+  email?: string | null;
   pax: number;
   reservation_date: string;
   reservation_time: string;
@@ -151,7 +154,7 @@ export default function ReservationTracking() {
 
     try {
       const { data, error: rpcError } = await supabase.rpc("cancel_reservation_by_customer", {
-        p_code: code.trim(),
+        p_reservation_code: code.trim(),
         p_phone: phone.trim(),
       });
 
@@ -159,20 +162,16 @@ export default function ReservationTracking() {
         throw rpcError;
       }
 
-      const result = data as { 
+      // Function returns a table, so data is an array
+      const resultArray = data as Array<{ 
         success: boolean; 
-        error?: string; 
-        message?: string;
-        reservation_code?: string;
-        customer_name?: string;
-        customer_phone?: string;
-        customer_email?: string;
-        pax?: number;
-        reservation_date?: string;
-        reservation_time?: string;
-      };
+        message: string;
+        reservation_id: string | null;
+      }>;
+      
+      const result = resultArray?.[0];
 
-      if (result.success) {
+      if (result?.success) {
         // Update local state
         setReservation(prev => prev ? { ...prev, status: "cancelled_by_customer" } : null);
         
@@ -186,32 +185,32 @@ export default function ReservationTracking() {
         const formattedDate = format(new Date(reservation.reservation_date), "MMM d");
         const formattedTime = formatReservationTime(reservation.reservation_time);
 
-        // Send SMS
+        // Send SMS using local reservation data
         sendSmsNotification({
           type: "reservation_cancelled_by_customer",
-          recipientPhone: result.customer_phone,
-          reservationCode: result.reservation_code,
-          customerName: result.customer_name,
+          recipientPhone: reservation.phone,
+          reservationCode: reservation.confirmation_code || reservation.reservation_code,
+          customerName: reservation.name,
           reservationDate: formattedDate,
           reservationTime: formattedTime,
-          pax: result.pax,
+          pax: reservation.pax,
         }).catch(err => console.error("Failed to send cancellation SMS:", err));
 
-        // Send email if available
-        if (result.customer_email) {
+        // Send email if available using local reservation data
+        if (reservation.email) {
           sendEmailNotification({
             type: "reservation_cancelled_by_customer",
-            recipientEmail: result.customer_email,
-            reservationCode: result.reservation_code,
-            customerName: result.customer_name,
+            recipientEmail: reservation.email,
+            reservationCode: reservation.confirmation_code || reservation.reservation_code,
+            customerName: reservation.name,
             reservationDate: format(new Date(reservation.reservation_date), "MMMM d, yyyy"),
             reservationTime: formattedTime,
-            pax: result.pax,
+            pax: reservation.pax,
           }).catch(err => console.error("Failed to send cancellation email:", err));
         }
       } else {
         // Show error message
-        toast.error(result.message || "Unable to cancel reservation");
+        toast.error(result?.message || "Unable to cancel reservation");
       }
     } catch (err) {
       console.error("Cancel error:", err);
