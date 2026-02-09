@@ -1,117 +1,228 @@
 
 
-# Plan: Fix Back Button Navigation Across the Site
+# Plan: Fix Reservation System - Database Function, Notifications & Reminders
 
-## Overview
+## Problem Summary
 
-The issue is that back buttons (the arrow icon in page headers) currently hardcode navigation to `/` (homepage), instead of taking users back to where they came from. This breaks the user's expected flow.
+The reservation system is broken due to a PostgreSQL function overload conflict, and the notification/reminder system needs to be fully implemented.
 
-## Current Problem
+**Critical Issues Found:**
 
-When a user:
-1. Goes to `/reservenow`
-2. Clicks "Reserve a Table" to go to `/reserve`
-3. Clicks the back arrow button
+1. **Database Error**: There are TWO versions of `create_reservation` function with overlapping signatures:
+   - Version 1: 7 parameters (without `p_preorder_items`)
+   - Version 2: 8 parameters (with `p_preorder_items`)
+   - PostgreSQL cannot determine which to call, causing the error: "Could not choose the best candidate function between..."
 
-**Expected:** Return to `/reservenow`
-**Actual:** Goes to homepage `/`
+2. **Missing Notification on New Reservation**: When a customer submits a reservation, no SMS or email is sent (status = "pending for confirmation")
 
-This is confusing and disrupts the user experience.
+3. **Confirmation Notifications**: Already implemented in admin ReservationDetail page (working)
 
----
-
-## Solution: Use Browser History Navigation
-
-Replace hardcoded `<Link to="/">` back buttons with `navigate(-1)` to properly use browser history, taking users back to their previous page.
-
-### Pages to Update
-
-| File | Current Behavior | New Behavior |
-|------|------------------|--------------|
-| `src/pages/Reserve.tsx` | Back → `/` | Back → Previous page |
-| `src/pages/Order.tsx` | Back → `/` | Back → Previous page |
-| `src/pages/MyOrders.tsx` | Back → `/` | Back → Previous page |
-| `src/components/reservation/ReservationConfirmation.tsx` | Back → `/` | Back → Previous page |
-
-### What NOT to Change
-
-The following "Back to Home" buttons are **intentional CTAs** (not navigation back buttons) and should remain as links to `/`:
-
-- `src/pages/ThankYou.tsx` - "Back to Home" button (line 1155)
-- `src/components/customer/OrderConfirmation.tsx` - "Back to Home" button (line 126)
-- `src/components/reservation/ReservationConfirmation.tsx` - "Back to Home" CTA button (line 118)
-- Logo links in Navbar - Should always go to homepage
+4. **Reminder Schedule**: Current system only supports 2 reminder intervals (24h, 3h). User wants 6 intervals: 12h, 6h, 3h, 1h, 30min, 15min
 
 ---
 
-## Technical Implementation
+## Solution
 
-### Pattern Change
+### Part 1: Fix Database Function Overload
 
-**Before:**
-```tsx
-<Button variant="ghost" size="icon" asChild>
-  <Link to="/">
-    <ArrowLeft className="h-5 w-5" />
-  </Link>
-</Button>
+**Action:** Drop the old function (without preorder_items) and keep only the new one. The frontend doesn't use preorder_items anyway, so we just pass `null` for it.
+
+```sql
+-- Drop the old function that's causing the conflict
+DROP FUNCTION IF EXISTS public.create_reservation(text, text, text, integer, date, time without time zone, text);
 ```
 
-**After:**
-```tsx
-<Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
-  <ArrowLeft className="h-5 w-5" />
-</Button>
-```
+**Result:** Only one function signature remains, eliminating the ambiguity error.
 
-### Required Import Change
+---
 
-Each file needs `useNavigate` from `react-router-dom`:
-```tsx
-import { useNavigate } from "react-router-dom";
+### Part 2: Send Notifications When Reservation is Created (Pending)
 
-// Inside component:
-const navigate = useNavigate();
+**Current State:** ReservationForm submits to database but doesn't trigger notifications.
+
+**Solution:** After successful reservation creation, call the SMS and Email notification edge functions with type `reservation_received`.
+
+**File:** `src/components/reservation/ReservationForm.tsx`
+
+After the `supabase.rpc("create_reservation", ...)` call succeeds:
+
+```typescript
+// Send "pending confirmation" SMS to customer
+await supabase.functions.invoke("send-sms-notification", {
+  body: {
+    type: "reservation_received",
+    recipientPhone: normalizePhone(phone),
+    reservationCode: reservation.reservation_code,
+    customerName: name.trim(),
+    reservationDate: displayDate,
+    reservationTime: time,
+    pax: pax,
+  },
+});
+
+// Send email if customer provided one
+if (email.trim()) {
+  await supabase.functions.invoke("send-email-notification", {
+    body: {
+      type: "new_reservation",
+      recipientEmail: email.trim(),
+      reservationCode: reservation.reservation_code,
+      customerName: name.trim(),
+      reservationDate: displayDate,
+      reservationTime: time,
+      pax: pax,
+    },
+  });
+}
 ```
 
 ---
 
-## File-by-File Changes
+### Part 3: Update Reminder Schedule (6 Intervals)
 
-### 1. `src/pages/Reserve.tsx`
-- Add `useNavigate` import (already imports from react-router-dom)
-- Add `const navigate = useNavigate();` inside component
-- Change back button from `Link to="/"` to `onClick={() => navigate(-1)}`
+**Current:** 24h and 3h before reservation
+**New:** 12h, 6h, 3h, 1h, 30min, 15min before reservation
 
-### 2. `src/pages/Order.tsx`
-- Already has `useNavigate` imported and `navigate` defined
-- Only change the back button from `Link to="/"` to `onClick={() => navigate(-1)}`
+**File:** `src/pages/admin/ReservationDetail.tsx` (Lines ~225-315)
 
-### 3. `src/pages/MyOrders.tsx`
-- Add `useNavigate` to imports
-- Add `const navigate = useNavigate();` inside component
-- Change back button from `Link to="/"` to `onClick={() => navigate(-1)}`
+Update the reminder scheduling logic when status changes to "confirmed":
 
-### 4. `src/components/reservation/ReservationConfirmation.tsx`
-- Add `useNavigate` to imports
-- Add `const navigate = useNavigate();` inside component
-- Change header back button from `Link to="/"` to `onClick={() => navigate(-1)}`
-- Keep the "Back to Home" CTA button as `Link to="/"` (intentional)
+```typescript
+// UPDATED REMINDER INTERVALS: 12h, 6h, 3h, 1h, 30min, 15min
+const reminderIntervals = [
+  { hours: 12, minutes: 0, type: '12h' },
+  { hours: 6, minutes: 0, type: '6h' },
+  { hours: 3, minutes: 0, type: '3h' },
+  { hours: 1, minutes: 0, type: '1h' },
+  { hours: 0, minutes: 30, type: '30min' },
+  { hours: 0, minutes: 15, type: '15min' },
+];
+
+const remindersToInsert = [];
+for (const interval of reminderIntervals) {
+  const reminderTime = new Date(reservationDateTime);
+  reminderTime.setHours(reminderTime.getHours() - interval.hours);
+  reminderTime.setMinutes(reminderTime.getMinutes() - interval.minutes);
+  
+  // Only schedule if reminder time is in the future
+  if (reminderTime > new Date()) {
+    remindersToInsert.push({
+      reservation_id: id,
+      reminder_type: interval.type,
+      scheduled_for: reminderTime.toISOString(),
+      status: 'pending',
+    });
+  }
+}
+
+// Insert all reminders
+if (remindersToInsert.length > 0) {
+  await supabase.from('reservation_reminders').insert(remindersToInsert);
+}
+```
+
+**File:** `src/hooks/useReservationSettings.ts`
+
+Update default settings to include all reminder intervals (for reference in admin settings panel):
+
+```typescript
+export const DEFAULT_RESERVATION_SETTINGS = {
+  // ... existing settings
+  reminder_intervals: [
+    { hours: 12, type: '12h' },
+    { hours: 6, type: '6h' },
+    { hours: 3, type: '3h' },
+    { hours: 1, type: '1h' },
+    { minutes: 30, type: '30min' },
+    { minutes: 15, type: '15min' },
+  ],
+};
+```
 
 ---
 
-## Consistency with Existing Patterns
+### Part 4: Add `new_reservation` Email Template
 
-This aligns with the admin pages that already have contextual back navigation (e.g., ReservationDetail goes back to reservations list). The customer-facing pages should follow the same principle of respecting user navigation flow.
+**File:** `supabase/functions/send-email-notification/index.ts`
+
+Add email template for new reservations (pending confirmation):
+
+```typescript
+case 'new_reservation':
+  content = `
+    <div class="content">
+      <h2>Reservation Request Received, ${customerName}!</h2>
+      <p>Thank you for requesting a table reservation. Our team will review and confirm your booking shortly.</p>
+      
+      <div class="order-box">
+        <p><strong>Reservation Code:</strong> ${payload.reservationCode}</p>
+        <p><strong>Date:</strong> ${payload.reservationDate}</p>
+        <p><strong>Time:</strong> ${payload.reservationTime}</p>
+        <p><strong>Guests:</strong> ${payload.pax}</p>
+        <span class="status-badge status-warning">⏳ Pending Confirmation</span>
+      </div>
+      
+      <p>You will receive an SMS and email once your reservation is confirmed.</p>
+      <p>📍 American Ribs & Wings - Floridablanca, Pampanga</p>
+    </div>
+  `;
+  break;
+```
 
 ---
 
 ## Summary of Changes
 
-| File | Lines Affected | Change |
-|------|----------------|--------|
-| `src/pages/Reserve.tsx` | ~2, ~24, ~64-68 | Add navigate, update back button |
-| `src/pages/Order.tsx` | ~674-678 | Update back button (navigate already exists) |
-| `src/pages/MyOrders.tsx` | ~2, ~22, ~202-206 | Add navigate, update back button |
-| `src/components/reservation/ReservationConfirmation.tsx` | ~1, ~17, ~35-39 | Add navigate, update header back button only |
+| File | Change |
+|------|--------|
+| **Database** | Drop duplicate `create_reservation` function (SQL migration) |
+| `src/components/reservation/ReservationForm.tsx` | Add SMS/Email calls after reservation created |
+| `src/pages/admin/ReservationDetail.tsx` | Update reminder scheduling to 6 intervals (12h, 6h, 3h, 1h, 30min, 15min) |
+| `src/hooks/useReservationSettings.ts` | Update default reminder interval settings |
+| `supabase/functions/send-email-notification/index.ts` | Add `new_reservation` email template case |
+
+---
+
+## Notification Flow After Fix
+
+```
+CUSTOMER SUBMITS RESERVATION
+         ↓
+    Status: pending
+         ↓
+  ✉️ SMS: "Reservation received, pending confirmation"
+  📧 Email: "Reservation request received" (if email provided)
+         ↓
+ADMIN CONFIRMS IN DASHBOARD
+         ↓
+    Status: confirmed
+         ↓
+  ✉️ SMS: "Your reservation is CONFIRMED!"
+  📧 Email: "Reservation confirmed"
+  ⏰ Schedule reminders: 12h, 6h, 3h, 1h, 30min, 15min
+         ↓
+AUTOMATIC REMINDERS (via pg_cron every 15 min)
+         ↓
+  ✉️ SMS + 📧 Email sent at each interval before reservation time
+```
+
+---
+
+## Technical Details
+
+### Database Migration SQL
+```sql
+-- Fix function overload: drop the old 7-parameter version
+DROP FUNCTION IF EXISTS public.create_reservation(text, text, text, integer, date, time without time zone, text);
+
+-- The 8-parameter version (with p_preorder_items) remains
+-- Frontend passes null for preorder_items which is fine
+```
+
+### Cron Job Already Configured
+The reminder system already has a cron job running every 15 minutes:
+```
+*/15 * * * * → send-reservation-reminder edge function
+```
+This will process all due reminders automatically.
 
