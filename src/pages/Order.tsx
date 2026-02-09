@@ -671,10 +671,8 @@ const Order = () => {
       <header className="sticky top-0 z-40 bg-card border-b border-border">
         <div className="container px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" asChild>
-              <Link to="/">
-                <ArrowLeft className="h-5 w-5" />
-              </Link>
+            <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+              <ArrowLeft className="h-5 w-5" />
             </Button>
             <div>
               <h1 className="font-bold text-lg">Order Online</h1>
