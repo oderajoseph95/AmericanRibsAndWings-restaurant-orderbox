@@ -1,178 +1,179 @@
 
-# ISSUE R4.7 — Reservation Settings Panel (Admin)
+# ISSUE R5.1 — Reservation Check-In Control (Admin)
 
 ## Overview
 
-Create a centralized, admin-only Reservation Settings page at `/admin/reservations/settings` where owners can configure reservation behavior without code changes. All currently hardcoded values will be made configurable and stored in the `settings` table.
+Add a staff-only Check-In action that marks when a customer physically arrives. This creates an explicit barrier between "confirmed" and "checked-in" states, protecting the reservation from no-show automation while providing accountability.
 
 ---
 
 ## Current State Analysis
 
 ### Existing Infrastructure
-- **Settings Table**: Generic key-value store with JSON value field
-- **Existing Reservation Settings**:
-  - `store_hours`: `{open: "11:00", close: "21:00", timezone: "Asia/Manila"}`
-  - `reservation_capacity`: `{max_pax_per_slot: 40}`
-- **logAdminAction**: Audit logging helper already used in Settings.tsx
+- **Reservation Status Enum**: `pending`, `confirmed`, `cancelled`, `completed`, `no_show`, `cancelled_by_customer`
+- **Missing**: `checked_in` status value
+- **Reservations Table**: Has `status_changed_at` and `status_changed_by` but missing dedicated `checked_in_at` and `checked_in_by` columns
+- **ReservationDetail.tsx**: Has action buttons when `status === 'confirmed'` for "Mark Completed" and "Mark No-Show"
+- **process-no-shows Edge Function**: Already filters by `status = 'confirmed'` only - automatically skips any other status
 
-### Hardcoded Values to Make Configurable
-
-| Setting | Current Location | Hardcoded Value |
-|---------|-----------------|-----------------|
-| Store Hours | Settings table | 11:00-21:00 (already configurable) |
-| Capacity per Slot | Settings table | 40 pax (exists but not editable in UI) |
-| Slot Duration | ReservationForm.tsx | 30 minutes |
-| Cancellation Cutoff | SQL function | 2 hours |
-| No-Show Grace Period | process-no-shows Edge Function | 30 minutes |
-| First Reminder | ReservationDetail.tsx | 24 hours before |
-| Second Reminder | ReservationDetail.tsx | 3 hours before |
+### Key Insight
+The no-show automation already only processes `confirmed` reservations. Adding `checked_in` to the enum will automatically protect checked-in reservations since they won't have status = 'confirmed'.
 
 ---
 
 ## Technical Implementation
 
-### 1. Settings Data Structure
+### 1. Database Migration
 
-Store all reservation settings under a single key for atomic updates:
+Add `checked_in` to the reservation_status enum and add dedicated columns for check-in attribution:
+
+```sql
+-- Add checked_in to reservation_status enum
+ALTER TYPE reservation_status ADD VALUE 'checked_in' AFTER 'confirmed';
+
+-- Add dedicated columns for check-in tracking
+ALTER TABLE reservations 
+ADD COLUMN checked_in_at TIMESTAMPTZ,
+ADD COLUMN checked_in_by UUID REFERENCES auth.users(id);
+```
+
+### 2. Update ReservationDetail.tsx
+
+Add "Check In" button and display check-in information:
+
+**Button Location**: In the Actions card, when `status === 'confirmed'`, add a prominent "Check In" button before "Mark Completed" and "Mark No-Show"
+
+**UI Changes:**
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Actions                                                       │
+│                                                               │
+│  [ ✓ Check In ]  [ ✓ Mark Completed ]  [ Mark No-Show ]      │
+│                                                               │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**After Check-In:**
+- Status badge shows "Checked In" (blue styling)
+- Summary section displays:
+  - "Checked in at 7:12 PM"
+  - "by Joseph"
+
+### 3. Status Colors & Labels Update
+
+Add styling for the new `checked_in` status:
 
 ```typescript
-// Key: 'reservation_settings'
-{
-  // Store Hours (for reservation context)
-  store_open: "11:00",
-  store_close: "21:00",
-  
-  // Capacity
-  max_pax_per_slot: 40,
-  slot_duration_minutes: 30,
-  
-  // Reminders
-  reminder_first_hours: 24,      // 24h before
-  reminder_second_hours: 3,      // 3h before
-  reminders_enabled: true,
-  
-  // Cancellation
-  cancellation_cutoff_hours: 2,  // 2h before
-  
-  // No-Show
-  no_show_grace_minutes: 30      // 30 min after
-}
+const statusColors: Record<ReservationStatus, string> = {
+  // ... existing statuses
+  checked_in: 'bg-blue-500/20 text-blue-700 border-blue-500/30',
+};
+
+const statusLabels: Record<ReservationStatus, string> = {
+  // ... existing statuses
+  checked_in: 'Checked In',
+};
 ```
 
-### 2. Create New Page: `src/pages/admin/ReservationSettings.tsx`
+### 4. Check-In Mutation
 
-New settings page following the existing Settings.tsx patterns:
+Create a new mutation or modify existing status update to handle check-in:
 
-**Layout Structure:**
-```
-┌──────────────────────────────────────────────────────────────┐
-│ ← Back to Reservations                                       │
-│ Reservation Settings                                         │
-│ Configure reservation rules and behavior                     │
-└──────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────┐
-│ Store Hours (Reservation Context)                            │
-│ Set when reservations are available                          │
-│ ┌─────────────────────┐ ┌─────────────────────┐              │
-│ │ Opening Time        │ │ Closing Time        │              │
-│ │ [11:00        ▼]    │ │ [21:00        ▼]    │              │
-│ └─────────────────────┘ └─────────────────────┘              │
-│ 🌏 Timezone: Asia/Manila (Philippines, UTC+8)                │
-│ ⓘ These hours control the time picker for reservations       │
-└──────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────┐
-│ Capacity Settings                                            │
-│ Control how many guests can book per time slot               │
-│ ┌─────────────────────┐ ┌─────────────────────┐              │
-│ │ Max Guests per Slot │ │ Time Slot Duration  │              │
-│ │ [40            ]    │ │ [30 minutes   ▼]    │              │
-│ └─────────────────────┘ └─────────────────────┘              │
-│ ⓘ Reservations exceeding slot capacity will be rejected      │
-└──────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────┐
-│ Reminder Settings                                            │
-│ When to send reminder notifications to guests                │
-│ ┌─────────────────────────────────────────────┐              │
-│ │ [✓] Enable Automatic Reminders              │              │
-│ └─────────────────────────────────────────────┘              │
-│ ┌─────────────────────┐ ┌─────────────────────┐              │
-│ │ First Reminder      │ │ Second Reminder     │              │
-│ │ [24      ] hours    │ │ [3       ] hours    │              │
-│ │ before reservation  │ │ before reservation  │              │
-│ └─────────────────────┘ └─────────────────────┘              │
-│ ⓘ Changes apply to future reservations only                  │
-└──────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────┐
-│ Cancellation Policy                                          │
-│ How close to reservation time customers can cancel           │
-│ ┌─────────────────────┐                                      │
-│ │ Cancellation Cutoff │                                      │
-│ │ [2       ] hours    │                                      │
-│ │ before reservation  │                                      │
-│ └─────────────────────┘                                      │
-│ ⓘ After this cutoff, customers must contact the store        │
-└──────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────┐
-│ No-Show Handling                                             │
-│ Grace period before marking as no-show                       │
-│ ┌─────────────────────┐                                      │
-│ │ Grace Period        │                                      │
-│ │ [30      ] minutes  │                                      │
-│ │ after reservation   │                                      │
-│ └─────────────────────┘                                      │
-│ ⓘ Confirmed reservations not checked in will be marked       │
-│   as no-show after this grace period                         │
-└──────────────────────────────────────────────────────────────┘
+```typescript
+const checkInMutation = useMutation({
+  mutationFn: async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    const { error } = await supabase
+      .from('reservations')
+      .update({
+        status: 'checked_in',
+        status_changed_at: new Date().toISOString(),
+        status_changed_by: user?.id,
+        checked_in_at: new Date().toISOString(),
+        checked_in_by: user?.id,
+      })
+      .eq('id', id)
+      .eq('status', 'confirmed'); // Ensure we only check in confirmed reservations
+    
+    if (error) throw error;
+    
+    // Log admin action
+    await logAdminAction({
+      action: 'reservation_checked_in',
+      entityType: 'reservation',
+      entityId: id,
+      entityName: reservation?.confirmation_code || reservation?.reservation_code,
+      oldValues: { status: 'confirmed' },
+      newValues: { status: 'checked_in' },
+      details: 'Customer physically arrived and was checked in',
+    });
+    
+    // Log to reservation_notifications for timeline
+    await supabase.from('reservation_notifications').insert({
+      reservation_id: id,
+      channel: 'system',
+      recipient: 'internal',
+      status: 'sent',
+      trigger_type: 'manual',
+      message_type: 'check_in',
+    });
+  },
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['admin-reservation', id] });
+    queryClient.invalidateQueries({ queryKey: ['admin-reservations'] });
+    toast.success('Reservation checked in');
+  },
+  onError: (error: Error) => {
+    toast.error('Failed to check in: ' + error.message);
+  },
+});
 ```
 
-**Role-Based Access:**
-- Owner: Full edit access
-- Manager: View-only (show notice, disable inputs)
-- Others: Access denied
+### 5. Update Actions for Checked-In Status
 
-### 3. Route Registration
+When `status === 'checked_in'`, show only:
+- "Mark Completed" button
+- (No "Mark No-Show" - customer is physically present)
 
-Add to `App.tsx`:
-```tsx
-<Route path="reservations/settings" element={<ReservationSettings />} />
+```typescript
+{reservation.status === 'checked_in' && (
+  <Button
+    onClick={() => updateStatusMutation.mutate({ newStatus: 'completed' })}
+    disabled={updateStatusMutation.isPending}
+    className="bg-emerald-600 hover:bg-emerald-700"
+  >
+    <CheckCircle className="h-4 w-4 mr-2" />
+    Mark Completed
+  </Button>
+)}
 ```
 
-Must be before `reservations/:id` to avoid conflict.
+### 6. Display Check-In Attribution
 
-### 4. Update Edge Functions to Read Settings
+Show check-in details in the reservation summary when checked in:
 
-#### A. `process-no-shows/index.ts`
-- Read `no_show_grace_minutes` from settings table
-- Fallback to 30 if not set
+```typescript
+{reservation.checked_in_at && (
+  <div className="flex items-center gap-3">
+    <Check className="h-4 w-4 text-blue-600" />
+    <div>
+      <p className="text-sm text-muted-foreground">Checked In</p>
+      <p className="font-medium">
+        {format(new Date(reservation.checked_in_at), 'h:mm a')}
+        {checkedInByName && ` by ${checkedInByName}`}
+      </p>
+    </div>
+  </div>
+)}
+```
 
-#### B. `cancel_reservation_by_customer` SQL Function
-- Read `cancellation_cutoff_hours` from settings
-- Replace hardcoded `INTERVAL '2 hours'`
+### 7. Update Reservation Analytics
 
-#### C. ReservationDetail.tsx (Reminder Scheduling)
-- Read `reminder_first_hours` and `reminder_second_hours` from settings
-- Replace hardcoded 24 and 3
+Update `get_reservation_analytics` RPC to include `checked_in` count:
 
-#### D. ReservationForm.tsx (Time Slots)
-- Read `slot_duration_minutes` and store hours from settings
-- Replace hardcoded 30-minute increment
-
-### 5. Navigation Updates
-
-Add "Settings" link to `/admin/reservations` page header:
-```tsx
-<Button variant="outline" asChild>
-  <Link to="/admin/reservations/settings">
-    <Settings className="h-4 w-4 mr-2" />
-    Settings
-  </Link>
-</Button>
+```sql
+'checked_in', (SELECT COUNT(*) FROM reservations WHERE status = 'checked_in' AND reservation_date >= start_date AND reservation_date <= end_date),
 ```
 
 ---
@@ -181,113 +182,46 @@ Add "Settings" link to `/admin/reservations` page header:
 
 | File | Action | Description |
 |------|--------|-------------|
-| `src/pages/admin/ReservationSettings.tsx` | CREATE | New settings page with all controls |
-| `src/App.tsx` | MODIFY | Add route for `/admin/reservations/settings` |
-| `src/pages/admin/Reservations.tsx` | MODIFY | Add "Settings" button in header |
-| `supabase/functions/process-no-shows/index.ts` | MODIFY | Read grace period from settings |
-| **Database Migration** | CREATE | Update `cancel_reservation_by_customer` to read settings |
-| `src/pages/admin/ReservationDetail.tsx` | MODIFY | Read reminder timing from settings |
-| `src/components/reservation/ReservationForm.tsx` | MODIFY | Read slot duration from settings |
+| **Database Migration** | CREATE | Add `checked_in` to enum, add `checked_in_at` and `checked_in_by` columns |
+| `src/pages/admin/ReservationDetail.tsx` | MODIFY | Add Check In button, display check-in info, update action buttons |
+| `src/pages/admin/ReservationAnalytics.tsx` | MODIFY | Add checked_in to status colors and display |
+| `src/pages/admin/Reservations.tsx` | MODIFY | Add checked_in to status filters and display |
+| **Database Migration** | CREATE | Update `get_reservation_analytics` to include checked_in count |
 
 ---
 
-## Settings Retrieval Pattern
+## No-Show Protection (Automatic)
 
-For frontend components, use React Query to fetch settings:
+The existing `process-no-shows` Edge Function already only queries:
 
 ```typescript
-const { data: reservationSettings } = useQuery({
-  queryKey: ['reservation-settings'],
-  queryFn: async () => {
-    const { data, error } = await supabase
-      .from('settings')
-      .select('value')
-      .eq('key', 'reservation_settings')
-      .maybeSingle();
-    
-    if (error) throw error;
-    return data?.value as ReservationSettingsType || DEFAULT_SETTINGS;
-  },
-});
+.eq("status", "confirmed")
 ```
 
-For Edge Functions, query directly with service role:
+Once a reservation transitions to `checked_in`, it will no longer have status = 'confirmed' and will be automatically excluded from no-show processing. **No changes needed to the Edge Function.**
 
-```typescript
-const { data: settings } = await supabase
-  .from('settings')
-  .select('value')
-  .eq('key', 'reservation_settings')
-  .maybeSingle();
+---
 
-const gracePeriodMinutes = settings?.value?.no_show_grace_minutes || 30;
+## Status Workflow Update
+
+```
+┌─────────┐     ┌───────────┐     ┌────────────┐     ┌───────────┐
+│ pending │ ──► │ confirmed │ ──► │ checked_in │ ──► │ completed │
+└─────────┘     └───────────┘     └────────────┘     └───────────┘
+                      │                                    
+                      ▼                                    
+               ┌────────────┐                              
+               │  no_show   │  (only from confirmed,       
+               └────────────┘   never from checked_in)     
 ```
 
 ---
 
-## Default Values (Fallbacks)
+## Customer Visibility
 
-If settings are not found, use these defaults:
+Customers on the tracking page will NOT see "Checked In" status. The existing `lookup_reservation` function returns only safe fields. The `checked_in` status is internal-only.
 
-| Setting | Default |
-|---------|---------|
-| store_open | "11:00" |
-| store_close | "21:00" |
-| max_pax_per_slot | 40 |
-| slot_duration_minutes | 30 |
-| reminder_first_hours | 24 |
-| reminder_second_hours | 3 |
-| reminders_enabled | true |
-| cancellation_cutoff_hours | 2 |
-| no_show_grace_minutes | 30 |
-
----
-
-## Audit Logging
-
-All settings changes are logged via `logAdminAction`:
-
-```typescript
-await logAdminAction({
-  action: 'update',
-  entityType: 'reservation_settings',
-  entityName: settingKey,
-  oldValues: { [settingKey]: oldValue },
-  newValues: { [settingKey]: newValue },
-  details: `Updated ${settingLabel} from ${oldValue} to ${newValue}`,
-});
-```
-
----
-
-## Validation Rules
-
-| Setting | Validation |
-|---------|------------|
-| Store hours | Close must be after open |
-| Max pax per slot | Positive integer, 1-200 |
-| Slot duration | 15, 30, 45, or 60 minutes |
-| Reminder first | 1-72 hours |
-| Reminder second | 1-24 hours, less than first |
-| Cancellation cutoff | 0-24 hours |
-| No-show grace | 5-120 minutes |
-
----
-
-## SQL Function Update
-
-Modify `cancel_reservation_by_customer` to read settings:
-
-```sql
--- Fetch cutoff setting
-SELECT (value->>'cancellation_cutoff_hours')::INT 
-INTO v_cutoff_hours
-FROM settings 
-WHERE key = 'reservation_settings';
-
-v_cutoff_hours := COALESCE(v_cutoff_hours, 2);
-v_cutoff := v_reservation_datetime - (v_cutoff_hours || ' hours')::INTERVAL;
-```
+For customer tracking, we can map `checked_in` to display as "Confirmed" since from their perspective, they've arrived but haven't left yet.
 
 ---
 
@@ -295,28 +229,31 @@ v_cutoff := v_reservation_datetime - (v_cutoff_hours || ' hours')::INTERVAL;
 
 | Criteria | Implementation |
 |----------|----------------|
-| All listed settings are editable | Settings page with all 9 controls |
-| Role access is enforced | Owner: edit, Manager: view-only |
-| Changes apply immediately | Direct DB update, components re-query |
-| Audit logs are accurate | logAdminAction on every save |
-| No hardcoded reservation rules | All functions read from settings table |
+| Check-In button appears correctly | Button visible only when `status = confirmed` |
+| Status transitions correctly | `confirmed` → `checked_in` via mutation |
+| No-show automation skips checked-in records | Automatic - Edge function filters by `confirmed` only |
+| Timestamp and admin attribution saved | `checked_in_at` and `checked_in_by` columns |
+| Admin UI clearly reflects check-in | Status badge, timestamp, and admin name displayed |
+| One-way transition | Cannot revert check-in via customer action |
 
 ---
 
 ## What This Creates
 
-1. `/admin/reservations/settings` page with full settings UI
-2. `reservation_settings` key in settings table
-3. Dynamic reading of settings in all reservation logic
-4. Audit trail for all changes
-5. Navigation link from Reservations list
+1. `checked_in` status in the reservation enum
+2. Dedicated `checked_in_at` and `checked_in_by` columns
+3. "Check In" button on admin detail page
+4. Check-in attribution display (time + admin name)
+5. Audit logging for check-in events
+6. Automatic no-show protection for checked-in reservations
 
 ---
 
 ## What This Does NOT Create
 
-- Per-day schedule overrides
-- Holiday schedules
-- Special event rules
-- Table assignment logic
-- Customer-facing settings UI
+- Completion button (already exists)
+- Auto-completion logic
+- Seating/table assignment
+- QR scanning or GPS check-in
+- Customer self check-in
+- Customer visibility of checked-in status
