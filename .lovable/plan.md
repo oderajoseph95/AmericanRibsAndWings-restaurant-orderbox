@@ -1,234 +1,156 @@
 
-# Valentine Group Meals Implementation Plan
 
-## Overview
+# Fix Admin Order Details to Show Bundle Inclusions
 
-This plan adds 4 Valentine Group Meals to the existing "Groups" category, using the **exact same architecture** as ARW Group Meals 1 & 2. No code changes are needed to the BundleWizard, Cart, Checkout, or other components - they already fully support this structure.
+## Problem
+The admin order details view is missing the "Included in this meal" section that shows bundle components like Coleslaw, Fries, Red Wine, Bento Cake, and Java Rice. The customer view shows these correctly, but the admin doesn't see them.
 
----
+## Root Cause
+1. The `order_items` query doesn't join the `products` table to get `product_type`
+2. The admin view doesn't fetch `bundle_components` for bundle products
+3. The items rendering section (lines 1572-1600) only shows flavors, not included items
 
-## Phase 1: Create Bundle-Only Component Products (₱0 price)
-
-These products are **only used as bundle components** and will never appear in the menu (₱0 price is filtered out). They use existing flavor logic.
-
-### Products to Create
-
-| Product Name | Price | Type | Purpose |
-|--------------|-------|------|---------|
-| Red Wine (Bundle) | ₱0 | simple | Included item for Valentine meals |
-| Bento Cake (Bundle) | ₱0 | simple | Included item for Valentine meals |
-| Pork Ribs Portion (2 pcs) | ₱0 | flavored | For "Wings of Love" - uses wings flavors |
-
-**Note:** Existing products to reuse:
-- `Coleslaw Salad (150g)` - ₱99, already exists
-- `Combo Fries` - ₱0, already exists
-- `Java Rice` - ₱40, already exists
-- `Half-Rack Ribs (500g)` - ₱549, already exists (flavor-selectable)
-- `Full-Rack Ribs (1kg)` - ₱999, already exists (flavor-selectable)
-- Wing Ala Carte products - already exist with correct slot configs
+## Solution
+Update the admin Orders page to:
+1. Fetch product info with order items to identify bundles
+2. Fetch bundle components for any bundle products
+3. Display included items (components with `has_flavor_selection = false`) with green "Included" badges
 
 ---
 
-## Phase 2: Create Valentine Group Meal Products
+## Technical Changes
 
-All 4 products go in the "Groups" category (ID: `dce950f7-15f1-4fcf-8a55-04a154f93d25`)
-
-### Product A: Forever Us - ₱2,799
-
-| Field | Value |
-|-------|-------|
-| name | Forever Us |
-| price | 2799.00 |
-| product_type | bundle |
-| category_id | dce950f7-15f1-4fcf-8a55-04a154f93d25 |
-| description | Valentine's Day Special! Full rack ribs, 18 pcs wings, 8 cups java rice, fries, coleslaw, wine & cake |
-
-### Product B: Love on the Ribs - ₱1,999
-
-| Field | Value |
-|-------|-------|
-| name | Love on the Ribs |
-| price | 1999.00 |
-| product_type | bundle |
-| category_id | dce950f7-15f1-4fcf-8a55-04a154f93d25 |
-| description | Valentine's Day Special! Half rack ribs, 12 pcs wings, 4 cups java rice, fries, coleslaw, wine & cake |
-
-### Product C: Valentine Classic - ₱1,699
-
-| Field | Value |
-|-------|-------|
-| name | Valentine Classic |
-| price | 1699.00 |
-| product_type | bundle |
-| category_id | dce950f7-15f1-4fcf-8a55-04a154f93d25 |
-| description | Valentine's Day Special! Half rack ribs, 6 pcs wings, 2 cups java rice, fries, coleslaw, wine & cake |
-
-### Product D: Wings of Love - ₱1,699
-
-| Field | Value |
-|-------|-------|
-| name | Wings of Love |
-| price | 1699.00 |
-| product_type | bundle |
-| category_id | dce950f7-15f1-4fcf-8a55-04a154f93d25 |
-| description | Valentine's Day Special! 12 pcs wings, 2 pcs ribs, 2 cups java rice, fries, coleslaw, wine & cake |
-
----
-
-## Phase 3: Configure Bundle Components
-
-### Forever Us (₱2,799) - 7 Components
-
-| Component | has_flavor_selection | total_units | units_per_flavor | quantity | required_flavors |
-|-----------|---------------------|-------------|------------------|----------|------------------|
-| Full-Rack Ribs (1kg) | true | 1 | 1 | 1 | 1 |
-| Wing Ala Carte 4 (18 pcs) | true | 18 | 3 | 1 | 6 |
-| Java Rice | false | 8 | 1 | 8 | null |
-| Combo Fries | false | 1 | 1 | 1 | null |
-| Coleslaw Salad (150g) | false | 1 | 1 | 1 | null |
-| Red Wine (Bundle) | false | 1 | 1 | 1 | null |
-| Bento Cake (Bundle) | false | 1 | 1 | 1 | null |
-
-### Love on the Ribs (₱1,999) - 7 Components
-
-| Component | has_flavor_selection | total_units | units_per_flavor | quantity | required_flavors |
-|-----------|---------------------|-------------|------------------|----------|------------------|
-| Half-Rack Ribs (500g) | true | 1 | 1 | 1 | 1 |
-| Wing Ala Carte 3 (12 pcs) | true | 12 | 3 | 1 | 4 |
-| Java Rice | false | 4 | 1 | 4 | null |
-| Combo Fries | false | 1 | 1 | 1 | null |
-| Coleslaw Salad (150g) | false | 1 | 1 | 1 | null |
-| Red Wine (Bundle) | false | 1 | 1 | 1 | null |
-| Bento Cake (Bundle) | false | 1 | 1 | 1 | null |
-
-### Valentine Classic (₱1,699) - 7 Components
-
-| Component | has_flavor_selection | total_units | units_per_flavor | quantity | required_flavors |
-|-----------|---------------------|-------------|------------------|----------|------------------|
-| Half-Rack Ribs (500g) | true | 1 | 1 | 1 | 1 |
-| Wing Ala Carte 2 (6 pcs) | true | 6 | 3 | 1 | 2 |
-| Java Rice | false | 2 | 1 | 2 | null |
-| Combo Fries | false | 1 | 1 | 1 | null |
-| Coleslaw Salad (150g) | false | 1 | 1 | 1 | null |
-| Red Wine (Bundle) | false | 1 | 1 | 1 | null |
-| Bento Cake (Bundle) | false | 1 | 1 | 1 | null |
-
-### Wings of Love (₱1,699) - 7 Components
-
-| Component | has_flavor_selection | total_units | units_per_flavor | quantity | required_flavors |
-|-----------|---------------------|-------------|------------------|----------|------------------|
-| Wing Ala Carte 3 (12 pcs) | true | 12 | 3 | 1 | 4 |
-| Pork Ribs Portion (2 pcs) | true | 1 | 1 | 1 | 1 |
-| Java Rice | false | 2 | 1 | 2 | null |
-| Combo Fries | false | 1 | 1 | 1 | null |
-| Coleslaw Salad (150g) | false | 1 | 1 | 1 | null |
-| Red Wine (Bundle) | false | 1 | 1 | 1 | null |
-| Bento Cake (Bundle) | false | 1 | 1 | 1 | null |
-
----
-
-## Phase 4: Update BundleWizard Display Names
-
-The BundleWizard needs a minor update to display "Red Wine" and "Bento Cake" correctly in the included items section (lines 274-280):
-
+### 1. Update OrderItem Type
+Add product relationship to include `product_type`:
 ```typescript
-// Add to displayName handling in handleConfirm():
-} else if (displayName.toLowerCase().includes('wine')) {
-  displayName = 'Red Wine';
-} else if (displayName.toLowerCase().includes('cake')) {
-  displayName = 'Bento Cake';
-}
+type OrderItem = Tables<'order_items'> & {
+  order_item_flavors: Tables<'order_item_flavors'>[];
+  products: { product_type: string | null } | null;
+};
+```
 
-// Add to displayName handling in review step (lines 507-523):
-} else if (displayName.toLowerCase().includes('wine')) {
-  displayName = 'Red Wine';
-} else if (displayName.toLowerCase().includes('cake')) {
-  displayName = 'Bento Cake';
-}
+### 2. Update Order Items Query (lines 240-252)
+Add products join to get product_type:
+```typescript
+const { data: orderItems = [] } = useQuery({
+  queryKey: ['order-items', selectedOrder?.id],
+  queryFn: async () => {
+    if (!selectedOrder) return [];
+    const { data, error } = await supabase
+      .from('order_items')
+      .select('*, order_item_flavors(*), products(product_type)')
+      .eq('order_id', selectedOrder.id);
+    if (error) throw error;
+    return data as OrderItem[];
+  },
+  enabled: !!selectedOrder,
+});
+```
+
+### 3. Add Bundle Components Query (after order items query)
+Fetch included components for any bundle products:
+```typescript
+const bundleProductIds = orderItems
+  .filter(item => item.products?.product_type === 'bundle' && item.product_id)
+  .map(item => item.product_id!);
+
+const { data: bundleComponents = [] } = useQuery({
+  queryKey: ['bundle-components', bundleProductIds],
+  queryFn: async () => {
+    if (bundleProductIds.length === 0) return [];
+    const { data, error } = await supabase
+      .from('bundle_components')
+      .select('*, component_product:products!bundle_components_component_product_id_fkey(name)')
+      .in('bundle_product_id', bundleProductIds)
+      .eq('has_flavor_selection', false);
+    if (error) throw error;
+    return data;
+  },
+  enabled: bundleProductIds.length > 0,
+});
+```
+
+### 4. Update Items Rendering (lines 1572-1600)
+Add included items section after flavors for bundle products:
+```tsx
+{orderItems.map((item) => {
+  const isBundle = item.products?.product_type === 'bundle';
+  const itemInclusions = isBundle 
+    ? bundleComponents.filter(bc => bc.bundle_product_id === item.product_id)
+    : [];
+    
+  return (
+    <div key={item.id} className="space-y-1 p-2 bg-muted rounded">
+      {/* Existing: Product name and price */}
+      <div className="flex justify-between text-sm">
+        <span>{item.quantity}x {item.product_name}</span>
+        <span>₱{item.line_total?.toFixed(2)}</span>
+      </div>
+      
+      {/* Existing: Flavor selections */}
+      {item.order_item_flavors.length > 0 && (
+        <div className="pl-4 text-xs text-muted-foreground">
+          {item.order_item_flavors.map((f, idx) => (...))}
+        </div>
+      )}
+      
+      {/* NEW: Included items for bundles */}
+      {isBundle && itemInclusions.length > 0 && (
+        <div className="pl-4 space-y-0.5 mt-1">
+          <span className="text-xs font-medium text-green-600">Included in this meal:</span>
+          {itemInclusions.map((incl, idx) => {
+            let displayName = incl.component_product?.name || '';
+            // Apply same display name mappings as BundleWizard
+            if (displayName.toLowerCase().includes('java rice')) {
+              displayName = `${incl.quantity} cups Java Rice`;
+            } else if (displayName.toLowerCase().includes('coleslaw')) {
+              displayName = 'Coleslaw';
+            } else if (displayName.toLowerCase().includes('fries')) {
+              displayName = 'Fries';
+            } else if (displayName.toLowerCase().includes('wine')) {
+              displayName = 'Red Wine';
+            } else if (displayName.toLowerCase().includes('cake')) {
+              displayName = 'Bento Cake';
+            }
+            return (
+              <div key={idx} className="flex justify-between text-xs text-green-600">
+                <span>• {displayName}</span>
+                <span className="text-[10px] border border-green-500/30 bg-green-500/10 px-1 rounded">
+                  Included
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+})}
 ```
 
 ---
 
-## Technical Details
+## Files to Modify
 
-### Pricing Logic (Unchanged)
-- Base price is FIXED (₱1,699 / ₱1,999 / ₱2,799)
-- Only SPECIAL flavors add ₱40 surcharge
-- Surcharge is per DISTINCT special flavor, NOT per piece/slot
-- Example: Using "#13 Vintage Garlic Butter" for ribs AND wings = +₱40 each = +₱80 total
-
-### BundleWizard Flow (Already Works)
-1. Step 1: Choose Ribs Flavor (radio select, single choice)
-2. Step 2: Choose Wings Flavors (slot-based, +/- buttons)
-3. Step 3: Review (shows all selections + included items)
-
-### Display Rules (Already Work)
-- Ribs: Show as single flavor selection
-- Wings: Show "for X wings" format
-- Included items: Show with green "Included" badge
-- No quantity multipliers (×) in display
+| File | Changes |
+|------|---------|
+| `src/pages/admin/Orders.tsx` | Update OrderItem type, add products join, add bundle components query, update items rendering |
 
 ---
 
-## Database Migration Summary
+## Result
+Admin order details will now show:
+- Product name and price
+- Flavor selections (wings and ribs)
+- **NEW**: "Included in this meal" section with green "Included" badges for bundle components
 
-### SQL Operations Required
-
-1. **Create component products** (Red Wine Bundle, Bento Cake Bundle, Pork Ribs Portion)
-2. **Create 4 Valentine Group Meal products** in Groups category
-3. **Insert bundle_components** linking each meal to its components
-
-### No Schema Changes Needed
-The existing `products`, `bundle_components`, and `flavors` tables already have all required columns.
+This matches exactly what customers see in their order summary.
 
 ---
 
-## Code Changes Summary
+## No Other Files Affected
+- Customer-facing pages remain unchanged
+- Cart, Checkout, and BundleWizard remain unchanged
+- Driver view is not affected
+- Email/SMS notifications are not affected
 
-### Files to Modify
-
-| File | Change |
-|------|--------|
-| `src/components/customer/BundleWizard.tsx` | Add "wine" and "cake" display name mappings (6 lines) |
-
-### Files NOT Changed (Already Support This)
-- `src/components/customer/Cart.tsx` - Already handles bundles with includedItems
-- `src/components/customer/CheckoutSheet.tsx` - Already displays bundle data correctly
-- `src/components/customer/checkout/CompactOrderSummary.tsx` - Already shows inclusions
-- `src/pages/Order.tsx` - Already routes bundles to BundleWizard
-- All admin/order views - Already use normalized rendering
-
----
-
-## Verification Checklist
-
-After implementation, verify:
-
-1. All 4 Valentine meals appear in "Groups" category on order page
-2. Clicking each meal opens BundleWizard with correct steps
-3. Ribs flavor selection works (radio buttons, single select)
-4. Wings flavor selection works (slot-based, fills all slots)
-5. Special flavor surcharges calculate correctly (₱40 per distinct)
-6. Review step shows all selections + included items
-7. Cart displays correctly with grouped flavors and inclusions
-8. Checkout summary shows complete breakdown
-9. Order confirmation stores correct data
-10. Admin order view shows all components correctly
-
----
-
-## Risk Mitigation
-
-### What This Plan Protects
-- Existing ARW Group Meals continue to work unchanged
-- Rice Meals with Java Rice upgrade unaffected
-- All ala carte products unaffected
-- Checkout flow unchanged
-- Cart persistence unchanged
-- Order submission unchanged
-
-### Why This Is Safe
-- Using exact same database structure as existing bundles
-- Using exact same BundleWizard component
-- Only adding new products and data rows
-- Minimal code change (display name mapping only)
