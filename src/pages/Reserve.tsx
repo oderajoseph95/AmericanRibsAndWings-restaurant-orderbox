@@ -13,7 +13,6 @@ import { ReservationConfirmation } from "@/components/reservation/ReservationCon
 
 interface ConfirmationData {
   id: string;
-  code: string;
   name: string;
   pax: number;
   date: string;
@@ -42,7 +41,6 @@ export default function Reserve() {
   if (isConfirmed && confirmationData) {
     return (
       <ReservationConfirmation
-        reservationCode={confirmationData.code}
         name={confirmationData.name}
         pax={confirmationData.pax}
         date={confirmationData.date}

@@ -7,7 +7,6 @@ import { Footer } from "@/components/home/Footer";
 import { STORE_NAME } from "@/lib/constants";
 
 interface ReservationConfirmationProps {
-  reservationCode: string;
   name: string;
   pax: number;
   date: string;
@@ -16,7 +15,6 @@ interface ReservationConfirmationProps {
 }
 
 export function ReservationConfirmation({
-  reservationCode,
   name,
   pax,
   date,
@@ -27,7 +25,7 @@ export function ReservationConfirmation({
     <div className="min-h-screen bg-background flex flex-col">
       <SEOHead 
         pagePath="/reserve" 
-        fallbackTitle="Reservation Confirmed | American Ribs & Wings"
+        fallbackTitle="Reservation Submitted | American Ribs & Wings"
         fallbackDescription="Your table reservation has been submitted."
       />
       
@@ -57,19 +55,19 @@ export function ReservationConfirmation({
             Reservation Submitted!
           </h2>
           <p className="text-muted-foreground">
-            We'll confirm your reservation via SMS shortly.
+            Thank you, {name}. Your reservation request has been received.
           </p>
         </div>
 
-        {/* Reservation Code Card */}
-        <Card className="mb-6 border-primary/20 bg-primary/5">
+        {/* Status Card - R1.4: Show Pending status instead of reservation code */}
+        <Card className="mb-6 border-warning/20 bg-warning/5">
           <CardContent className="pt-6 text-center">
-            <p className="text-sm text-muted-foreground mb-1">Reservation Code</p>
-            <p className="text-3xl font-bold text-primary tracking-wide">
-              {reservationCode}
+            <p className="text-sm text-muted-foreground mb-1">Status</p>
+            <p className="text-xl font-semibold text-warning">
+              Pending Confirmation
             </p>
             <p className="text-xs text-muted-foreground mt-2">
-              Please save this code for reference
+              We will contact you to confirm this reservation
             </p>
           </CardContent>
         </Card>
@@ -110,7 +108,7 @@ export function ReservationConfirmation({
         {/* Info Note */}
         <div className="bg-muted/50 rounded-lg p-4 mb-6 text-sm text-muted-foreground text-center">
           <p>
-            Reservations are subject to confirmation. We'll send you an SMS once your reservation is confirmed.
+            Reservations are subject to confirmation. We will contact you to confirm your booking.
           </p>
         </div>
 
