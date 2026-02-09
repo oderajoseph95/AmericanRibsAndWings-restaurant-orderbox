@@ -56,6 +56,8 @@ export default function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
       queryClient.invalidateQueries({ queryKey: ['conversion-funnel'] }),
       queryClient.invalidateQueries({ queryKey: ['live-visitors'] }),
+      queryClient.invalidateQueries({ queryKey: ['reservation-stats'] }),
+      queryClient.invalidateQueries({ queryKey: ['today-reservations-alert'] }),
     ]);
     setLastUpdate(new Date());
   };
@@ -86,6 +88,14 @@ export default function Dashboard() {
       queryClient.refetchQueries({ 
         queryKey: ['dashboard'],
         type: 'active', // Only refetch currently mounted queries
+      });
+      queryClient.refetchQueries({ 
+        queryKey: ['reservation-stats'],
+        type: 'active',
+      });
+      queryClient.refetchQueries({ 
+        queryKey: ['today-reservations-alert'],
+        type: 'active',
       });
       setLastUpdate(new Date());
     }, 30000); // 30 seconds instead of 10
@@ -120,10 +130,10 @@ export default function Dashboard() {
     }
   }, [dateFilter, customDateRange]);
 
-  // Setup realtime subscription - use refetch instead of invalidate to prevent work loss
+  // Setup realtime subscription for orders - use refetch instead of invalidate to prevent work loss
   useEffect(() => {
-    const channel = supabase
-      .channel('dashboard-realtime')
+    const ordersChannel = supabase
+      .channel('dashboard-orders-realtime')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'orders' },
@@ -146,8 +156,29 @@ export default function Dashboard() {
       )
       .subscribe();
 
+    // Setup realtime subscription for reservations
+    const reservationsChannel = supabase
+      .channel('dashboard-reservations-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'reservations' },
+        () => {
+          queryClient.refetchQueries({ 
+            queryKey: ['reservation-stats'],
+            type: 'active',
+          });
+          queryClient.refetchQueries({ 
+            queryKey: ['today-reservations-alert'],
+            type: 'active',
+          });
+          setLastUpdate(new Date());
+        }
+      )
+      .subscribe();
+
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(ordersChannel);
+      supabase.removeChannel(reservationsChannel);
     };
   }, [queryClient]);
 
