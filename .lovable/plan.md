@@ -1,130 +1,232 @@
 
-# Plan: Fix Reservation Stats Card to Update with Dashboard Filters and Realtime
+# Plan: Link Reservations to Customer Profiles
 
-## Problem Identified
+## Problem Analysis
 
-The Reservation Stats Card is not updating with the dashboard because of **TWO bugs**:
+Currently, reservations are **NOT linked** to customer profiles even though the `create_reservation` function creates a customer. There are two issues:
 
-### Bug 1: Query Keys Not Included in Refresh Logic
-The reservation stats queries use `['reservation-stats', ...]` query keys, but the Dashboard's refresh functions only target `['dashboard', ...]` queries:
+### Issue 1: No `customer_id` Column in Reservations
+The `reservations` table doesn't have a `customer_id` column to link to customers.
 
-```typescript
-// Current refresh logic - MISSES reservation-stats!
-await Promise.all([
-  queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
-  queryClient.invalidateQueries({ queryKey: ['conversion-funnel'] }),
-  queryClient.invalidateQueries({ queryKey: ['live-visitors'] }),
-]);
+### Issue 2: Phone Format Mismatch
+- **Reservations** store phones as: `639762074276` (international format)
+- **Customers** store phones as: `09164936064` (local format)
+
+The `create_reservation` function tries to match by phone, but the format mismatch means matches fail!
+
+### Current Data State
 ```
-
-### Bug 2: No Realtime Subscription for Reservations
-The realtime subscription only listens to the `orders` table:
-```typescript
-.on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, ...)
+reservations.phone: 639214080286
+customers.phone:    09164936064
+                    ^^ Different format = no match!
 ```
-
-When reservations are created, confirmed, or marked as no-show, the stats card doesn't update.
 
 ---
 
 ## Solution
 
-### Fix 1: Add `reservation-stats` to All Refresh Logic
+### Part 1: Add `customer_id` Column to Reservations
 
-**File: `src/pages/admin/Dashboard.tsx`**
+Add a foreign key to link reservations directly to customers:
 
-**1.1. Update `refreshAllData` function (around line 54-61)**
-```typescript
-const refreshAllData = async () => {
-  await Promise.all([
-    queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
-    queryClient.invalidateQueries({ queryKey: ['conversion-funnel'] }),
-    queryClient.invalidateQueries({ queryKey: ['live-visitors'] }),
-    queryClient.invalidateQueries({ queryKey: ['reservation-stats'] }), // ADD THIS
-    queryClient.invalidateQueries({ queryKey: ['today-reservations-alert'] }), // ADD THIS
-  ]);
-  setLastUpdate(new Date());
-};
+```sql
+ALTER TABLE reservations
+ADD COLUMN customer_id UUID REFERENCES customers(id);
 ```
 
-**1.2. Update auto-refresh interval (around line 86)**
-```typescript
-// Add reservation stats to auto-refresh
-queryClient.refetchQueries({ 
-  queryKey: ['dashboard'],
-  type: 'active',
-});
-queryClient.refetchQueries({ 
-  queryKey: ['reservation-stats'],  // ADD THIS
-  type: 'active',
-});
+### Part 2: Normalize Phone Numbers in Database
+
+Create a helper function to normalize phones for comparison:
+
+```sql
+CREATE OR REPLACE FUNCTION normalize_phone_for_match(phone TEXT) RETURNS TEXT AS $$
+BEGIN
+  -- Remove all non-digits
+  phone := regexp_replace(phone, '[^0-9]', '', 'g');
+  
+  -- Convert 09XXXXXXXXX to 639XXXXXXXXX
+  IF phone ~ '^09[0-9]{9}$' THEN
+    RETURN '63' || substring(phone from 2);
+  END IF;
+  
+  -- Already in 63 format or other
+  RETURN phone;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
 ```
 
-### Fix 2: Add Realtime Subscription for Reservations Table
+### Part 3: Update `create_reservation` Function
 
-**File: `src/pages/admin/Dashboard.tsx`**
+Update the customer matching logic to normalize phones before comparison AND set `customer_id`:
 
-Add a second channel subscription for the `reservations` table:
+```sql
+-- Match customer by normalized phone OR email
+SELECT id INTO v_customer_id
+FROM customers
+WHERE (p_email IS NOT NULL AND p_email != '' AND email = p_email)
+   OR (normalize_phone_for_match(phone) = normalize_phone_for_match(p_phone))
+LIMIT 1;
 
-```typescript
-// Setup realtime subscription for orders
-const ordersChannel = supabase
-  .channel('dashboard-orders-realtime')
-  .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
-    // ... existing logic
-  })
-  .subscribe();
+-- ...create or update customer...
 
-// ADD: Setup realtime subscription for reservations
-const reservationsChannel = supabase
-  .channel('dashboard-reservations-realtime')
-  .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, () => {
-    queryClient.refetchQueries({ 
-      queryKey: ['reservation-stats'],
-      type: 'active',
-    });
-    queryClient.refetchQueries({ 
-      queryKey: ['today-reservations-alert'],
-      type: 'active',
-    });
-    setLastUpdate(new Date());
-  })
-  .subscribe();
+-- Insert reservation WITH customer_id
+INSERT INTO reservations (
+  reservation_code, name, phone, email, pax,
+  reservation_date, reservation_time, notes,
+  status, preorder_items, idempotency_hash, 
+  customer_id  -- NEW!
+) VALUES (..., v_customer_id);
+```
 
-return () => {
-  supabase.removeChannel(ordersChannel);
-  supabase.removeChannel(reservationsChannel);
-};
+### Part 4: Backfill Existing Reservations
+
+Link existing reservations to matching customers:
+
+```sql
+UPDATE reservations r
+SET customer_id = c.id
+FROM customers c
+WHERE r.customer_id IS NULL
+  AND (
+    (r.email IS NOT NULL AND r.email = c.email)
+    OR (normalize_phone_for_match(r.phone) = normalize_phone_for_match(c.phone))
+  );
+```
+
+### Part 5: Update Customer Details Sheet
+
+In `src/pages/admin/Customers.tsx`, add a "Recent Reservations" section:
+
+```tsx
+// Fetch reservations for selected customer
+const { data: customerReservations = [] } = useQuery({
+  queryKey: ['customer-reservations', selectedCustomer?.id],
+  queryFn: async () => {
+    if (!selectedCustomer) return [];
+    const { data, error } = await supabase
+      .from('reservations')
+      .select('*')
+      .eq('customer_id', selectedCustomer.id)
+      .order('reservation_date', { ascending: false })
+      .limit(10);
+    if (error) return [];
+    return data;
+  },
+  enabled: !!selectedCustomer,
+});
+
+// In the SheetContent, add:
+<div>
+  <h4 className="font-medium mb-3 flex items-center gap-2">
+    <CalendarDays className="h-4 w-4" />
+    Reservations ({customerReservations.length})
+  </h4>
+  {customerReservations.length === 0 ? (
+    <p className="text-sm text-muted-foreground">No reservations</p>
+  ) : (
+    <div className="space-y-2">
+      {customerReservations.map((res) => (
+        <div key={res.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+          <div>
+            <p className="font-mono text-sm">{res.reservation_code}</p>
+            <p className="text-xs text-muted-foreground">
+              {format(new Date(res.reservation_date), 'MMM d, yyyy')} at {res.reservation_time}
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-sm">{res.pax} guests</p>
+            <Badge variant="outline" className="text-xs capitalize">
+              {res.status?.replace('_', ' ')}
+            </Badge>
+          </div>
+        </div>
+      ))}
+    </div>
+  )}
+</div>
 ```
 
 ---
 
-## Also Verify: Date Filtering Logic
+## Data Flow After Fix
 
-The current no_show in the database has `reservation_date: 2026-02-17`, but today is Feb 9. The "This Month" filter shows Feb 1 - Feb 9 (today), so the no_show from Feb 17 correctly won't appear until that date arrives.
+```
+┌──────────────────────────────────────────────────────────────┐
+│                    Customer makes reservation                │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  1. Customer submits: phone = "09171234567"                  │
+│                                                              │
+│  2. Frontend normalizes: phone = "639171234567"              │
+│                                                              │
+│  3. create_reservation() runs:                               │
+│     ├─ Normalize for matching: 639171234567                  │
+│     ├─ Look for existing customer by email OR phone          │
+│     ├─ Create or update customer record                      │
+│     ├─ Create reservation with customer_id link              │
+│     └─ Return reservation code                               │
+│                                                              │
+│  4. Customer Detail Sheet shows:                             │
+│     ├─ Recent Orders (from orders table)                     │
+│     └─ Recent Reservations (from reservations table)         │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
 
-This is **correct behavior** - the card filters by reservation_date, not created_at. Once Feb 17 passes (or if a no_show has a reservation_date within the selected range), it will display correctly.
+---
+
+## Customer Details Sheet Preview
+
+```
+┌─────────────────────────────────────────┐
+│ Maria Santos                      [X]   │
+├─────────────────────────────────────────┤
+│ Phone: 09171234567                      │
+│ Email: maria@email.com                  │
+│ Total Orders: 5                         │
+│ Total Spent: ₱4,500.00                  │
+│ Customer Since: January 15, 2026        │
+├─────────────────────────────────────────┤
+│ 📍 Delivery Addresses                   │
+│ ┌─────────────────────────────────────┐ │
+│ │ 123 Main St, Floridablanca          │ │
+│ └─────────────────────────────────────┘ │
+├─────────────────────────────────────────┤
+│ 📦 Recent Orders                        │
+│ ┌─────────────────────────────────────┐ │
+│ │ ORD-1234  Feb 5  ₱650  delivered    │ │
+│ │ ORD-1189  Jan 28 ₱420  completed    │ │
+│ └─────────────────────────────────────┘ │
+├─────────────────────────────────────────┤
+│ 📅 Reservations (2)              NEW!   │
+│ ┌─────────────────────────────────────┐ │
+│ │ ARW-RSV-4814  Feb 17 6PM  4 guests  │ │
+│ │ confirmed                           │ │
+│ ├─────────────────────────────────────┤ │
+│ │ ARW-RSV-1234  Feb 10 7PM  2 guests  │ │
+│ │ completed                           │ │
+│ └─────────────────────────────────────┘ │
+└─────────────────────────────────────────┘
+```
 
 ---
 
 ## Files to Modify
 
-| File | Changes |
-|------|---------|
-| `src/pages/admin/Dashboard.tsx` | Add `reservation-stats` to refresh logic + add reservations realtime channel |
+| File | Action | Description |
+|------|--------|-------------|
+| Database Migration | **Create** | Add `customer_id` column, phone normalize function, update `create_reservation`, backfill data |
+| `src/pages/admin/Customers.tsx` | **Modify** | Add reservations query and display section |
 
 ---
 
 ## Summary
 
-| Issue | Fix |
-|-------|-----|
-| Reservation stats not refreshing on manual/auto refresh | Add `reservation-stats` query key to `refreshAllData` and auto-refresh |
-| Reservation stats not updating in realtime | Add realtime subscription for `reservations` table |
-| No show showing 0 when there's 1 | Correct behavior - that no_show is scheduled for Feb 17, outside current filter range |
+| Before | After |
+|--------|-------|
+| Reservations have no link to customers | Reservations linked via `customer_id` |
+| Phone format mismatch breaks matching | Normalized phone comparison works |
+| Customer sheet shows only orders | Shows both orders AND reservations |
+| Cannot see customer's reservation history | Full customer history visible |
 
-After this fix:
-- Manual refresh button will refresh reservation stats
-- 30-second auto-refresh will include reservation stats
-- Creating/updating/deleting reservations will trigger instant stat updates
-- All cards on the dashboard will stay synchronized with the selected date filter
+This gives admins a complete 360° view of each customer's activity - both orders and reservations in one place!
