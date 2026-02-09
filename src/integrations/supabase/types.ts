@@ -1419,6 +1419,41 @@ export type Database = {
           },
         ]
       }
+      reservation_notes: {
+        Row: {
+          admin_display_name: string | null
+          admin_id: string
+          created_at: string | null
+          id: string
+          note_text: string
+          reservation_id: string
+        }
+        Insert: {
+          admin_display_name?: string | null
+          admin_id: string
+          created_at?: string | null
+          id?: string
+          note_text: string
+          reservation_id: string
+        }
+        Update: {
+          admin_display_name?: string | null
+          admin_id?: string
+          created_at?: string | null
+          id?: string
+          note_text?: string
+          reservation_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reservation_notes_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reservations: {
         Row: {
           created_at: string | null
