@@ -1,224 +1,212 @@
 
-
-# ISSUE R3.3 — Customer Reservation Confirmation (SMS)
+# ISSUE R3.4 — Reservation Tracking Page (Customer)
 
 ## Overview
 
-Send SMS confirmation to customers when their reservation status changes from `pending` to `confirmed` or `pending` to `cancelled`. Unlike email (which depends on customer providing an email), SMS is sent to all customers since phone number is required.
+Create a public, read-only customer-facing page where customers can view their reservation status using their confirmation code. This page is accessible without login and displays reservation details, status, and pre-orders.
 
 ---
 
-## Current System Analysis
+## Route Design
 
-### Existing SMS Infrastructure
-- **Edge Function**: `supabase/functions/send-sms-notification/index.ts` handles all SMS via Semaphore
-- **Hook**: `src/hooks/useSmsNotifications.ts` provides `sendSmsNotification()` function
-- **Existing Types**: `reservation_received` already exists for new reservation notification
-- **Reservation Variables**: Already supported in edge function (reservationCode, reservationDate, reservationTime, pax)
+| Route | Purpose |
+|-------|---------|
+| `/reserve/track/:confirmationCode` | Customer reservation tracking page |
 
-### Key Observation
-The SMS infrastructure already supports reservation fields - we only need to:
-1. Add two new SMS types
-2. Add default message templates
-3. Trigger SMS sending in the status mutation
+**Key behaviors:**
+- Public access (no authentication required)
+- Case-insensitive code lookup (query using `ilike` or lowercase comparison)
+- Returns reservation data from `confirmation_code` field
 
 ---
 
 ## Technical Implementation
 
-### 1. Add New SMS Types to Hook
+### 1. Create New Page Component
 
-**File: `src/hooks/useSmsNotifications.ts`**
+**File: `src/pages/ReservationTracking.tsx`**
 
-Add to `SmsType` union:
-```typescript
-| "reservation_confirmed"
-| "reservation_cancelled"
+A new page that:
+- Extracts `confirmationCode` from URL params
+- Queries reservations by `confirmation_code` (case-insensitive)
+- Displays reservation status, details, and pre-orders
+- Shows friendly error for invalid codes
+
+### 2. Add Route to App.tsx
+
+Add new route in the public routes section:
+```tsx
+<Route path="/reserve/track/:confirmationCode" element={<ReservationTracking />} />
 ```
 
 ---
 
-### 2. Add Default SMS Templates in Edge Function
+## Page Sections
 
-**File: `supabase/functions/send-sms-notification/index.ts`**
+### A. Status Section
+- Large, prominent status badge
+- Human-readable status labels:
+  - `pending` → "Pending Confirmation"
+  - `confirmed` → "Confirmed"
+  - `cancelled` → "Not Approved"
+  - `completed` → "Completed"
+  - `no_show` → "No Show"
 
-Add to `getDefaultMessage()` function (~line 204):
-```typescript
-// Reservation confirmation types
-reservation_confirmed: `Your reservation is CONFIRMED.\nCode: ${reservationCode}\n${reservationDate}, ${reservationTime} - ${pax} guests\nSee you soon! - American Ribs & Wings`,
+### B. Reservation Details Card
+- Confirmation code (prominent display)
+- Date (formatted: "February 12, 2026")
+- Time (formatted: "7:00 PM")
+- Party size ("4 guests")
 
-reservation_cancelled: `Your reservation was not approved.\nCode: ${reservationCode}\nPlease contact us if you have questions.\n- American Ribs & Wings`,
-```
+### C. Pre-Order Summary Card (conditional)
+- If pre-orders exist: List items with quantities
+- Label: "Pre-order (not paid)"
+- If none: "No pre-orders selected"
 
-**Message Format Rules:**
-- No emojis
-- No URLs
-- Clear status wording
-- Under 160 characters (single SMS segment)
-- Includes: confirmation code, date, time, pax
-
----
-
-### 3. Add SMS Sending to Status Mutation
-
-**File: `src/pages/admin/ReservationDetail.tsx`**
-
-#### A. Add import:
-```typescript
-import { sendSmsNotification } from '@/hooks/useSmsNotifications';
-```
-
-#### B. Add SMS sending after email sending block:
-
-```typescript
-// Send customer SMS notification (always - phone is required)
-if (reservation?.phone && (newStatus === 'confirmed' || newStatus === 'cancelled')) {
-  const smsType = newStatus === 'confirmed' ? 'reservation_confirmed' : 'reservation_cancelled';
-  
-  // Format date and time for SMS
-  const formattedDate = format(new Date(reservation.reservation_date), 'MMM d');
-  const [hours, minutes] = reservation.reservation_time.split(':');
-  const timeDate = new Date();
-  timeDate.setHours(parseInt(hours), parseInt(minutes));
-  const formattedTime = format(timeDate, 'h:mm a');
-  
-  // Send SMS (fire and forget - don't block status update)
-  sendSmsNotification({
-    type: smsType,
-    recipientPhone: reservation.phone,
-    reservationId: reservation.id,
-    reservationCode: confirmationCode || reservation.confirmation_code || reservation.reservation_code,
-    customerName: reservation.name,
-    reservationDate: formattedDate,
-    reservationTime: formattedTime,
-    pax: reservation.pax,
-  }).then(result => {
-    if (!result.success) {
-      console.error('Failed to send reservation SMS:', result.error);
-    } else {
-      console.log('Reservation SMS sent successfully');
-    }
-  }).catch(err => {
-    console.error('SMS notification error:', err);
-  });
-}
-```
+### D. Guidance Text (status-based)
+| Status | Message |
+|--------|---------|
+| pending | "Your reservation is awaiting confirmation. You will receive an SMS once confirmed." |
+| confirmed | "Please arrive on time. Present your confirmation code if asked." |
+| cancelled | "Your reservation was not approved. Please contact the store." |
+| completed | "Thank you for dining with us!" |
+| no_show | "This reservation was marked as no-show." |
 
 ---
 
-## Files to Modify
+## Error State
+
+When confirmation code is not found:
+- Show "Reservation Not Found" heading
+- Message: "We couldn't find a reservation with this code. Please check your SMS or email for the correct code."
+- Link back to home
+- No technical error details exposed
+
+---
+
+## Data Access (RLS)
+
+The page needs to read reservations by `confirmation_code`. Current RLS policies may not allow public SELECT. Options:
+
+**Option A: Public RLS Policy (Recommended)**
+Add a SELECT policy that allows reading reservations by confirmation_code:
+```sql
+CREATE POLICY "Allow public read by confirmation_code"
+ON reservations FOR SELECT
+USING (confirmation_code IS NOT NULL);
+```
+
+This only exposes reservations that have been confirmed (have a confirmation code). Pending/cancelled reservations without codes cannot be queried.
+
+**Option B: Use RPC Function**
+Create a secure RPC that returns only necessary fields:
+```sql
+CREATE FUNCTION get_reservation_tracking(p_confirmation_code text)
+RETURNS json
+```
+
+We will use **Option A** as it's simpler and the confirmation code acts as a "password" - only people with the code can access the data.
+
+---
+
+## Design Guidelines
+
+- Mobile-first layout
+- Clean, minimal design matching existing customer pages
+- Uses existing UI components (Card, Badge, Button)
+- No admin styling or actions
+- Calm, reassuring tone
+- Back button to home
+- Footer included
+
+---
+
+## Files to Create/Modify
 
 | File | Change |
 |------|--------|
-| `src/hooks/useSmsNotifications.ts` | Add `reservation_confirmed`, `reservation_cancelled` types |
-| `src/pages/admin/ReservationDetail.tsx` | Add SMS sending after status change, import hook |
-| `supabase/functions/send-sms-notification/index.ts` | Add default message templates for reservation SMS |
+| `src/pages/ReservationTracking.tsx` | NEW - Customer tracking page |
+| `src/App.tsx` | Add route for `/reserve/track/:confirmationCode` |
+| **Database** | Add RLS policy for public read by confirmation_code |
 
 ---
 
-## SMS Content
+## Component Structure
 
-### Confirmed SMS (~120 characters)
+```tsx
+ReservationTracking
+├── SEOHead (meta tags)
+├── Header
+│   ├── Back button (→ home)
+│   └── Title: "Reservation Status"
+├── Main content (max-w-md centered)
+│   ├── Status Card (prominent status badge + guidance)
+│   ├── Reservation Details Card
+│   │   ├── Confirmation Code
+│   │   ├── Date
+│   │   ├── Time
+│   │   └── Party Size
+│   └── Pre-Order Card (conditional)
+│       └── Item list or "No pre-orders"
+└── Footer
 ```
-Your reservation is CONFIRMED.
-Code: ARW-RES-48321
-Jan 12, 7:00 PM - 4 guests
-See you soon! - American Ribs & Wings
-```
-
-### Cancelled SMS (~95 characters)
-```
-Your reservation was not approved.
-Code: ARW-RES-48321
-Please contact us if you have questions.
-- American Ribs & Wings
-```
-
-**Rules applied:**
-- No emojis
-- No URLs
-- Clear status wording
-- Transactional tone
-- Under SMS character limits
 
 ---
 
-## Trigger Conditions
+## Status Styling
 
-| Status Change | Send SMS? | SMS Type |
-|---------------|-----------|----------|
-| pending → confirmed | YES | `reservation_confirmed` |
-| pending → cancelled | YES | `reservation_cancelled` |
-| confirmed → completed | NO | - |
-| confirmed → no_show | NO | - |
-| Creation (pending) | NO | - |
-
----
-
-## Key Differences from Email (R3.2)
-
-| Aspect | Email | SMS |
-|--------|-------|-----|
-| Condition | Only if email exists | Always (phone required) |
-| Content | Full details + pre-orders | Short, essential info only |
-| Format | HTML template | Plain text |
-| Character limit | None | ~160 chars |
-| URLs | Future tracking link | None |
+| Status | Badge Color | Background |
+|--------|-------------|------------|
+| pending | Yellow | Warning tint |
+| confirmed | Green | Success tint |
+| cancelled | Red | Destructive tint |
+| completed | Emerald | Success tint |
+| no_show | Gray | Muted tint |
 
 ---
 
-## Failure Handling
+## Security Considerations
 
-```text
-Admin clicks "Confirm Reservation"
-     ↓
-Database updated (status + confirmation_code)
-     ↓
-[Success?]───NO──→ Show error toast, stop
-     ↓ YES
-Log admin action
-     ↓
-Toast success shown
-     ↓
-Send Email (async, if email exists)
-     ↓
-Send SMS (async, always)
-     ↓
-[SMS fails?]───YES──→ Log error (no user impact)
-     ↓ NO
-SMS delivered
-```
-
-**Key principle:** SMS failure does NOT block status change.
-
----
-
-## Logging
-
-SMS logs recorded in `sms_logs` table:
-- `recipient_phone`
-- `sms_type` (reservation_confirmed / reservation_cancelled)
-- `status` (sent / failed)
-- `message_id` (from Semaphore)
-- `metadata` (includes reservation details)
-- `created_at`
+- Confirmation code acts as access token
+- Only reservations WITH confirmation codes are queryable
+- Pending reservations (no code yet) cannot be looked up
+- No PII exposed beyond what customer already knows
+- Read-only - no mutations allowed
+- No admin links or actions visible
 
 ---
 
 ## What This Creates
 
-- Two new SMS types: `reservation_confirmed`, `reservation_cancelled`
-- Default message templates (short, transactional)
-- Non-blocking SMS sending on status change
-- SMS logging for audit trail
+- Public reservation tracking page
+- Route: `/reserve/track/:confirmationCode`
+- Status display with human-readable labels
+- Reservation details (date, time, pax)
+- Pre-order summary when applicable
+- Friendly error state for invalid codes
+- RLS policy for public read access
 
 ---
 
 ## What This Does NOT Create
 
-- Email logic (R3.2 - already implemented)
-- Tracking pages (R3.4)
-- Admin resend controls (R3.5)
-- Marketing messages
-- SMS on reservation creation
+- Editing capabilities
+- Payment processing
+- Cancellation functionality
+- Admin controls
+- Notifications or reminders
+- Resend functionality
 
+---
+
+## Verification Checklist
+
+After implementation:
+- [ ] Valid code shows reservation details
+- [ ] Invalid code shows friendly error
+- [ ] Case-insensitive lookup works (ARW-RES-12345 = arw-res-12345)
+- [ ] Status displays correctly for all states
+- [ ] Pre-orders show when present
+- [ ] No edit/cancel buttons visible
+- [ ] Mobile responsive design
+- [ ] Page loads without login
