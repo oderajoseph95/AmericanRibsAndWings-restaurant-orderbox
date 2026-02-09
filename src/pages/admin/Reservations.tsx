@@ -34,6 +34,7 @@ const ITEMS_PER_PAGE = 15;
 const statusColors: Record<ReservationStatus, string> = {
   pending: 'bg-yellow-500/20 text-yellow-700 border-yellow-500/30',
   confirmed: 'bg-green-500/20 text-green-700 border-green-500/30',
+  checked_in: 'bg-blue-500/20 text-blue-700 border-blue-500/30',
   cancelled: 'bg-red-500/20 text-red-700 border-red-500/30',
   cancelled_by_customer: 'bg-orange-500/20 text-orange-700 border-orange-500/30',
   completed: 'bg-emerald-500/20 text-emerald-700 border-emerald-500/30',
@@ -43,6 +44,7 @@ const statusColors: Record<ReservationStatus, string> = {
 const statusLabels: Record<ReservationStatus, string> = {
   pending: 'Pending',
   confirmed: 'Confirmed',
+  checked_in: 'Checked In',
   cancelled: 'Cancelled',
   cancelled_by_customer: 'Cancelled by Customer',
   completed: 'Completed',
@@ -212,6 +214,7 @@ export default function Reservations() {
             <SelectItem value="all">All Status</SelectItem>
             <SelectItem value="pending">Pending</SelectItem>
             <SelectItem value="confirmed">Confirmed</SelectItem>
+            <SelectItem value="checked_in">Checked In</SelectItem>
             <SelectItem value="cancelled">Cancelled</SelectItem>
             <SelectItem value="completed">Completed</SelectItem>
             <SelectItem value="no_show">No Show</SelectItem>

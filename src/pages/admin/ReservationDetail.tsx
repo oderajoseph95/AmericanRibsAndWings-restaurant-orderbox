@@ -55,6 +55,7 @@ const generateConfirmationCode = async (): Promise<string> => {
 const statusColors: Record<ReservationStatus, string> = {
   pending: 'bg-yellow-500/20 text-yellow-700 border-yellow-500/30',
   confirmed: 'bg-green-500/20 text-green-700 border-green-500/30',
+  checked_in: 'bg-blue-500/20 text-blue-700 border-blue-500/30',
   cancelled: 'bg-red-500/20 text-red-700 border-red-500/30',
   cancelled_by_customer: 'bg-orange-500/20 text-orange-700 border-orange-500/30',
   completed: 'bg-emerald-500/20 text-emerald-700 border-emerald-500/30',
@@ -64,6 +65,7 @@ const statusColors: Record<ReservationStatus, string> = {
 const statusLabels: Record<ReservationStatus, string> = {
   pending: 'Pending',
   confirmed: 'Confirmed',
+  checked_in: 'Checked In',
   cancelled: 'Cancelled',
   cancelled_by_customer: 'Cancelled by Customer',
   completed: 'Completed',
@@ -155,6 +157,12 @@ export default function ReservationDetail() {
         updateData.confirmation_code = confirmationCode;
       }
 
+      // Track check-in with dedicated columns
+      if (newStatus === 'checked_in') {
+        updateData.checked_in_at = new Date().toISOString();
+        updateData.checked_in_by = user?.id || null;
+      }
+
       const { error } = await supabase
         .from('reservations')
         .update(updateData)
@@ -163,15 +171,30 @@ export default function ReservationDetail() {
       if (error) throw error;
 
       // Log admin action
+      const actionType = newStatus === 'checked_in' ? 'reservation_checked_in' : 'status_change';
       await logAdminAction({
-        action: 'status_change',
+        action: actionType,
         entityType: 'reservation',
         entityId: id,
-        entityName: reservation?.reservation_code,
+        entityName: reservation?.confirmation_code || reservation?.reservation_code,
         oldValues: { status: reservation?.status },
         newValues: { status: newStatus, confirmation_code: confirmationCode },
-        details: `Changed reservation status from ${reservation?.status} to ${newStatus}${confirmationCode ? ` (Confirmation: ${confirmationCode})` : ''}`,
+        details: newStatus === 'checked_in' 
+          ? 'Customer physically arrived and was checked in'
+          : `Changed reservation status from ${reservation?.status} to ${newStatus}${confirmationCode ? ` (Confirmation: ${confirmationCode})` : ''}`,
       });
+
+      // Log check-in to reservation_notifications for timeline
+      if (newStatus === 'checked_in' && reservation) {
+        await supabase.from('reservation_notifications').insert({
+          reservation_id: reservation.id,
+          channel: 'system',
+          recipient: 'internal',
+          status: 'sent',
+          trigger_type: 'manual',
+          message_type: 'check_in',
+        });
+      }
 
       // REMINDER SCHEDULING LOGIC - R4.1
       if (newStatus === 'confirmed' && reservation) {
@@ -399,6 +422,24 @@ export default function ReservationDetail() {
       return data;
     },
     enabled: !!id,
+  });
+
+  // Query for check-in admin name (only when reservation has checked_in_by)
+  const { data: checkedInByAdmin } = useQuery({
+    queryKey: ['checked-in-by-admin', reservation?.checked_in_by],
+    queryFn: async () => {
+      if (!reservation?.checked_in_by) return null;
+      
+      const { data, error } = await supabase
+        .from('user_roles')
+        .select('display_name, username')
+        .eq('user_id', reservation.checked_in_by)
+        .maybeSingle();
+      
+      if (error) throw error;
+      return data?.display_name || data?.username || 'Admin';
+    },
+    enabled: !!reservation?.checked_in_by,
   });
 
   // Mutation for adding notes
@@ -688,6 +729,19 @@ export default function ReservationDetail() {
                 <p className="font-medium">{reservation.pax} {reservation.pax === 1 ? 'guest' : 'guests'}</p>
               </div>
             </div>
+            {/* Check-in Attribution */}
+            {reservation.checked_in_at && (
+              <div className="flex items-center gap-3">
+                <CheckCircle className="h-4 w-4 text-blue-600" />
+                <div>
+                  <p className="text-sm text-muted-foreground">Checked In</p>
+                  <p className="font-medium">
+                    {format(new Date(reservation.checked_in_at), 'h:mm a')}
+                    {checkedInByAdmin && ` by ${checkedInByAdmin}`}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -766,7 +820,8 @@ export default function ReservationDetail() {
       {/* Status Actions */}
       {reservation.status !== 'completed' && 
        reservation.status !== 'cancelled' && 
-       reservation.status !== 'no_show' && (
+       reservation.status !== 'no_show' && 
+       reservation.status !== 'cancelled_by_customer' && (
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">Actions</CardTitle>
@@ -804,6 +859,18 @@ export default function ReservationDetail() {
               {reservation.status === 'confirmed' && (
                 <>
                   <Button
+                    onClick={() => updateStatusMutation.mutate({ newStatus: 'checked_in' })}
+                    disabled={updateStatusMutation.isPending}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    {updateStatusMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                    )}
+                    Check In
+                  </Button>
+                  <Button
                     onClick={() => updateStatusMutation.mutate({ newStatus: 'completed' })}
                     disabled={updateStatusMutation.isPending}
                     className="bg-emerald-600 hover:bg-emerald-700"
@@ -828,6 +895,20 @@ export default function ReservationDetail() {
                     Mark No-Show
                   </Button>
                 </>
+              )}
+              {reservation.status === 'checked_in' && (
+                <Button
+                  onClick={() => updateStatusMutation.mutate({ newStatus: 'completed' })}
+                  disabled={updateStatusMutation.isPending}
+                  className="bg-emerald-600 hover:bg-emerald-700"
+                >
+                  {updateStatusMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                  )}
+                  Mark Completed
+                </Button>
               )}
             </div>
           </CardContent>

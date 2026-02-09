@@ -40,6 +40,7 @@ interface AnalyticsData {
   total: number;
   pending: number;
   confirmed: number;
+  checked_in: number;
   cancelled: number;
   cancelled_by_customer: number;
   completed: number;
@@ -60,6 +61,7 @@ interface AnalyticsData {
 const COLORS = [
   'hsl(48, 96%, 53%)',   // pending - yellow
   'hsl(142, 76%, 36%)',  // confirmed - green
+  'hsl(217, 91%, 60%)',  // checked_in - blue
   'hsl(0, 84%, 60%)',    // cancelled - red
   'hsl(25, 95%, 53%)',   // cancelled_by_customer - orange
   'hsl(160, 84%, 39%)',  // completed - emerald
@@ -106,7 +108,8 @@ export default function ReservationAnalytics() {
   const metrics = useMemo(() => {
     if (!analytics) return null;
     
-    const confirmedTotal = analytics.confirmed + analytics.completed + analytics.no_show;
+    // Include checked_in in confirmed total since checked_in is just confirmed + arrived
+    const confirmedTotal = analytics.confirmed + analytics.checked_in + analytics.completed + analytics.no_show;
     const noShowRate = confirmedTotal > 0 ? (analytics.no_show / confirmedTotal) * 100 : 0;
     const confirmationRate = analytics.total > 0 ? (confirmedTotal / analytics.total) * 100 : 0;
     const cancellationRate = analytics.total > 0 
@@ -125,6 +128,7 @@ export default function ReservationAnalytics() {
     return [
       { name: 'Pending', value: analytics.pending },
       { name: 'Confirmed', value: analytics.confirmed },
+      { name: 'Checked In', value: analytics.checked_in },
       { name: 'Cancelled', value: analytics.cancelled },
       { name: 'Cancelled by Customer', value: analytics.cancelled_by_customer },
       { name: 'Completed', value: analytics.completed },
