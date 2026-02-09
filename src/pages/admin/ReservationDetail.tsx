@@ -12,6 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
 import { useAuth } from '@/contexts/AuthContext';
+import { sendEmailNotification } from '@/hooks/useEmailNotifications';
 import type { Database } from '@/integrations/supabase/types';
 
 type ReservationStatus = Database['public']['Enums']['reservation_status'];
@@ -124,6 +125,48 @@ export default function ReservationDetail() {
         newValues: { status: newStatus, confirmation_code: confirmationCode },
         details: `Changed reservation status from ${reservation?.status} to ${newStatus}${confirmationCode ? ` (Confirmation: ${confirmationCode})` : ''}`,
       });
+
+      // Send customer email notification (only if customer has email and status is confirmed or cancelled)
+      if (reservation?.email && (newStatus === 'confirmed' || newStatus === 'cancelled')) {
+        const emailType = newStatus === 'confirmed' ? 'reservation_confirmed' : 'reservation_cancelled';
+        
+        // Format date and time for email
+        const formattedDate = format(new Date(reservation.reservation_date), 'MMMM d, yyyy');
+        const [hours, minutes] = reservation.reservation_time.split(':');
+        const timeDate = new Date();
+        timeDate.setHours(parseInt(hours), parseInt(minutes));
+        const formattedTime = format(timeDate, 'h:mm a');
+        
+        // Prepare pre-order items
+        const preorderItemsData = reservation.preorder_items as unknown as PreorderItem[] | null;
+        
+        // Send email (fire and forget - don't block status update)
+        sendEmailNotification({
+          type: emailType,
+          recipientEmail: reservation.email,
+          reservationId: reservation.id,
+          reservationCode: confirmationCode || reservation.confirmation_code || reservation.reservation_code,
+          customerName: reservation.name,
+          customerPhone: reservation.phone,
+          customerEmail: reservation.email,
+          reservationDate: formattedDate,
+          reservationTime: formattedTime,
+          pax: reservation.pax,
+          notes: reservation.notes || undefined,
+          preorderItems: preorderItemsData?.map(item => ({
+            productName: item.productName,
+            quantity: item.quantity,
+          })),
+        }).then(result => {
+          if (!result.success) {
+            console.error('Failed to send reservation email:', result.error);
+          } else {
+            console.log('Reservation email sent successfully');
+          }
+        }).catch(err => {
+          console.error('Email notification error:', err);
+        });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-reservation', id] });

@@ -113,6 +113,8 @@ interface EmailPayload {
   reservationDate?: string;
   reservationTime?: string;
   pax?: number;
+  // Pre-order items for reservation emails
+  preorderItems?: Array<{ productName: string; quantity: number }>;
 }
 
 // Format currency
@@ -160,6 +162,8 @@ function getTriggerEventLabel(type: string, orderType?: string): string {
     payout_approved: 'Payout Approved',
     payout_rejected: 'Payout Rejected',
     new_reservation: 'New Reservation',
+    reservation_confirmed: 'Reservation Confirmed',
+    reservation_cancelled: 'Reservation Cancelled',
     test_email: 'Test Email',
   };
   return labels[type] || type.replace(/_/g, ' ');
@@ -475,6 +479,8 @@ function getEmailTypeLabel(type: string): string {
     payout_approved: 'Payout Approved',
     payout_rejected: 'Payout Rejected',
     new_reservation: 'New Reservation',
+    reservation_confirmed: 'Reservation Confirmed',
+    reservation_cancelled: 'Reservation Cancelled',
   };
   return labels[type] || type.replace(/_/g, ' ');
 }
@@ -608,7 +614,7 @@ function generateOrderPhotosHtml(pickupPhotoUrl?: string, deliveryPhotoUrl?: str
   return html;
 }
 
-function getDefaultSubject(type: string, orderNumber?: string): string {
+function getDefaultSubject(type: string, orderNumber?: string, payload?: EmailPayload): string {
   const subjects: Record<string, string> = {
     new_order: `🔔 Order Confirmation - #${orderNumber}`,
     order_pending: `📋 Order #${orderNumber} Received`,
@@ -630,8 +636,35 @@ function getDefaultSubject(type: string, orderNumber?: string): string {
     payout_approved: `✅ Payout Approved!`,
     payout_rejected: `Payout Request Update`,
     review_request: `⭐ We'd love your feedback! - Order #${orderNumber}`,
+    reservation_confirmed: `✅ Your Reservation is Confirmed! - ${payload?.reservationCode || ''}`,
+    reservation_cancelled: `Reservation Update - ${payload?.reservationCode || ''}`,
   };
   return subjects[type] || `Order #${orderNumber} Update`;
+}
+
+// Generate pre-order summary HTML for reservation emails
+function generatePreorderSummaryHtml(preorderItems?: Array<{ productName: string; quantity: number }>): string {
+  if (!preorderItems || preorderItems.length === 0) return '';
+  
+  let html = `
+    <div style="margin: 20px 0; padding: 15px; background: #fef3c7; border: 1px solid #fde68a; border-radius: 8px;">
+      <h3 style="margin: 0 0 10px; font-size: 14px; color: #92400e;">📋 Pre-order Selections (Not Paid)</h3>
+      <ul style="margin: 0; padding-left: 20px;">
+  `;
+  
+  for (const item of preorderItems) {
+    html += `<li style="margin: 5px 0;">${item.quantity}x ${item.productName}</li>`;
+  }
+  
+  html += `
+      </ul>
+      <p style="margin: 10px 0 0; font-size: 12px; color: #78350f; font-style: italic;">
+        Payment will be collected at the restaurant
+      </p>
+    </div>
+  `;
+  
+  return html;
 }
 
 // Generate comprehensive customer email template
@@ -1030,6 +1063,71 @@ function getDefaultTemplate(payload: EmailPayload): string {
           <p style="text-align: center; color: #6b7280; font-size: 14px;">
             It only takes a minute and means the world to us! 🙏
           </p>
+        </div>
+      `;
+      break;
+
+    case 'reservation_confirmed':
+      const preorderHtml = generatePreorderSummaryHtml(payload.preorderItems);
+      content = `
+        <div class="content">
+          <h2>Your reservation is confirmed! 🎉</h2>
+          <p>Hi ${customerName},</p>
+          <p>Great news! Your table reservation has been <strong>confirmed</strong>.</p>
+          
+          <div class="order-box" style="background: #dcfce7; border-color: #bbf7d0;">
+            <div class="order-number" style="color: #166534;">${payload.reservationCode || ''}</div>
+            <span class="status-badge status-approved">Confirmed</span>
+          </div>
+
+          <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 20px; margin: 20px 0;">
+            <h3 style="margin: 0 0 15px; color: #1e40af;">📅 Reservation Details</h3>
+            <table style="width: 100%;">
+              <tr><td style="padding: 5px 0; color: #6b7280; width: 100px;">Date:</td><td style="font-weight: 600;">${payload.reservationDate || ''}</td></tr>
+              <tr><td style="padding: 5px 0; color: #6b7280;">Time:</td><td style="font-weight: 600;">${payload.reservationTime || ''}</td></tr>
+              <tr><td style="padding: 5px 0; color: #6b7280;">Party Size:</td><td style="font-weight: 600;">${payload.pax || 0} ${(payload.pax || 0) === 1 ? 'guest' : 'guests'}</td></tr>
+            </table>
+          </div>
+
+          ${preorderHtml}
+
+          <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 20px; margin: 20px 0; text-align: center;">
+            <h3 style="margin: 0 0 10px; color: #166534;">📍 Location</h3>
+            <p style="margin: 0; font-size: 16px; font-weight: 600;">${BUSINESS_NAME}</p>
+            <p style="margin: 5px 0 0;">${BUSINESS_ADDRESS}</p>
+            <p style="margin: 5px 0 0; color: #6b7280;">${BUSINESS_PHONE}</p>
+          </div>
+
+          <p style="margin-top: 20px; color: #6b7280;">
+            Please arrive on time. If you need to make any changes, contact us at ${BUSINESS_PHONE}.
+          </p>
+        </div>
+      `;
+      break;
+
+    case 'reservation_cancelled':
+      content = `
+        <div class="content">
+          <h2>Reservation Update</h2>
+          <p>Hi ${customerName},</p>
+          <p>We regret to inform you that we were unable to confirm your reservation at this time.</p>
+          
+          <div class="order-box">
+            <div class="order-number">${payload.reservationCode || ''}</div>
+            <span class="status-badge status-rejected">Not Confirmed</span>
+          </div>
+
+          <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;">
+            <h3 style="margin: 0 0 15px; color: #374151;">📅 Requested Details</h3>
+            <table style="width: 100%;">
+              <tr><td style="padding: 5px 0; color: #6b7280; width: 100px;">Date:</td><td>${payload.reservationDate || ''}</td></tr>
+              <tr><td style="padding: 5px 0; color: #6b7280;">Time:</td><td>${payload.reservationTime || ''}</td></tr>
+              <tr><td style="padding: 5px 0; color: #6b7280;">Party Size:</td><td>${payload.pax || 0} ${(payload.pax || 0) === 1 ? 'guest' : 'guests'}</td></tr>
+            </table>
+          </div>
+
+          <p>We apologize for any inconvenience. Please contact us if you would like to book a different time.</p>
+          <p><strong>Contact:</strong> ${BUSINESS_PHONE}</p>
         </div>
       `;
       break;
@@ -1630,12 +1728,12 @@ const handler = async (req: Request): Promise<Response> => {
             html = wrapWithEmailLayout(replaceVariables(template.content, payload));
           } else {
             console.log(`Using default template for ${type} (no customer template found)`);
-            subject = getDefaultSubject(type, orderNumber);
+            subject = getDefaultSubject(type, orderNumber, payload);
             html = getDefaultTemplate(payload);
           }
         } catch (dbError) {
           console.error("Customer template fetch error:", dbError);
-          subject = getDefaultSubject(type, orderNumber);
+          subject = getDefaultSubject(type, orderNumber, payload);
           html = getDefaultTemplate(payload);
         }
 
