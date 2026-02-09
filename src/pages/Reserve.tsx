@@ -13,10 +13,14 @@ import { ReservationConfirmation } from "@/components/reservation/ReservationCon
 
 interface ConfirmationData {
   id: string;
+  reservationCode: string;
   name: string;
+  phone: string;
+  email: string | null;
   pax: number;
   date: string;
   time: string;
+  notes: string | null;
 }
 
 export default function Reserve() {
@@ -42,10 +46,14 @@ export default function Reserve() {
   if (isConfirmed && confirmationData) {
     return (
       <ReservationConfirmation
+        reservationCode={confirmationData.reservationCode}
         name={confirmationData.name}
+        phone={confirmationData.phone}
+        email={confirmationData.email}
         pax={confirmationData.pax}
         date={confirmationData.date}
         time={confirmationData.time}
+        notes={confirmationData.notes}
         onNewReservation={handleNewReservation}
       />
     );
