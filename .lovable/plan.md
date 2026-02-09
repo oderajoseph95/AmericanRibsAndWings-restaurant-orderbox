@@ -1,302 +1,288 @@
 
 
-# ISSUE R2.3 — Reservation Status Management (Admin)
+# ISSUE R2.4 — Admin Notes & Internal Visibility
 
 ## Overview
 
-Add admin-controlled status transitions to the reservation detail page. This enables the reservation lifecycle from `pending` through to `completed` or terminal states. No notifications, no notes, no editing - just state control.
-
----
-
-## Gap Analysis
-
-| Requirement | Current State | Action |
-|-------------|---------------|--------|
-| Status change controls | Not present | Add status action buttons |
-| Allowed transitions only | Not enforced | Implement transition rules |
-| Status persistence | Works via `updated_at` | Keep |
-| `status_changed_at` column | Missing | Add via migration |
-| `status_changed_by` column | Missing | Add via migration |
-| Admin logging | Exists (`logAdminAction`) | Reuse pattern |
-| No notifications | N/A | Ensure NOT added |
+Add a private internal notes system to reservations that allows admins to record coordination context. Notes are append-only, display admin attribution and timestamps, and are never visible to customers.
 
 ---
 
 ## Technical Implementation
 
-### 1. Database Migration - Add Status Change Tracking
+### 1. Database Migration - Create reservation_notes Table
 
-Add columns to track when and who changed the status:
+Create a new table to store internal admin notes:
 
 ```sql
--- Add status_changed_at to track when status was last changed
-ALTER TABLE reservations 
-ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMPTZ;
+CREATE TABLE reservation_notes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  reservation_id UUID NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
+  admin_id UUID NOT NULL,
+  admin_display_name TEXT,
+  note_text TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
 
--- Add status_changed_by to track who changed the status (admin user ID)
-ALTER TABLE reservations 
-ADD COLUMN IF NOT EXISTS status_changed_by UUID;
+-- Index for efficient lookups by reservation
+CREATE INDEX idx_reservation_notes_reservation_id ON reservation_notes(reservation_id);
+
+-- Enable RLS
+ALTER TABLE reservation_notes ENABLE ROW LEVEL SECURITY;
+
+-- Allow authenticated admin users to read notes
+CREATE POLICY "Admins can read reservation notes" ON reservation_notes
+  FOR SELECT TO authenticated
+  USING (true);
+
+-- Allow authenticated admin users to insert notes
+CREATE POLICY "Admins can insert reservation notes" ON reservation_notes
+  FOR INSERT TO authenticated
+  WITH CHECK (true);
 ```
+
+**Design decisions:**
+- `admin_display_name` is stored directly for historical record (in case display name changes later)
+- No UPDATE or DELETE policies - append-only by design
+- CASCADE delete when reservation is deleted
 
 ---
 
-### 2. Status Transition Rules
+### 2. Update ReservationDetail.tsx
 
-Define strict allowed transitions (enforced in UI):
+**Changes to make:**
 
+A. Add new imports:
 ```typescript
-const allowedTransitions: Record<ReservationStatus, ReservationStatus[]> = {
-  pending: ['confirmed', 'cancelled'],   // Note: 'cancelled' maps to 'rejected' per UI
-  confirmed: ['completed', 'no_show'],
-  cancelled: [],  // Terminal state
-  completed: [],  // Terminal state
-  no_show: [],    // Terminal state
-};
+import { Textarea } from '@/components/ui/textarea';
+import { useAuth } from '@/contexts/AuthContext';
+import { StickyNote, Send } from 'lucide-react';
+import { useState } from 'react';
 ```
 
-Note: The database enum uses `cancelled` but the requirements say `rejected`. These are the same status.
-
----
-
-### 3. Update ReservationDetail.tsx
-
-**Changes:**
-
-A. Add imports:
+B. Add state for note input:
 ```typescript
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
-import { logAdminAction } from '@/lib/adminLogger';
-import { Check, X, CheckCircle, UserX, Loader2 } from 'lucide-react';
+const [noteText, setNoteText] = useState('');
 ```
 
-B. Add status mutation:
+C. Add useAuth hook:
 ```typescript
-const queryClient = useQueryClient();
+const { user, displayName } = useAuth();
+```
 
-const updateStatusMutation = useMutation({
-  mutationFn: async ({ newStatus }: { newStatus: ReservationStatus }) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    const { error } = await supabase
-      .from('reservations')
-      .update({ 
-        status: newStatus,
-        status_changed_at: new Date().toISOString(),
-        status_changed_by: user?.id || null,
-      })
-      .eq('id', id);
+D. Add query for notes:
+```typescript
+const { data: notes = [], isLoading: notesLoading } = useQuery({
+  queryKey: ['reservation-notes', id],
+  queryFn: async () => {
+    const { data, error } = await supabase
+      .from('reservation_notes')
+      .select('*')
+      .eq('reservation_id', id!)
+      .order('created_at', { ascending: false });
     
     if (error) throw error;
+    return data;
+  },
+  enabled: !!id,
+});
+```
 
-    // Log admin action
-    await logAdminAction({
-      action: 'status_change',
-      entityType: 'reservation',
-      entityId: id,
-      entityName: reservation?.reservation_code,
-      oldValues: { status: reservation?.status },
-      newValues: { status: newStatus },
-      details: `Changed reservation status from ${reservation?.status} to ${newStatus}`,
-    });
+E. Add mutation for adding notes:
+```typescript
+const addNoteMutation = useMutation({
+  mutationFn: async () => {
+    if (!noteText.trim()) return;
+    
+    const { error } = await supabase
+      .from('reservation_notes')
+      .insert({
+        reservation_id: id!,
+        admin_id: user?.id,
+        admin_display_name: displayName || user?.email || 'Admin',
+        note_text: noteText.trim(),
+      });
+    
+    if (error) throw error;
   },
   onSuccess: () => {
-    queryClient.invalidateQueries({ queryKey: ['admin-reservation', id] });
-    queryClient.invalidateQueries({ queryKey: ['admin-reservations'] });
-    toast.success('Reservation status updated');
+    queryClient.invalidateQueries({ queryKey: ['reservation-notes', id] });
+    setNoteText('');
+    toast.success('Note added');
   },
-  onError: (error) => {
-    toast.error('Failed to update status: ' + error.message);
+  onError: (error: Error) => {
+    toast.error('Failed to add note: ' + error.message);
   },
 });
 ```
 
-C. Add Status Actions Card (after Pre-Order Selections card):
+F. Add Internal Notes Card (after Status Actions, before Metadata):
 ```tsx
-{/* Status Actions */}
-{reservation.status !== 'completed' && 
- reservation.status !== 'cancelled' && 
- reservation.status !== 'no_show' && (
-  <Card>
-    <CardHeader>
-      <CardTitle className="text-lg">Actions</CardTitle>
-    </CardHeader>
-    <CardContent>
-      <div className="flex flex-wrap gap-3">
-        {reservation.status === 'pending' && (
-          <>
-            <Button
-              onClick={() => updateStatusMutation.mutate({ newStatus: 'confirmed' })}
-              disabled={updateStatusMutation.isPending}
-              className="bg-green-600 hover:bg-green-700"
-            >
-              {updateStatusMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <Check className="h-4 w-4 mr-2" />
-              )}
-              Confirm Reservation
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => updateStatusMutation.mutate({ newStatus: 'cancelled' })}
-              disabled={updateStatusMutation.isPending}
-            >
-              {updateStatusMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <X className="h-4 w-4 mr-2" />
-              )}
-              Reject
-            </Button>
-          </>
-        )}
-        {reservation.status === 'confirmed' && (
-          <>
-            <Button
-              onClick={() => updateStatusMutation.mutate({ newStatus: 'completed' })}
-              disabled={updateStatusMutation.isPending}
-              className="bg-emerald-600 hover:bg-emerald-700"
-            >
-              {updateStatusMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <CheckCircle className="h-4 w-4 mr-2" />
-              )}
-              Mark Completed
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => updateStatusMutation.mutate({ newStatus: 'no_show' })}
-              disabled={updateStatusMutation.isPending}
-            >
-              {updateStatusMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <UserX className="h-4 w-4 mr-2" />
-              )}
-              Mark No-Show
-            </Button>
-          </>
-        )}
+{/* Internal Notes */}
+<Card>
+  <CardHeader>
+    <CardTitle className="text-lg flex items-center gap-2">
+      <StickyNote className="h-5 w-5 text-muted-foreground" />
+      Internal Notes
+    </CardTitle>
+    <p className="text-sm text-muted-foreground">
+      Private notes visible to staff only
+    </p>
+  </CardHeader>
+  <CardContent className="space-y-4">
+    {/* Add note form */}
+    <div className="space-y-2">
+      <Textarea
+        placeholder="Add an internal note..."
+        value={noteText}
+        onChange={(e) => setNoteText(e.target.value)}
+        className="min-h-[80px] text-sm"
+        disabled={addNoteMutation.isPending}
+      />
+      <div className="flex justify-end">
+        <Button
+          size="sm"
+          onClick={() => addNoteMutation.mutate()}
+          disabled={!noteText.trim() || addNoteMutation.isPending}
+        >
+          {addNoteMutation.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+          ) : (
+            <Send className="h-4 w-4 mr-2" />
+          )}
+          Add Note
+        </Button>
       </div>
-    </CardContent>
-  </Card>
-)}
-```
-
-D. Update Metadata section to show status change info:
-```tsx
-{/* Metadata */}
-<div className="text-sm text-muted-foreground space-y-1">
-  <p>Created {formatCreatedAt(reservation.created_at || '')}</p>
-  {reservation.status_changed_at && (
-    <p>Status changed {formatCreatedAt(reservation.status_changed_at)}</p>
-  )}
-</div>
+    </div>
+    
+    {/* Notes list */}
+    {notesLoading ? (
+      <div className="space-y-3">
+        <Skeleton className="h-16 w-full" />
+        <Skeleton className="h-16 w-full" />
+      </div>
+    ) : notes.length > 0 ? (
+      <div className="space-y-3 border-t pt-4">
+        {notes.map((note) => (
+          <div 
+            key={note.id} 
+            className="bg-muted/50 rounded-lg p-3 text-sm"
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="font-medium text-xs">
+                {note.admin_display_name}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {formatCreatedAt(note.created_at || '')}
+              </span>
+            </div>
+            <p className="text-muted-foreground whitespace-pre-wrap">
+              {note.note_text}
+            </p>
+          </div>
+        ))}
+      </div>
+    ) : (
+      <p className="text-sm text-muted-foreground text-center py-2">
+        No internal notes yet
+      </p>
+    )}
+  </CardContent>
+</Card>
 ```
 
 ---
 
-## Files to Modify
+## Files to Create/Modify
 
 | File | Change |
 |------|--------|
-| **Database** | Add `status_changed_at` and `status_changed_by` columns |
-| `src/pages/admin/ReservationDetail.tsx` | Add status mutation and action buttons |
+| **Database** | Create `reservation_notes` table with RLS policies |
+| `src/pages/admin/ReservationDetail.tsx` | Add internal notes section with form and list |
 
 ---
 
-## Status Transition Flow (Visual)
+## UI Layout
 
 ```text
-                    ┌──────────────┐
-                    │   pending    │
-                    └──────┬───────┘
-                           │
-              ┌────────────┼────────────┐
-              ▼                         ▼
-     ┌──────────────┐          ┌──────────────┐
-     │  confirmed   │          │  cancelled   │
-     └──────┬───────┘          │  (rejected)  │
-            │                  └──────────────┘
-   ┌────────┼────────┐               TERMINAL
-   ▼                 ▼
-┌──────────┐  ┌──────────────┐
-│completed │  │   no_show    │
-└──────────┘  └──────────────┘
-   TERMINAL        TERMINAL
+┌─────────────────────────────────────────────────┐
+│ INTERNAL NOTES                                  │
+│ Private notes visible to staff only             │
+├─────────────────────────────────────────────────┤
+│ ┌─────────────────────────────────────────────┐ │
+│ │ Add an internal note...                     │ │
+│ │                                             │ │
+│ └─────────────────────────────────────────────┘ │
+│                              [Add Note]         │
+│                                                 │
+│ ─────────────────────────────────────────────── │
+│                                                 │
+│ ┌─────────────────────────────────────────────┐ │
+│ │ Manager Juan              2 hours ago       │ │
+│ │ VIP customer, give window seat              │ │
+│ └─────────────────────────────────────────────┘ │
+│                                                 │
+│ ┌─────────────────────────────────────────────┐ │
+│ │ Cashier Maria             Yesterday         │ │
+│ │ Called to confirm, will arrive 15min early  │ │
+│ └─────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────┘
 ```
-
----
-
-## Button Display Rules
-
-| Current Status | Available Actions |
-|----------------|-------------------|
-| `pending` | [Confirm Reservation] [Reject] |
-| `confirmed` | [Mark Completed] [Mark No-Show] |
-| `cancelled` | No actions (terminal) |
-| `completed` | No actions (terminal) |
-| `no_show` | No actions (terminal) |
 
 ---
 
 ## What This Creates
 
-- Status change buttons on `/admin/reservations/:id`
-- Strict transition enforcement (UI-level)
-- `status_changed_at` timestamp tracking
-- `status_changed_by` admin user ID tracking
-- Admin action logging via `logAdminAction`
-- Loading states during mutation
-- Error handling with toast messages
-- Query invalidation for list/detail refresh
+- `reservation_notes` table with proper structure
+- RLS policies allowing admin read/insert only (no update/delete)
+- Notes section on `/admin/reservations/:id`
+- Textarea form to add new notes
+- Notes list with admin name and timestamp
+- Newest notes first ordering
+- Loading and empty states
 
 ---
 
 ## What This Does NOT Create
 
-- Notifications (no SMS, no email, no push)
-- Admin notes
-- Reservation data editing
-- Capacity logic
-- Customer-facing status updates
-- Undo functionality
+- Customer visibility of notes
+- Edit or delete functionality
+- Notifications
+- Attachments or files
+- Status changes (owned by R2.3)
 
 ---
 
-## Error Handling
+## Security & Visibility Rules
 
-- Mutation errors show toast with error message
-- Button disabled during pending mutation
-- Failed updates do not change UI state
-- Retry is possible by clicking button again
+- Notes stored in separate table (not on reservation record)
+- RLS enforces authenticated-only access
+- No customer-facing routes query this table
+- No export or printing functionality
+- Notes are immutable after creation
 
 ---
 
-## Audit Trail
+## Data Flow
 
-Each status change logs:
-- Action: `status_change`
-- Entity type: `reservation`
-- Entity ID: reservation UUID
-- Entity name: reservation code
-- Old values: `{ status: "pending" }`
-- New values: `{ status: "confirmed" }`
-- Details: Human-readable description
+```text
+Admin types note → Submit button clicked
+     ↓
+Insert to reservation_notes table
+     ↓
+Query invalidation → Refetch notes
+     ↓
+Note appears in list (newest first)
+```
 
 ---
 
 ## Result
 
 After implementation:
-- Admins see action buttons based on current status
-- Clicking a button changes status and persists
-- Status change timestamp is recorded
-- Admin who changed it is recorded
-- UI updates immediately after success
-- Errors are visible and retryable
-- No notifications are sent
-- Answers: "What is the current state and what can I do next?"
+- Admins can add private internal notes
+- Each note shows who wrote it and when
+- Notes are append-only (no editing)
+- Notes never visible to customers
+- Answers: "What do we need to remember internally about this reservation?"
 
