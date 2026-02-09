@@ -22,6 +22,8 @@ export type EmailType =
   | "payout_rejected"
   | "review_request"
   | "new_reservation"
+  | "reservation_confirmed"
+  | "reservation_cancelled"
   | "test_email";
 
 export interface OrderItem {
@@ -67,6 +69,8 @@ export interface EmailNotificationPayload {
   reservationDate?: string;
   reservationTime?: string;
   pax?: number;
+  // Pre-order items for reservation emails
+  preorderItems?: Array<{ productName: string; quantity: number }>;
 }
 
 export async function sendEmailNotification(payload: EmailNotificationPayload): Promise<{ success: boolean; error?: string }> {
