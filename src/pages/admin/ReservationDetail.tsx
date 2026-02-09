@@ -1,14 +1,17 @@
+import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNow } from 'date-fns';
-import { ArrowLeft, CalendarDays, Users, Phone, Mail, MessageSquare, Clock, Hash, Check, X, CheckCircle, UserX, Loader2 } from 'lucide-react';
+import { ArrowLeft, CalendarDays, Users, Phone, Mail, MessageSquare, Clock, Hash, Check, X, CheckCircle, UserX, Loader2, StickyNote, Send } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { logAdminAction } from '@/lib/adminLogger';
+import { useAuth } from '@/contexts/AuthContext';
 import type { Database } from '@/integrations/supabase/types';
 
 type ReservationStatus = Database['public']['Enums']['reservation_status'];
@@ -38,6 +41,8 @@ const statusLabels: Record<ReservationStatus, string> = {
 export default function ReservationDetail() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
+  const { user, displayName } = useAuth();
+  const [noteText, setNoteText] = useState('');
 
   const { data: reservation, isLoading, error } = useQuery({
     queryKey: ['admin-reservation', id],
@@ -87,6 +92,48 @@ export default function ReservationDetail() {
     },
     onError: (error: Error) => {
       toast.error('Failed to update status: ' + error.message);
+    },
+  });
+
+  // Query for internal notes
+  const { data: notes = [], isLoading: notesLoading } = useQuery({
+    queryKey: ['reservation-notes', id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('reservation_notes')
+        .select('*')
+        .eq('reservation_id', id!)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!id,
+  });
+
+  // Mutation for adding notes
+  const addNoteMutation = useMutation({
+    mutationFn: async () => {
+      if (!noteText.trim()) return;
+      
+      const { error } = await supabase
+        .from('reservation_notes')
+        .insert({
+          reservation_id: id!,
+          admin_id: user?.id,
+          admin_display_name: displayName || user?.email || 'Admin',
+          note_text: noteText.trim(),
+        });
+      
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['reservation-notes', id] });
+      setNoteText('');
+      toast.success('Note added');
+    },
+    onError: (error: Error) => {
+      toast.error('Failed to add note: ' + error.message);
     },
   });
 
@@ -360,6 +407,78 @@ export default function ReservationDetail() {
           </CardContent>
         </Card>
       )}
+
+      {/* Internal Notes */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <StickyNote className="h-5 w-5 text-muted-foreground" />
+            Internal Notes
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Private notes visible to staff only
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Add note form */}
+          <div className="space-y-2">
+            <Textarea
+              placeholder="Add an internal note..."
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              className="min-h-[80px] text-sm"
+              disabled={addNoteMutation.isPending}
+            />
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                onClick={() => addNoteMutation.mutate()}
+                disabled={!noteText.trim() || addNoteMutation.isPending}
+              >
+                {addNoteMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <Send className="h-4 w-4 mr-2" />
+                )}
+                Add Note
+              </Button>
+            </div>
+          </div>
+          
+          {/* Notes list */}
+          {notesLoading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-16 w-full" />
+            </div>
+          ) : notes.length > 0 ? (
+            <div className="space-y-3 border-t pt-4">
+              {notes.map((note) => (
+                <div 
+                  key={note.id} 
+                  className="bg-muted/50 rounded-lg p-3 text-sm"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-medium text-xs">
+                      {note.admin_display_name}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {formatCreatedAt(note.created_at || '')}
+                    </span>
+                  </div>
+                  <p className="text-muted-foreground whitespace-pre-wrap">
+                    {note.note_text}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-2">
+              No internal notes yet
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Metadata */}
       <div className="text-sm text-muted-foreground space-y-1">
