@@ -1546,6 +1546,8 @@ export type Database = {
         Row: {
           checked_in_at: string | null
           checked_in_by: string | null
+          completed_at: string | null
+          completed_by: string | null
           confirmation_code: string | null
           created_at: string | null
           email: string | null
@@ -1567,6 +1569,8 @@ export type Database = {
         Insert: {
           checked_in_at?: string | null
           checked_in_by?: string | null
+          completed_at?: string | null
+          completed_by?: string | null
           confirmation_code?: string | null
           created_at?: string | null
           email?: string | null
@@ -1588,6 +1592,8 @@ export type Database = {
         Update: {
           checked_in_at?: string | null
           checked_in_by?: string | null
+          completed_at?: string | null
+          completed_by?: string | null
           confirmation_code?: string | null
           created_at?: string | null
           email?: string | null
