@@ -1434,6 +1434,8 @@ export type Database = {
           reservation_date: string
           reservation_time: string
           status: Database["public"]["Enums"]["reservation_status"]
+          status_changed_at: string | null
+          status_changed_by: string | null
           updated_at: string | null
         }
         Insert: {
@@ -1450,6 +1452,8 @@ export type Database = {
           reservation_date: string
           reservation_time: string
           status?: Database["public"]["Enums"]["reservation_status"]
+          status_changed_at?: string | null
+          status_changed_by?: string | null
           updated_at?: string | null
         }
         Update: {
@@ -1466,6 +1470,8 @@ export type Database = {
           reservation_date?: string
           reservation_time?: string
           status?: Database["public"]["Enums"]["reservation_status"]
+          status_changed_at?: string | null
+          status_changed_by?: string | null
           updated_at?: string | null
         }
         Relationships: []
