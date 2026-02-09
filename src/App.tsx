@@ -51,6 +51,7 @@ import Sitemap from "./pages/admin/Sitemap";
 import Employees from "./pages/admin/Employees";
 import Reservations from "./pages/admin/Reservations";
 import ReservationDetail from "./pages/admin/ReservationDetail";
+import ReservationAnalytics from "./pages/admin/ReservationAnalytics";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -96,6 +97,7 @@ const App = () => (
                   <Route index element={<Dashboard />} />
                   <Route path="orders" element={<Orders />} />
                   <Route path="reservations" element={<Reservations />} />
+                  <Route path="reservations/analytics" element={<ReservationAnalytics />} />
                   <Route path="reservations/:id" element={<ReservationDetail />} />
                   <Route path="products" element={<Products />} />
                   <Route path="categories" element={<Categories />} />

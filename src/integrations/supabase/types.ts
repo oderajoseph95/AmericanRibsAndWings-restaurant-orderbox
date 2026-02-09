@@ -2138,6 +2138,10 @@ export type Database = {
         Args: { p_email?: string; p_phone?: string }
         Returns: Json
       }
+      get_reservation_analytics: {
+        Args: { end_date: string; start_date: string }
+        Returns: Json
+      }
       get_top_added_to_cart: {
         Args: { end_date: string; limit_count?: number; start_date: string }
         Returns: Json
