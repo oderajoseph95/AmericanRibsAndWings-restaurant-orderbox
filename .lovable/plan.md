@@ -383,3 +383,16 @@ This is clear, actionable, and doesn't expose internal capacity numbers.
 | No duplicate capacity counts | Transactional INSERT after check |
 | Overbooking is impossible | First-commit-wins with row locking |
 
+---
+
+## ✅ Implementation Status
+
+**ISSUE R4.2 — COMPLETED**
+
+Migration applied successfully:
+- ✅ `reservation_capacity` setting added (default: 40 pax per slot)
+- ✅ `check_slot_capacity` function created (reusable for future UI)
+- ✅ `create_reservation` updated with capacity check + FOR UPDATE locking
+- ✅ Customer-friendly error message when slot is full
+- ✅ Race condition prevention via transactional locking
+
