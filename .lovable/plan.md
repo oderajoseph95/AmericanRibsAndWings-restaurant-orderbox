@@ -1,103 +1,148 @@
 
-# Plan: Fix Dashboard Reservation Stats Card Date Filtering
+# Plan: Fix Email/SMS Templates, Logs & Auto-Sync for Reservations
 
-## Problem Identified
+## Problems Identified
 
-The Reservation Stats Card is **filtering by `reservation_date`** (the date of the reservation) instead of **`created_at`** (when the booking was made), causing a mismatch with what the user expects.
+### Problem 1: Missing Reservation Email Templates
+The `email_templates` table has **no reservation templates**:
+- Currently has: order templates (new_order, order_approved, etc.) and payout templates
+- Missing: `new_reservation_customer`, `new_reservation_admin`, `reservation_confirmed_customer`, `reservation_confirmed_admin`, `reservation_cancelled_customer`, `reservation_cancelled_admin`, `reservation_reminder_customer`
 
-### Current Data:
-| Reservation | Created | Scheduled For | Status |
-|-------------|---------|---------------|--------|
-| ARW-RSV-1610 | Feb 9 | **Feb 17** | No Show |
-| ARW-RSV-4814 | Feb 9 | **Feb 18** | Confirmed |
+The edge function HAS reservation support (code is there), but the database doesn't have the templates for admins to customize.
 
-### Current Behavior (WRONG):
-- Filter: "This Month" = Feb 1 - Feb 9
-- Queries filter by `reservation_date` (Feb 17 & 18 are **outside** this range)
-- Result: Shows **0** for everything
+### Problem 2: Missing Reservation SMS Templates
+The `sms_templates` table has only 1 reservation template (`reservation_received`):
+- Missing: `reservation_confirmed`, `reservation_cancelled`, `reservation_cancelled_by_customer`, `reservation_reminder`
 
-### Expected Behavior (CORRECT):
-- Filter: "This Month" = Feb 1 - Feb 9  
-- Should filter by `created_at` (Feb 9 is **within** this range)
-- Result: Should show **1 No Show** and **2 Total Reservations**
+### Problem 3: Templates Page Doesn't Show Reservation Variables
+The EmailTemplates page and SMS page don't include reservation-specific variables in their help sections:
+- Missing: `{{reservation_code}}`, `{{reservation_date}}`, `{{reservation_time}}`, `{{pax}}`
 
----
-
-## Root Cause
-
-In `src/components/admin/ReservationStatsCard.tsx`, both the **Total Reservations** and **No Shows** queries filter by `reservation_date`:
-
-```typescript
-// Current - WRONG
-.gte("reservation_date", format(dateRange.start, 'yyyy-MM-dd'))
-.lte("reservation_date", format(dateRange.end, 'yyyy-MM-dd'))
-```
-
-This means if you select "Today" (Feb 9), it only shows reservations **scheduled for Feb 9**, not reservations **made on Feb 9**.
+### Problem 4: SMS Status Not Auto-Syncing
+Currently the user has to click "Sync Status" manually to update SMS delivery statuses from Semaphore API. There's NO cron job for `sync-sms-status`. The existing auto-sync only refreshes locally cached data (every 30s) - it doesn't call the Semaphore API to get actual delivery status updates.
 
 ---
 
 ## Solution
 
-Change the queries to filter by **`created_at`** instead of `reservation_date` for the date-filtered stats:
+### Part 1: Add Missing Reservation Email Templates (Database)
 
-### File: `src/components/admin/ReservationStatsCard.tsx`
+Insert the following email templates:
 
-**1. Total Reservations Query (lines 43-54)**
+| Type | Name | For |
+|------|------|-----|
+| `new_reservation_customer` | Reservation Received (Customer) | Customer confirmation |
+| `new_reservation_admin` | New Reservation Alert (Admin) | Admin notification |
+| `reservation_confirmed_customer` | Reservation Confirmed (Customer) | Customer confirmation |
+| `reservation_confirmed_admin` | Reservation Confirmed (Admin) | Admin notification |
+| `reservation_cancelled_customer` | Reservation Cancelled (Customer) | Customer notification |
+| `reservation_cancelled_admin` | Reservation Cancelled (Admin) | Admin notification |
+| `reservation_reminder_customer` | Reservation Reminder (Customer) | Reminder email |
+
+### Part 2: Add Missing Reservation SMS Templates (Database)
+
+Insert the following SMS templates:
+
+| Type | Name |
+|------|------|
+| `reservation_confirmed` | Reservation Confirmed |
+| `reservation_cancelled` | Reservation Cancelled |
+| `reservation_cancelled_by_customer` | Reservation Cancelled by Customer |
+| `reservation_reminder` | Reservation Reminder |
+
+### Part 3: Add Reservation Variables to UI Help Sections
+
+**File: `src/pages/admin/EmailTemplates.tsx`**
+
+Add to `variablesList`:
 ```typescript
-// FIX: Filter by created_at (when booking was made)
-const { data: totalCount, isLoading: loadingTotal } = useQuery({
-  queryKey: ["reservation-stats", "total", dateFilter, dateRange.start.toISOString(), dateRange.end.toISOString()],
-  queryFn: async () => {
-    const { count, error } = await supabase
-      .from("reservations")
-      .select("*", { count: "exact", head: true })
-      .gte("created_at", dateRange.start.toISOString())  // Changed from reservation_date
-      .lte("created_at", dateRange.end.toISOString());   // Changed from reservation_date
-    if (error) throw error;
-    return count || 0;
-  },
-});
+{ variable: '{{reservation_code}}', description: 'Reservation code (e.g., ARW-RSV-1234)', category: 'Reservation' },
+{ variable: '{{reservation_date}}', description: 'Reservation date (e.g., Feb 17, 2026)', category: 'Reservation' },
+{ variable: '{{reservation_time}}', description: 'Reservation time (e.g., 6:00 PM)', category: 'Reservation' },
+{ variable: '{{pax}}', description: 'Number of guests', category: 'Reservation' },
 ```
 
-**2. No Shows Query (lines 85-97)**
+**File: `src/pages/admin/Sms.tsx`**
+
+Add to `smsVariables`:
 ```typescript
-// FIX: Filter by created_at (when booking was made)
-const { data: noShowCount, isLoading: loadingNoShow } = useQuery({
-  queryKey: ["reservation-stats", "no-show", dateFilter, dateRange.start.toISOString(), dateRange.end.toISOString()],
-  queryFn: async () => {
-    const { count, error } = await supabase
-      .from("reservations")
-      .select("*", { count: "exact", head: true })
-      .eq("status", "no_show")
-      .gte("created_at", dateRange.start.toISOString())  // Changed from reservation_date
-      .lte("created_at", dateRange.end.toISOString());   // Changed from reservation_date
-    if (error) throw error;
-    return count || 0;
-  },
-});
+{ variable: '{{reservation_code}}', description: 'Reservation code' },
+{ variable: '{{reservation_date}}', description: 'Reservation date' },
+{ variable: '{{reservation_time}}', description: 'Reservation time' },
+{ variable: '{{pax}}', description: 'Number of guests' },
+```
+
+### Part 4: Add Type Labels for Reservation Templates in UI
+
+**File: `src/pages/admin/EmailTemplates.tsx`** - Add to `getEmailTypeLabel`:
+```typescript
+new_reservation: { label: 'New Reservation', color: 'bg-purple-500/20 text-purple-700' },
+reservation_confirmed: { label: 'Reservation Confirmed', color: 'bg-green-500/20 text-green-700' },
+reservation_cancelled: { label: 'Reservation Cancelled', color: 'bg-red-500/20 text-red-700' },
+reservation_cancelled_by_customer: { label: 'Cancelled by Customer', color: 'bg-gray-500/20 text-gray-700' },
+reservation_reminder: { label: 'Reservation Reminder', color: 'bg-amber-500/20 text-amber-700' },
+```
+
+**File: `src/pages/admin/Sms.tsx`** - Add to `getTypeLabel`:
+```typescript
+reservation_received: { label: 'Reservation Received', color: 'bg-purple-500/20 text-purple-700' },
+reservation_confirmed: { label: 'Reservation Confirmed', color: 'bg-green-500/20 text-green-700' },
+reservation_cancelled: { label: 'Reservation Cancelled', color: 'bg-red-500/20 text-red-700' },
+reservation_cancelled_by_customer: { label: 'Cancelled by Customer', color: 'bg-gray-500/20 text-gray-700' },
+reservation_reminder: { label: 'Reservation Reminder', color: 'bg-amber-500/20 text-amber-700' },
+```
+
+### Part 5: Create Cron Job for SMS Status Sync
+
+Add a new cron job to automatically sync SMS statuses every 5 minutes:
+
+```sql
+SELECT cron.schedule(
+  'sync-sms-status',
+  '*/5 * * * *',
+  $$
+  SELECT net.http_post(
+    url:='https://saxwbdwmuzkmxztagfot.supabase.co/functions/v1/sync-sms-status',
+    headers:='{"Content-Type": "application/json", "Authorization": "Bearer <anon_key>"}'::jsonb,
+    body:='{"syncAll": true}'::jsonb
+  ) as request_id;
+  $$
+);
+```
+
+### Part 6: Add sync-sms-status to config.toml
+
+Add the edge function config:
+```toml
+[functions.sync-sms-status]
+verify_jwt = false
 ```
 
 ---
 
-## Behavior After Fix
+## Files to Modify
 
-| Stat | Filter | Logic | Expected Result |
-|------|--------|-------|-----------------|
-| Total Reservations | By created_at | "Bookings made in this period" | 2 (both created Feb 9) |
-| Pending Approval | No filter | All pending needing action | 0 |
-| Upcoming Confirmed | Today + future | Scheduled confirmations | 1 (Feb 18) |
-| No Shows | By created_at | "No-shows from bookings in period" | 1 (created Feb 9) |
+| File | Changes |
+|------|---------|
+| Database Migration | Add reservation email templates, SMS templates, and cron job |
+| `supabase/config.toml` | Add `sync-sms-status` function config |
+| `src/pages/admin/EmailTemplates.tsx` | Add reservation variables to help section + type labels |
+| `src/pages/admin/Sms.tsx` | Add reservation variables to help section + type labels |
 
 ---
 
 ## Summary
 
-| Before | After |
-|--------|-------|
-| Filters by when reservation is scheduled | Filters by when booking was made |
-| "This Month" shows future-dated reservations | "This Month" shows reservations booked this month |
-| Stats don't match dashboard expectations | Stats align with all other dashboard cards |
+| Issue | Fix |
+|-------|-----|
+| Missing reservation email templates | Add 7 new email templates for reservations |
+| Missing reservation SMS templates | Add 4 new SMS templates for reservations |
+| Templates UI missing reservation variables | Add `{{reservation_code}}`, `{{reservation_date}}`, `{{reservation_time}}`, `{{pax}}` |
+| SMS status not auto-syncing | Add cron job to call `sync-sms-status` every 5 minutes |
+| Logs not showing reservation types | Add type labels for reservation email/SMS types |
 
-**File to modify:**
-- `src/components/admin/ReservationStatsCard.tsx` - Change 2 queries from `reservation_date` to `created_at` filtering
+After this fix:
+- Admins can customize all reservation email/SMS templates
+- Email/SMS logs will properly display reservation-related entries with correct badges
+- SMS delivery statuses will auto-sync from Semaphore API every 5 minutes (no manual clicking!)
+- Template variable help sections will include reservation-specific variables
