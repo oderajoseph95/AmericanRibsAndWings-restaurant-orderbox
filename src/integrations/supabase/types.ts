@@ -1501,6 +1501,47 @@ export type Database = {
           },
         ]
       }
+      reservation_reminders: {
+        Row: {
+          created_at: string | null
+          error_message: string | null
+          id: string
+          reminder_type: string
+          reservation_id: string
+          scheduled_for: string
+          sent_at: string | null
+          status: string
+        }
+        Insert: {
+          created_at?: string | null
+          error_message?: string | null
+          id?: string
+          reminder_type: string
+          reservation_id: string
+          scheduled_for: string
+          sent_at?: string | null
+          status?: string
+        }
+        Update: {
+          created_at?: string | null
+          error_message?: string | null
+          id?: string
+          reminder_type?: string
+          reservation_id?: string
+          scheduled_for?: string
+          sent_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reservation_reminders_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reservations: {
         Row: {
           confirmation_code: string | null
