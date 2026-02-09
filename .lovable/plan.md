@@ -1,137 +1,109 @@
 
-# Plan: Add PDF Download to Tracking Page + Email Links
+# Plan: Fix Reservation Stats Card to Update with Dashboard Filters and Realtime
 
-## Problem
+## Problem Identified
 
-1. **Tracking Page**: Users who track their reservation can't download the PDF ticket - the download button only exists on the initial confirmation page
-2. **Emails**: Reservation emails don't have a link to download the reservation ticket or track the reservation
+The Reservation Stats Card is not updating with the dashboard because of **TWO bugs**:
+
+### Bug 1: Query Keys Not Included in Refresh Logic
+The reservation stats queries use `['reservation-stats', ...]` query keys, but the Dashboard's refresh functions only target `['dashboard', ...]` queries:
+
+```typescript
+// Current refresh logic - MISSES reservation-stats!
+await Promise.all([
+  queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+  queryClient.invalidateQueries({ queryKey: ['conversion-funnel'] }),
+  queryClient.invalidateQueries({ queryKey: ['live-visitors'] }),
+]);
+```
+
+### Bug 2: No Realtime Subscription for Reservations
+The realtime subscription only listens to the `orders` table:
+```typescript
+.on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, ...)
+```
+
+When reservations are created, confirmed, or marked as no-show, the stats card doesn't update.
 
 ---
 
-## Solution Overview
+## Solution
 
-| Issue | Fix |
-|-------|-----|
-| No PDF on tracking page | Add `ReservationTicket` component to reservation details section |
-| No link in emails | Add "Track & Download Ticket" button in all reservation emails |
+### Fix 1: Add `reservation-stats` to All Refresh Logic
 
----
+**File: `src/pages/admin/Dashboard.tsx`**
 
-## Part 1: Add PDF Download to Tracking Page
+**1.1. Update `refreshAllData` function (around line 54-61)**
+```typescript
+const refreshAllData = async () => {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+    queryClient.invalidateQueries({ queryKey: ['conversion-funnel'] }),
+    queryClient.invalidateQueries({ queryKey: ['live-visitors'] }),
+    queryClient.invalidateQueries({ queryKey: ['reservation-stats'] }), // ADD THIS
+    queryClient.invalidateQueries({ queryKey: ['today-reservations-alert'] }), // ADD THIS
+  ]);
+  setLastUpdate(new Date());
+};
+```
 
-### File: `src/pages/ReservationTracking.tsx`
+**1.2. Update auto-refresh interval (around line 86)**
+```typescript
+// Add reservation stats to auto-refresh
+queryClient.refetchQueries({ 
+  queryKey: ['dashboard'],
+  type: 'active',
+});
+queryClient.refetchQueries({ 
+  queryKey: ['reservation-stats'],  // ADD THIS
+  type: 'active',
+});
+```
 
-**Changes:**
+### Fix 2: Add Realtime Subscription for Reservations Table
 
-1. Import the `ReservationTicket` component
-2. Add it to the reservation details section (after the Pre-Order card, before Need Help)
+**File: `src/pages/admin/Dashboard.tsx`**
 
-**Location:** After line 521 (Pre-Order Card closing), before Store Contact Card
+Add a second channel subscription for the `reservations` table:
 
-```tsx
-// Import at top
-import { ReservationTicket } from "@/components/reservation/ReservationTicket";
+```typescript
+// Setup realtime subscription for orders
+const ordersChannel = supabase
+  .channel('dashboard-orders-realtime')
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+    // ... existing logic
+  })
+  .subscribe();
 
-// Add after Pre-Order Card, before Need Help Card
-{/* Download Ticket */}
-<Card>
-  <CardHeader className="pb-3">
-    <CardTitle className="text-base">Download Ticket</CardTitle>
-  </CardHeader>
-  <CardContent>
-    <ReservationTicket
-      reservationCode={reservation.reservation_code}
-      name={reservation.name}
-      pax={reservation.pax}
-      date={formatReservationDate(reservation.reservation_date)}
-      time={formatReservationTime(reservation.reservation_time)}
-    />
-    <p className="text-xs text-muted-foreground text-center mt-3">
-      Present this ticket on arrival
-    </p>
-  </CardContent>
-</Card>
+// ADD: Setup realtime subscription for reservations
+const reservationsChannel = supabase
+  .channel('dashboard-reservations-realtime')
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, () => {
+    queryClient.refetchQueries({ 
+      queryKey: ['reservation-stats'],
+      type: 'active',
+    });
+    queryClient.refetchQueries({ 
+      queryKey: ['today-reservations-alert'],
+      type: 'active',
+    });
+    setLastUpdate(new Date());
+  })
+  .subscribe();
+
+return () => {
+  supabase.removeChannel(ordersChannel);
+  supabase.removeChannel(reservationsChannel);
+};
 ```
 
 ---
 
-## Part 2: Add Tracking Link to Reservation Emails
+## Also Verify: Date Filtering Logic
 
-### File: `supabase/functions/send-email-notification/index.ts`
+The current no_show in the database has `reservation_date: 2026-02-17`, but today is Feb 9. The "This Month" filter shows Feb 1 - Feb 9 (today), so the no_show from Feb 17 correctly won't appear until that date arrives.
 
-**Add tracking button to these email types:**
-
-1. `new_reservation` - "Track Your Reservation" button
-2. `reservation_confirmed` - "View & Download Ticket" button  
-3. `reservation_reminder` - "Track Your Reservation" button
-
-**Button HTML (to be added to each template):**
-
-```html
-<div style="text-align: center; margin: 25px 0;">
-  <a href="https://arwfloridablanca.lovable.app/reserve/track?code=${payload.reservationCode}" 
-     style="background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
-    📱 Track & Download Ticket
-  </a>
-</div>
-<p style="text-align: center; color: #6b7280; font-size: 13px;">
-  Save the PDF ticket to present on arrival
-</p>
-```
-
-**Placement in each template:**
-
-| Email Type | Add After |
-|------------|-----------|
-| `new_reservation` | After the location section, before closing div |
-| `reservation_confirmed` | After location section, before the "arrive on time" note |
-| `reservation_reminder` | After location section, before the "We look forward" message |
-
----
-
-## Visual Result
-
-### Tracking Page (with PDF button)
-
-```
-┌─────────────────────────────────────────┐
-│ Status Card                             │
-├─────────────────────────────────────────┤
-│ Reservation Details                     │
-├─────────────────────────────────────────┤
-│ Pre-Order                               │
-├─────────────────────────────────────────┤
-│ Download Ticket                    NEW! │
-│ ┌─────────────────────────────────────┐ │
-│ │  📥 Download Reservation Ticket     │ │
-│ └─────────────────────────────────────┘ │
-│ Present this ticket on arrival          │
-├─────────────────────────────────────────┤
-│ Need Help?                              │
-└─────────────────────────────────────────┘
-```
-
-### Email (with tracking link)
-
-```
-┌─────────────────────────────────────────┐
-│ Your reservation is confirmed! 🎉       │
-├─────────────────────────────────────────┤
-│ ARW-RSV-1234                            │
-│ ✅ Confirmed                            │
-├─────────────────────────────────────────┤
-│ 📅 February 15, 2026 | 6:00 PM          │
-│ Party Size: 4 guests                    │
-├─────────────────────────────────────────┤
-│ 📍 American Ribs & Wings               │
-│ Floridablanca, Pampanga                 │
-├─────────────────────────────────────────┤
-│ ┌─────────────────────────────────────┐ │
-│ │  📱 Track & Download Ticket         │ │  ← NEW!
-│ └─────────────────────────────────────┘ │
-│ Save the PDF ticket to present on arrival│
-└─────────────────────────────────────────┘
-```
+This is **correct behavior** - the card filters by reservation_date, not created_at. Once Feb 17 passes (or if a no_show has a reservation_date within the selected range), it will display correctly.
 
 ---
 
@@ -139,31 +111,20 @@ import { ReservationTicket } from "@/components/reservation/ReservationTicket";
 
 | File | Changes |
 |------|---------|
-| `src/pages/ReservationTracking.tsx` | Import ReservationTicket, add Download Ticket card |
-| `supabase/functions/send-email-notification/index.ts` | Add tracking buttons to reservation email templates |
-
----
-
-## Technical Notes
-
-1. **ReservationTicket component** already handles:
-   - QR code generation pointing to tracking URL
-   - PDF generation with jsPDF
-   - All reservation details formatting
-
-2. **Tracking URL format**: `https://arwfloridablanca.lovable.app/reserve/track?code=ARW-RSV-XXXX`
-
-3. **PDF cannot be attached to email** because:
-   - PDF is generated client-side with jsPDF
-   - Would require server-side PDF generation which is complex
-   - The link approach is simpler and lets users track status too
+| `src/pages/admin/Dashboard.tsx` | Add `reservation-stats` to refresh logic + add reservations realtime channel |
 
 ---
 
 ## Summary
 
-| Before | After |
-|--------|-------|
-| PDF download only on initial confirmation | PDF download available anytime via tracking page |
-| Emails have no way to get ticket | Emails have prominent "Track & Download Ticket" button |
-| Users must remember to save PDF immediately | Users can get PDF anytime by tracking reservation |
+| Issue | Fix |
+|-------|-----|
+| Reservation stats not refreshing on manual/auto refresh | Add `reservation-stats` query key to `refreshAllData` and auto-refresh |
+| Reservation stats not updating in realtime | Add realtime subscription for `reservations` table |
+| No show showing 0 when there's 1 | Correct behavior - that no_show is scheduled for Feb 17, outside current filter range |
+
+After this fix:
+- Manual refresh button will refresh reservation stats
+- 30-second auto-refresh will include reservation stats
+- Creating/updating/deleting reservations will trigger instant stat updates
+- All cards on the dashboard will stay synchronized with the selected date filter
