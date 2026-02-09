@@ -1,194 +1,151 @@
 
 
-# Add Valentine's Day Floating Hearts with Admin Kill Switch
+# ISSUE R1.1 - Reservation Page Shell & Routing
 
 ## Overview
 
-Add subtle floating Valentine's Day elements (hearts, sparkles) across the store pages - similar to Christmas snowfall effects. The elements will float around without blocking any user interaction (`pointer-events: none`). An admin toggle in Settings will allow enabling/disabling without redeployment.
+Create a public reservation entry page at `/reserve` that serves as the foundation for all reservation-related flows. This is a **shell only** - no form logic, validation, or submission handling.
 
 ---
 
 ## Technical Implementation
 
-### 1. Database - Add Setting for Valentine Mode
+### 1. Create the Reservation Page
 
-Add a new setting in the `settings` table:
+**File:** `src/pages/Reserve.tsx`
 
-```sql
-INSERT INTO settings (key, value) VALUES ('valentine_mode_enabled', 'true')
-ON CONFLICT DO NOTHING;
-```
-
-The setting will use the existing `settings` table pattern (already has RLS policies for admin access).
-
----
-
-### 2. Create Valentine Hearts Component
-
-**File:** `src/components/home/ValentineHearts.tsx`
-
-A component that renders floating hearts with CSS animations:
+A new page component following the established patterns from `MyOrders.tsx` and `Index.tsx`:
 
 ```tsx
-import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { Link } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ArrowLeft, CalendarDays, Clock, MapPin, Info } from "lucide-react";
+import { SEOHead } from "@/components/SEOHead";
+import { Footer } from "@/components/home/Footer";
+import { useStoreStatus } from "@/hooks/useStoreStatus";
+import { STORE_NAME, STORE_ADDRESS_LINE1, STORE_ADDRESS_LINE3 } from "@/lib/constants";
+import { useVisitorPresence } from "@/hooks/useVisitorPresence";
 
-export function ValentineHearts() {
-  // Fetch setting from database
-  const { data: isEnabled } = useQuery({
-    queryKey: ["valentine-mode"],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("settings")
-        .select("value")
-        .eq("key", "valentine_mode_enabled")
-        .maybeSingle();
-      return data?.value === true || data?.value === "true";
-    },
-  });
-
-  if (!isEnabled) return null;
-
-  // Render 15-20 floating heart elements
-  const hearts = Array.from({ length: 15 }, (_, i) => ({
-    id: i,
-    left: `${Math.random() * 100}%`,
-    animationDelay: `${Math.random() * 10}s`,
-    animationDuration: `${15 + Math.random() * 10}s`,
-    size: 12 + Math.random() * 20,
-    opacity: 0.15 + Math.random() * 0.25,
-  }));
+export default function Reserve() {
+  useVisitorPresence("/reserve");
+  const { opensAt, closesAt, isLoading: storeStatusLoading } = useStoreStatus();
 
   return (
-    <div 
-      className="fixed inset-0 overflow-hidden pointer-events-none z-[5]"
-      aria-hidden="true"
-    >
-      {hearts.map((heart) => (
-        <div
-          key={heart.id}
-          className="absolute animate-float-heart text-pink-400"
-          style={{
-            left: heart.left,
-            animationDelay: heart.animationDelay,
-            animationDuration: heart.animationDuration,
-            fontSize: `${heart.size}px`,
-            opacity: heart.opacity,
-          }}
-        >
-          ♥
+    <div className="min-h-screen bg-background flex flex-col">
+      <SEOHead 
+        pagePath="/reserve" 
+        fallbackTitle="Reserve a Table | American Ribs & Wings"
+        fallbackDescription="Reserve your table at American Ribs & Wings. Choose your date, time, and number of guests."
+      />
+      
+      {/* Header */}
+      <header className="sticky top-0 z-40 bg-card border-b border-border">
+        <div className="container px-4 h-16 flex items-center gap-4">
+          <Button variant="ghost" size="icon" asChild>
+            <Link to="/">
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
+          </Button>
+          <div>
+            <h1 className="font-bold text-lg">Reserve a Table</h1>
+            <p className="text-xs text-muted-foreground">{STORE_NAME}</p>
+          </div>
         </div>
-      ))}
+      </header>
+
+      {/* Main Content */}
+      <main className="flex-1 container px-4 py-6 max-w-2xl mx-auto">
+        {/* Page Header */}
+        <div className="text-center mb-8">
+          <CalendarDays className="h-12 w-12 text-primary mx-auto mb-4" />
+          <h2 className="text-2xl font-bold mb-2">Reserve a Table</h2>
+          <p className="text-muted-foreground">
+            Reserve your table in advance. We'll confirm your reservation via SMS.
+          </p>
+        </div>
+
+        {/* Form Placeholder Container */}
+        <Card className="mb-6">
+          <CardContent className="pt-6">
+            <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-8 text-center">
+              <CalendarDays className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
+              <p className="text-muted-foreground text-sm">
+                Reservation form coming soon
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Store Info Section */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Info className="h-4 w-4 text-primary" />
+              Store Information
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Address */}
+            <div className="flex items-start gap-3">
+              <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
+              <div className="text-sm">
+                <p className="font-medium">{STORE_NAME}</p>
+                <p className="text-muted-foreground">{STORE_ADDRESS_LINE1}</p>
+                <p className="text-muted-foreground">{STORE_ADDRESS_LINE3}</p>
+              </div>
+            </div>
+            
+            {/* Hours */}
+            {!storeStatusLoading && opensAt && closesAt && (
+              <div className="flex items-start gap-3">
+                <Clock className="h-4 w-4 text-muted-foreground mt-0.5" />
+                <div className="text-sm">
+                  <p className="font-medium">Operating Hours</p>
+                  <p className="text-muted-foreground">{opensAt} - {closesAt}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Confirmation Note */}
+            <div className="bg-muted/50 rounded-lg p-3 text-xs text-muted-foreground">
+              <p>Reservations are subject to confirmation. You will receive an SMS once your reservation is confirmed.</p>
+            </div>
+          </CardContent>
+        </Card>
+      </main>
+
+      {/* Footer */}
+      <Footer />
     </div>
   );
 }
 ```
 
 Key features:
-- `pointer-events: none` - won't block any user interaction
-- `z-[5]` - low z-index so it's behind modals, toasts, etc.
-- Very subtle opacity (0.15 - 0.4)
-- Randomized positions, sizes, and animation timings
+- Follows `MyOrders.tsx` layout pattern (sticky header with back button, centered content)
+- Uses existing theme tokens and components
+- Mobile-first responsive design
+- SEO-ready with `SEOHead` component
+- Includes visitor presence tracking
+- Read-only store info from constants and `useStoreStatus` hook
+- Dashed placeholder container clearly indicates "form coming soon"
+- No CTAs that pretend to work
 
 ---
 
-### 3. Add CSS Animations
-
-**File:** `src/index.css`
-
-Add keyframes for floating hearts:
-
-```css
-/* Valentine floating hearts */
-@keyframes float-heart {
-  0% {
-    transform: translateY(100vh) rotate(0deg);
-    opacity: 0;
-  }
-  10% {
-    opacity: 1;
-  }
-  90% {
-    opacity: 1;
-  }
-  100% {
-    transform: translateY(-100px) rotate(360deg);
-    opacity: 0;
-  }
-}
-
-.animate-float-heart {
-  animation: float-heart linear infinite;
-}
-```
-
-The animation:
-- Starts from bottom of screen
-- Floats upward with gentle rotation
-- Fades in at start, fades out near top
-- Infinitely repeating
-
----
-
-### 4. Add to App Layout
+### 2. Add Route to App.tsx
 
 **File:** `src/App.tsx`
 
-Add the ValentineHearts component inside the SalesPopProvider (so it shows on all customer-facing pages):
+Add the `/reserve` route alongside other public routes:
 
 ```tsx
-import { ValentineHearts } from "@/components/home/ValentineHearts";
+// Add import at top
+import Reserve from "./pages/Reserve";
 
-// Inside the Routes, add as sibling to Routes:
-<SalesPopProvider>
-  <ValentineHearts />  {/* Add this */}
-  <Routes>
-    ...
-  </Routes>
-</SalesPopProvider>
-```
-
----
-
-### 5. Admin Kill Switch in Settings
-
-**File:** `src/pages/admin/Settings.tsx`
-
-Add a toggle in the Settings page (after Sales Pop section):
-
-```tsx
-{/* Valentine Mode Section */}
-<Card>
-  <CardHeader>
-    <CardTitle className="flex items-center gap-2">
-      <Heart className="h-5 w-5 text-pink-500" />
-      Valentine's Day Mode
-    </CardTitle>
-    <CardDescription>
-      Enable floating hearts for the Valentine season
-    </CardDescription>
-  </CardHeader>
-  <CardContent>
-    <div className="flex items-center justify-between">
-      <div>
-        <Label>Enable Valentine Hearts</Label>
-        <p className="text-xs text-muted-foreground">
-          Show subtle floating hearts on customer pages
-        </p>
-      </div>
-      <Switch
-        checked={getSetting('valentine_mode_enabled') === 'true' || getSetting('valentine_mode_enabled') === true}
-        onCheckedChange={(checked) =>
-          saveSettingMutation.mutate({
-            key: 'valentine_mode_enabled',
-            value: checked,
-          })
-        }
-      />
-    </div>
-  </CardContent>
-</Card>
+// Add route after /my-orders (around line 77)
+<Route path="/reserve" element={<Reserve />} />
 ```
 
 ---
@@ -197,34 +154,62 @@ Add a toggle in the Settings page (after Sales Pop section):
 
 | File | Change |
 |------|--------|
-| `src/components/home/ValentineHearts.tsx` | **Create** - New component for floating hearts |
-| `src/index.css` | Add `@keyframes float-heart` animation |
-| `src/App.tsx` | Add `<ValentineHearts />` component |
-| `src/pages/admin/Settings.tsx` | Add Valentine mode toggle switch |
-| Database | Insert default setting `valentine_mode_enabled = true` |
+| `src/pages/Reserve.tsx` | **Create** - New reservation page shell |
+| `src/App.tsx` | Add `/reserve` route |
+
+---
+
+## What This Creates
+
+- **Route:** `/reserve` - Public, no authentication required
+- **Page Layout:**
+  - Sticky header with back button and title
+  - Page heading with icon, title, and helper text
+  - Dashed placeholder container for future form
+  - Store info card (name, address, hours)
+  - Confirmation note about SMS
+  - Standard footer
+
+---
+
+## What This Does NOT Create
+
+- No form fields
+- No date/time pickers
+- No validation logic
+- No submission handling
+- No email/SMS notifications
+- No reservation codes
+- No admin views
+- No analytics events
+
+---
+
+## Accessibility & Responsiveness
+
+- Title visible without scrolling on mobile
+- Content centered with max-width constraint
+- No horizontal overflow
+- Placeholder container adapts to screen width
+- All text uses existing theme tokens
+
+---
+
+## SEO Setup
+
+- Page title: "Reserve a Table | American Ribs & Wings"
+- Meta description: "Reserve your table at American Ribs & Wings. Choose your date, time, and number of guests."
+- Uses existing `SEOHead` component with fallbacks
+- Ready for `page_seo` table override if admin wants to customize
 
 ---
 
 ## Result
 
-**Customer Experience:**
-- Subtle floating pink hearts drift upward across the page
-- Very low opacity (15-40%) so they don't distract
-- Cannot be clicked/blocked (pointer-events: none)
-- Works on all pages (homepage, order page, etc.)
-
-**Admin Control:**
-- Toggle in Admin > Settings to enable/disable
-- Changes take effect immediately (no redeploy needed)
-- Can turn off after Valentine's Day ends
-
----
-
-## What This Protects
-
-- Customer checkout flow unchanged
-- Cart behavior unchanged
-- All existing functionality unchanged
-- Elements don't interfere with any UI interactions
-- Mobile experience unchanged (hearts still float but very subtle)
+After implementation:
+- `/reserve` loads correctly on desktop, tablet, and mobile
+- Page uses existing site theme and components
+- Placeholder clearly communicates "form coming soon"
+- Store info displayed for customer reference
+- Ready for R1.2 to add form logic
 
