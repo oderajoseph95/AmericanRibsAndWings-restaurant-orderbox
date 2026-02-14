@@ -26,6 +26,9 @@ export type EmailType =
   | "reservation_cancelled"
   | "reservation_cancelled_by_customer"
   | "reservation_reminder"
+  | "reservation_checked_in"
+  | "reservation_no_show"
+  | "reservation_completed"
   | "test_email";
 
 export interface OrderItem {

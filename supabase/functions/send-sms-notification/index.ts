@@ -230,6 +230,15 @@ function getDefaultMessage(type: string, payload: SmsPayload): string {
     // Reservation reminder
     reservation_reminder: `ARW Reminder 🍽️\n\nHi ${payload.customerName || ''},\nReminder for your reservation ${reservationDate} at ${reservationTime} for ${pax} guests.\n\nCode: ${reservationCode}\n📍 American Ribs & Wings – Floridablanca\n\nSee you soon!`,
     
+    // Reservation check-in
+    reservation_checked_in: `Welcome, ${payload.customerName || ''}! You're checked in.\nCode: ${reservationCode}\nEnjoy your meal at American Ribs & Wings! 🍗`,
+    
+    // Reservation no-show
+    reservation_no_show: `Hi ${payload.customerName || ''}, we missed you for your reservation (${reservationCode}) on ${reservationDate} at ${reservationTime}.\nWe hope to see you next time!\n- American Ribs & Wings`,
+    
+    // Reservation completed
+    reservation_completed: `Thank you for dining with us, ${payload.customerName || ''}!\nIt was wonderful having you and your group of ${pax}.\nWe hope to see you again soon! 🍗\n- American Ribs & Wings`,
+    
     // Review request - MUST be under 140 characters
     review_request: `Loved your order? Review us! g.page/r/CX7_36IAlM8XEBM/review - American Ribs & Wings`,
     
