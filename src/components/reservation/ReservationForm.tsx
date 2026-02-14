@@ -140,6 +140,7 @@ export function ReservationForm({ onSuccess, storeHours }: ReservationFormProps)
   const [notes, setNotes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [dateOpen, setDateOpen] = useState(false);
 
   // Fetch reservation settings for slot duration
   const { data: reservationSettings } = useQuery({
@@ -160,9 +161,11 @@ export function ReservationForm({ onSuccess, storeHours }: ReservationFormProps)
   const slotDuration = reservationSettings?.slot_duration_minutes ?? DEFAULT_RESERVATION_SETTINGS.slot_duration_minutes;
   const timeSlots = generateTimeSlots(storeHours.opensAt, storeHours.closesAt, slotDuration);
   
-  // Date constraints: tomorrow to 30 days from now
-  const minDate = addDays(startOfDay(new Date()), 1);
-  const maxDate = addDays(startOfDay(new Date()), 30);
+  // Date constraints: today (if before 11 PM) to 30 days from now
+  const now = new Date();
+  const currentHour = now.getHours();
+  const minDate = currentHour < 23 ? startOfDay(now) : addDays(startOfDay(now), 1);
+  const maxDate = addDays(startOfDay(now), 30);
 
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -381,7 +384,7 @@ export function ReservationForm({ onSuccess, storeHours }: ReservationFormProps)
           {/* Date */}
           <div className="space-y-2">
             <Label>Reservation Date *</Label>
-            <Popover>
+            <Popover open={dateOpen} onOpenChange={setDateOpen}>
               <PopoverTrigger asChild>
                 <Button
                   variant="outline"
@@ -400,9 +403,10 @@ export function ReservationForm({ onSuccess, storeHours }: ReservationFormProps)
                 <Calendar
                   mode="single"
                   selected={date}
-                  onSelect={setDate}
+                  onSelect={(d) => { setDate(d); setDateOpen(false); }}
                   disabled={(d) => isBefore(d, minDate) || isAfter(d, maxDate)}
                   initialFocus
+                  className="pointer-events-auto"
                 />
               </PopoverContent>
             </Popover>
