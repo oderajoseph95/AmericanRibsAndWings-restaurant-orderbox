@@ -1,67 +1,90 @@
 
 
-# Add Manual Reminder Button and Scheduled Reminders Display
+# Add SMS/Email Notifications for Check-In, No-Show, and Completed
 
-## Changes to `src/pages/admin/ReservationDetail.tsx`
+## What's Missing
 
-### 1. New Query: Fetch Scheduled Reminders
-Add a query to fetch all `reservation_reminders` rows for this reservation, ordered by `scheduled_for`. This shows admins the full reminder schedule with statuses (pending, sent, failed, cancelled).
+Currently, when an admin marks a reservation as **Checked In**, **No Show**, or **Completed**, no SMS or email is sent to the customer. Only a system log entry is created. This means customers get no communication for these important status changes.
 
-### 2. "Send Reminder Now" Button
-Add a button in the Actions/Notifications area for confirmed reservations that:
-- Sends an immediate SMS reminder to the customer with clear reminder content (e.g., "REMINDER: Your reservation is today/on [date] at [time] for [pax] guests. Code: [code]")
-- Logs the notification to `reservation_notifications` audit table
-- Logs the admin action to `admin_logs`
-- Shows loading state while sending
-- Only visible when reservation status is `confirmed`
+## Changes
 
-### 3. Scheduled Reminders Card
-A new card section (placed before Notification History) displaying all reminder entries:
-- Shows each reminder type (12h, 6h, 3h, 1h, 30min, 15min)
-- Status badge: Pending (yellow), Sent (green), Failed (red), Cancelled (gray)
-- Scheduled time formatted nicely
-- Sent time if already sent
-- Error message if failed
+### 1. Add New SMS Types (`src/hooks/useSmsNotifications.ts`)
+
+Add three new SMS types to the `SmsType` union:
+- `reservation_checked_in`
+- `reservation_no_show`
+- `reservation_completed`
+
+### 2. Add Default SMS Messages (`supabase/functions/send-sms-notification/index.ts`)
+
+Add default message templates for the three new types:
+
+- **Check-In**: "Welcome to American Ribs & Wings! You're checked in for your reservation. Code: [code]. Enjoy your meal!"
+- **No-Show**: "We missed you! Your reservation [code] on [date] at [time] has been marked as a no-show. We hope to see you next time. - American Ribs & Wings"
+- **Completed**: "Thank you for dining with us, [name]! It was wonderful having you. We hope you enjoyed your meal. See you again soon! - American Ribs & Wings"
+
+### 3. Add SMS Templates to Database (Migration)
+
+Insert three new rows into `sms_templates` so admins can customize the content later:
+- `reservation_checked_in`
+- `reservation_no_show`
+- `reservation_completed`
+
+### 4. Expand Notification Triggers in `ReservationDetail.tsx`
+
+Currently lines 277 and 329 only send notifications for `confirmed` or `cancelled`. Expand this to also cover `checked_in`, `no_show`, and `completed`:
+
+- **Email**: Change the condition from `(newStatus === 'confirmed' || newStatus === 'cancelled')` to also include `checked_in`, `no_show`, `completed`
+- **SMS**: Same expansion
+- Map each status to its correct email/SMS type
+- All notifications are logged to `reservation_notifications` for the audit trail (already visible in Reservation Details)
+
+### 5. Invalidate Notification Logs on Status Change
+
+After sending notifications, invalidate the `reservation-notifications` query so the Notification History card in Reservation Details updates immediately.
 
 ## Technical Details
 
 ### Files Modified
+
 | File | Change |
 |------|--------|
-| `src/pages/admin/ReservationDetail.tsx` | Add reminders query, "Send Reminder Now" button, Scheduled Reminders card |
+| `src/hooks/useSmsNotifications.ts` | Add 3 new SMS types |
+| `supabase/functions/send-sms-notification/index.ts` | Add 3 default messages |
+| `src/pages/admin/ReservationDetail.tsx` | Expand notification triggers to cover check_in, no_show, completed |
+| New migration | Insert 3 new `sms_templates` rows |
 
-### New State Variables
-- `sendingReminder` (boolean) - loading state for manual reminder button
+### SMS Content
 
-### New Query
-```typescript
-const { data: scheduledReminders = [] } = useQuery({
-  queryKey: ['reservation-reminders', id],
-  queryFn: async () => {
-    const { data, error } = await supabase
-      .from('reservation_reminders')
-      .select('*')
-      .eq('reservation_id', id!)
-      .order('scheduled_for', { ascending: true });
-    if (error) throw error;
-    return data;
-  },
-  enabled: !!id,
-});
+**reservation_checked_in:**
+```
+Welcome, {{customer_name}}! You're checked in.
+Code: {{reservation_code}}
+Enjoy your meal at American Ribs & Wings!
 ```
 
-### Manual Reminder Handler
-- Calls `sendSmsNotification` with type `reservation_reminder` and clear reminder message content
-- The edge function `send-sms-notification` already supports `reservation_reminder` type
-- Logs to both `reservation_notifications` and `admin_logs`
-- Invalidates the reminders and notifications queries on success
+**reservation_no_show:**
+```
+Hi {{customer_name}}, we missed you for your reservation ({{reservation_code}}) on {{reservation_date}} at {{reservation_time}}.
+We hope to see you next time!
+- American Ribs & Wings
+```
 
-### Scheduled Reminders Card UI
-- Table/list showing: Reminder Type | Scheduled For | Status | Sent At
-- Color-coded status badges
-- Placed between "Resend Notifications" and "Notification History" cards
-- Only shown for confirmed/checked_in reservations or when reminders exist
+**reservation_completed:**
+```
+Thank you for dining with us, {{customer_name}}!
+It was wonderful having you and your group of {{pax}}.
+We hope to see you again soon!
+- American Ribs & Wings
+```
 
-### Import Addition
-- Add `Bell` icon from lucide-react for the reminder sections
+### Notification Flow for Each Status
+
+**Check-In**: Admin clicks "Check In" -> SMS + Email sent to customer -> Admin copy SMS -> Logged to reservation_notifications
+
+**No-Show**: Admin clicks "No Show" -> SMS + Email sent to customer -> Admin copy SMS -> Logged to reservation_notifications
+
+**Completed**: Admin clicks "Complete" -> SMS + Email sent to customer (thank-you message) -> Admin copy SMS -> Logged to reservation_notifications
+
+All of these will appear in the Notification History card that already exists in Reservation Details.
 
