@@ -1,71 +1,43 @@
 
-# Plan: Drop Duplicate `create_reservation` Function
 
-## Root Cause (CONFIRMED)
+# Fix: Reservation Date Picker - Allow Today & Auto-Close
 
-The database has **TWO** `create_reservation` functions:
+## Problem 1: Today's Date is Always Disabled
 
-| OID | Parameters |
-|-----|------------|
-| 62839 | 8 params (p_name, p_phone, p_email, p_pax, p_reservation_date, p_reservation_time, p_notes, p_preorder_items) |
-| 63026 | 9 params (same + p_idempotency_hash) |
-
-When the frontend calls with 7 parameters, PostgreSQL sees both functions as equally valid candidates because:
-- Both have defaults for the remaining parameters
-- Both match the 7 parameters provided
-- PostgreSQL can't pick between them → "Could not choose the best candidate function"
-
-## Why Previous Fix Didn't Work
-
-The migration file `20260209091147_bcccc7ef...` only updated `lookup_reservation` and `cancel_reservation_by_customer` functions. **It did NOT drop the duplicate `create_reservation` function!**
-
-## Solution
-
-Create a new database migration that:
-
-1. **Drops the OLD 8-parameter function** (OID 62839 - without `p_idempotency_hash`)
-2. Keeps only the new 9-parameter function (which has `p_idempotency_hash` with a DEFAULT value)
-
-### Migration SQL
-
-```sql
--- Drop the duplicate function causing ambiguity
--- This drops the version WITHOUT p_idempotency_hash parameter
-DROP FUNCTION IF EXISTS public.create_reservation(
-  text, text, text, integer, date, time without time zone, text, jsonb
-);
+**Root Cause**: Line 164 sets the minimum selectable date to **tomorrow**:
+```typescript
+const minDate = addDays(startOfDay(new Date()), 1); // ALWAYS tomorrow
 ```
 
-This leaves only ONE function with signature:
-```sql
-create_reservation(
-  p_name text, 
-  p_phone text, 
-  p_email text, 
-  p_pax integer, 
-  p_reservation_date date, 
-  p_reservation_time time, 
-  p_notes text, 
-  p_preorder_items jsonb, 
-  p_idempotency_hash text DEFAULT NULL
-)
+This means Feb 14 is never selectable on Feb 14, regardless of the time.
+
+**Fix**: Change the logic so that today is selectable if the current time is before 11 PM (23:00):
+```typescript
+const now = new Date();
+const currentHour = now.getHours();
+// Allow today if before 11 PM, otherwise start from tomorrow
+const minDate = currentHour < 23 ? startOfDay(now) : addDays(startOfDay(now), 1);
 ```
 
-## Technical Details
+## Problem 2: Date Picker Doesn't Auto-Close
 
-- The remaining function has `p_idempotency_hash DEFAULT NULL` so callers don't need to provide it
-- The function internally generates the hash if not provided (line 102-108 in the function body)
-- The frontend call passes 7 params → PostgreSQL will match the only remaining function
+**Root Cause**: The `Popover` is uncontrolled -- there's no state to close it when a date is selected.
 
-## File to Create
+**Fix**: Add controlled `open` state and close the popover on date selection:
+```typescript
+const [dateOpen, setDateOpen] = useState(false);
 
-| Type | Action |
-|------|--------|
-| Database Migration | DROP the 8-parameter `create_reservation` function |
+// In onSelect handler:
+onSelect={(d) => { setDate(d); setDateOpen(false); }}
+```
 
-## Expected Result
+Also add `pointer-events-auto` to the Calendar className (required for proper interaction inside popovers).
 
-After this fix:
-- Only ONE `create_reservation` function exists
-- Reservations will create successfully without "Could not choose best candidate function" error
-- The function will auto-generate idempotency hash internally
+## File to Modify
+
+**`src/components/reservation/ReservationForm.tsx`**:
+- Change `minDate` calculation to allow today before 11 PM
+- Add `dateOpen` state for controlled popover
+- Close popover on date selection
+- Add `pointer-events-auto` to Calendar
+
