@@ -86,6 +86,9 @@ export default function Reservations() {
       const today = format(new Date(), 'yyyy-MM-dd');
       if (dateFilter === 'upcoming') {
         query = query.gte('reservation_date', today);
+        if (statusFilter === 'all') {
+          query = query.in('status', ['pending', 'confirmed', 'checked_in']);
+        }
       } else if (dateFilter === 'today') {
         query = query.eq('reservation_date', today);
       } else if (dateFilter === 'past') {
