@@ -17,6 +17,9 @@ export type SmsType =
   | "reservation_cancelled"
   | "reservation_cancelled_by_customer"
   | "reservation_reminder"
+  | "reservation_checked_in"
+  | "reservation_no_show"
+  | "reservation_completed"
   | "test";
 
 export interface SmsNotificationPayload {

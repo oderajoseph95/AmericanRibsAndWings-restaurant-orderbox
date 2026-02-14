@@ -273,103 +273,102 @@ export default function ReservationDetail() {
         }
       }
 
-      // Send customer email notification (only if customer has email and status is confirmed or cancelled)
-      if (reservation?.email && (newStatus === 'confirmed' || newStatus === 'cancelled')) {
-        const emailType = newStatus === 'confirmed' ? 'reservation_confirmed' : 'reservation_cancelled';
+      // Statuses that trigger customer notifications
+      const notifyStatuses: ReservationStatus[] = ['confirmed', 'cancelled', 'checked_in', 'no_show', 'completed'];
+      
+      if (reservation && notifyStatuses.includes(newStatus)) {
+        // Map status to email/sms type
+        const emailTypeMap: Record<string, string> = {
+          confirmed: 'reservation_confirmed',
+          cancelled: 'reservation_cancelled',
+          checked_in: 'reservation_checked_in',
+          no_show: 'reservation_no_show',
+          completed: 'reservation_completed',
+        };
+        const smsTypeMap: Record<string, string> = {
+          confirmed: 'reservation_confirmed',
+          cancelled: 'reservation_cancelled',
+          checked_in: 'reservation_checked_in',
+          no_show: 'reservation_no_show',
+          completed: 'reservation_completed',
+        };
         
-        // Format date and time for email
+        const emailType = emailTypeMap[newStatus];
+        const smsType = smsTypeMap[newStatus];
+        
+        // Format date and time
         const formattedDate = format(new Date(reservation.reservation_date), 'MMMM d, yyyy');
-        const [hours, minutes] = reservation.reservation_time.split(':');
-        const timeDate = new Date();
-        timeDate.setHours(parseInt(hours), parseInt(minutes));
-        const formattedTime = format(timeDate, 'h:mm a');
+        const smsFormattedDate = format(new Date(reservation.reservation_date), 'MMM d');
+        const [h, m] = reservation.reservation_time.split(':');
+        const td = new Date();
+        td.setHours(parseInt(h), parseInt(m));
+        const formattedTime = format(td, 'h:mm a');
         
         // Prepare pre-order items
         const preorderItemsData = reservation.preorder_items as unknown as PreorderItem[] | null;
         
-        // Send email (fire and forget - don't block status update)
-        sendEmailNotification({
-          type: emailType,
-          recipientEmail: reservation.email,
-          reservationId: reservation.id,
-          reservationCode: reservation.reservation_code,
-          customerName: reservation.name,
-          customerPhone: reservation.phone,
-          customerEmail: reservation.email,
-          reservationDate: formattedDate,
-          reservationTime: formattedTime,
-          pax: reservation.pax,
-          notes: reservation.notes || undefined,
-          preorderItems: preorderItemsData?.map(item => ({
-            productName: item.productName,
-            quantity: item.quantity,
-          })),
-        }).then(result => {
-          // Log to reservation_notifications audit table
-          logReservationNotification({
+        // Send email if customer has email
+        if (reservation.email) {
+          sendEmailNotification({
+            type: emailType as any,
+            recipientEmail: reservation.email,
             reservationId: reservation.id,
-            channel: 'email',
-            recipient: reservation.email!,
-            status: result.success ? 'sent' : 'failed',
-            triggerType: 'automatic',
-            messageType: emailType,
-            errorMessage: result.error,
-          });
-          if (!result.success) {
-            console.error('Failed to send reservation email:', result.error);
-          } else {
-            console.log('Reservation email sent successfully');
-          }
-        }).catch(err => {
-          console.error('Email notification error:', err);
-        });
-      }
-
-      // Send customer SMS notification (always - phone is required)
-      if (reservation?.phone && (newStatus === 'confirmed' || newStatus === 'cancelled')) {
-        const smsType = newStatus === 'confirmed' ? 'reservation_confirmed' : 'reservation_cancelled';
+            reservationCode: reservation.reservation_code,
+            customerName: reservation.name,
+            customerPhone: reservation.phone,
+            customerEmail: reservation.email,
+            reservationDate: formattedDate,
+            reservationTime: formattedTime,
+            pax: reservation.pax,
+            notes: reservation.notes || undefined,
+            preorderItems: preorderItemsData?.map(item => ({
+              productName: item.productName,
+              quantity: item.quantity,
+            })),
+          }).then(result => {
+            logReservationNotification({
+              reservationId: reservation.id,
+              channel: 'email',
+              recipient: reservation.email!,
+              status: result.success ? 'sent' : 'failed',
+              triggerType: 'automatic',
+              messageType: emailType,
+              errorMessage: result.error,
+            });
+            queryClient.invalidateQueries({ queryKey: ['reservation-notifications', id] });
+          }).catch(err => console.error('Email notification error:', err));
+        }
         
-        // Format date and time for SMS (shorter format)
-        const smsFormattedDate = format(new Date(reservation.reservation_date), 'MMM d');
-        const [smsHours, smsMinutes] = reservation.reservation_time.split(':');
-        const smsTimeDate = new Date();
-        smsTimeDate.setHours(parseInt(smsHours), parseInt(smsMinutes));
-        const smsFormattedTime = format(smsTimeDate, 'h:mm a');
-        
-        // Send SMS (fire and forget - don't block status update)
-        sendSmsNotification({
-          type: smsType,
-          recipientPhone: reservation.phone,
-          reservationId: reservation.id,
-          reservationCode: reservation.reservation_code,
-          customerName: reservation.name,
-          reservationDate: smsFormattedDate,
-          reservationTime: smsFormattedTime,
-          pax: reservation.pax,
-        }).then(result => {
-          // Log to reservation_notifications audit table
-          logReservationNotification({
+        // Send SMS (phone is required)
+        if (reservation.phone) {
+          sendSmsNotification({
+            type: smsType as any,
+            recipientPhone: reservation.phone,
             reservationId: reservation.id,
-            channel: 'sms',
-            recipient: reservation.phone,
-            status: result.success ? 'sent' : 'failed',
-            triggerType: 'automatic',
-            messageType: smsType,
-            errorMessage: result.error,
-          });
-          if (!result.success) {
-            console.error('Failed to send reservation SMS:', result.error);
-          } else {
-            console.log('Reservation SMS sent successfully');
-          }
-        }).catch(err => {
-          console.error('SMS notification error:', err);
-        });
+            reservationCode: reservation.reservation_code,
+            customerName: reservation.name,
+            reservationDate: smsFormattedDate,
+            reservationTime: formattedTime,
+            pax: reservation.pax,
+          }).then(result => {
+            logReservationNotification({
+              reservationId: reservation.id,
+              channel: 'sms',
+              recipient: reservation.phone,
+              status: result.success ? 'sent' : 'failed',
+              triggerType: 'automatic',
+              messageType: smsType,
+              errorMessage: result.error,
+            });
+            queryClient.invalidateQueries({ queryKey: ['reservation-notifications', id] });
+          }).catch(err => console.error('SMS notification error:', err));
+        }
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-reservation', id] });
       queryClient.invalidateQueries({ queryKey: ['admin-reservations'] });
+      queryClient.invalidateQueries({ queryKey: ['reservation-notifications', id] });
       toast.success('Reservation status updated');
     },
     onError: (error: Error) => {
