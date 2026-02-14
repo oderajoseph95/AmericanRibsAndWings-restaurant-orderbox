@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNow } from 'date-fns';
-import { ArrowLeft, CalendarDays, Users, Phone, Mail, MessageSquare, Clock, Hash, Check, X, CheckCircle, UserX, Loader2, StickyNote, Send, Ticket, RefreshCw, History } from 'lucide-react';
+import { ArrowLeft, CalendarDays, Users, Phone, Mail, MessageSquare, Clock, Hash, Check, X, CheckCircle, UserX, Loader2, StickyNote, Send, Ticket, RefreshCw, History, Bell, AlertCircle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -92,6 +92,7 @@ export default function ReservationDetail() {
   const [noteText, setNoteText] = useState('');
   const [resendingEmail, setResendingEmail] = useState(false);
   const [resendingSms, setResendingSms] = useState(false);
+  const [sendingReminder, setSendingReminder] = useState(false);
 
   // Fetch reservation settings
   const { data: reservationSettings } = useReservationSettings();
@@ -444,6 +445,21 @@ export default function ReservationDetail() {
     enabled: !!reservation?.completed_by,
   });
 
+  // Query for scheduled reminders
+  const { data: scheduledReminders = [], isLoading: remindersLoading } = useQuery({
+    queryKey: ['reservation-reminders', id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('reservation_reminders')
+        .select('*')
+        .eq('reservation_id', id!)
+        .order('scheduled_for', { ascending: true });
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!id,
+  });
+
   // Query for timeline events - R5.3
   const { data: timelineEvents = [], isLoading: timelineLoading, error: timelineError } = useQuery({
     queryKey: ['reservation-timeline', id],
@@ -738,6 +754,63 @@ export default function ReservationDetail() {
       console.error('Resend SMS error:', err);
     } finally {
       setResendingSms(false);
+    }
+  };
+
+  // Send Manual Reminder Handler
+  const handleSendReminderNow = async () => {
+    if (!reservation?.phone) return;
+    
+    setSendingReminder(true);
+    try {
+      const smsFormattedDate = format(new Date(reservation.reservation_date), 'MMM d, yyyy');
+      const smsFormattedTime = formatTime(reservation.reservation_time);
+      
+      const result = await sendSmsNotification({
+        type: 'reservation_reminder',
+        recipientPhone: reservation.phone,
+        reservationId: reservation.id,
+        reservationCode: reservation.reservation_code,
+        customerName: reservation.name,
+        reservationDate: smsFormattedDate,
+        reservationTime: smsFormattedTime,
+        pax: reservation.pax,
+      });
+      
+      // Log to reservation_notifications audit table
+      await logReservationNotification({
+        reservationId: reservation.id,
+        channel: 'sms',
+        recipient: reservation.phone,
+        status: result.success ? 'sent' : 'failed',
+        triggerType: 'manual',
+        messageType: 'reservation_reminder',
+        errorMessage: result.error,
+        adminId: user?.id,
+      });
+      
+      await logAdminAction({
+        action: 'send_manual_reminder',
+        entityType: 'reservation',
+        entityId: reservation.id,
+        entityName: reservation.reservation_code,
+        details: `Sent manual SMS reminder to ${reservation.phone}`,
+        newValues: { channel: 'sms', status: result.success ? 'sent' : 'failed' },
+      });
+      
+      if (result.success) {
+        queryClient.invalidateQueries({ queryKey: ['reservation-notifications', id] });
+        queryClient.invalidateQueries({ queryKey: ['reservation-reminders', id] });
+        queryClient.invalidateQueries({ queryKey: ['reservation-timeline', id] });
+        toast.success('Reminder SMS sent successfully');
+      } else {
+        toast.error('Failed to send reminder: ' + result.error);
+      }
+    } catch (err) {
+      toast.error('Failed to send reminder');
+      console.error('Send reminder error:', err);
+    } finally {
+      setSendingReminder(false);
     }
   };
 
@@ -1106,6 +1179,112 @@ export default function ReservationDetail() {
                 Resend SMS
               </Button>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Send Reminder Now - for confirmed reservations */}
+      {reservation.status === 'confirmed' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Bell className="h-5 w-5 text-muted-foreground" />
+              Send Reminder
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Manually send an SMS reminder to the customer right now
+            </p>
+          </CardHeader>
+          <CardContent>
+            <Button
+              onClick={handleSendReminderNow}
+              disabled={sendingReminder}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              {sendingReminder ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Bell className="h-4 w-4 mr-2" />
+              )}
+              Send Reminder Now
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Scheduled Reminders */}
+      {(scheduledReminders.length > 0 || reservation.status === 'confirmed' || reservation.status === 'checked_in') && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Clock className="h-5 w-5 text-muted-foreground" />
+              Scheduled Reminders
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Automated reminder schedule for this reservation
+            </p>
+          </CardHeader>
+          <CardContent>
+            {remindersLoading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : scheduledReminders.length > 0 ? (
+              <div className="space-y-2">
+                {scheduledReminders.map((reminder) => (
+                  <div 
+                    key={reminder.id}
+                    className="flex flex-wrap items-center gap-2 p-3 bg-muted/50 rounded-lg text-sm"
+                  >
+                    {/* Reminder Type */}
+                    <Badge variant="outline" className="font-mono text-xs">
+                      {reminder.reminder_type}
+                    </Badge>
+                    
+                    {/* Status Badge */}
+                    <Badge variant="outline" className={
+                      reminder.status === 'sent' 
+                        ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800'
+                        : reminder.status === 'pending'
+                          ? 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950 dark:text-yellow-300 dark:border-yellow-800'
+                          : reminder.status === 'failed'
+                            ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800'
+                            : 'bg-gray-50 text-gray-500 border-gray-200 dark:bg-gray-900 dark:text-gray-400 dark:border-gray-700'
+                    }>
+                      {reminder.status === 'sent' && <Check className="h-3 w-3 mr-1" />}
+                      {reminder.status === 'pending' && <Clock className="h-3 w-3 mr-1" />}
+                      {reminder.status === 'failed' && <AlertCircle className="h-3 w-3 mr-1" />}
+                      {reminder.status === 'cancelled' && <X className="h-3 w-3 mr-1" />}
+                      {reminder.status.charAt(0).toUpperCase() + reminder.status.slice(1)}
+                    </Badge>
+
+                    {/* Scheduled For */}
+                    <span className="text-muted-foreground">
+                      Scheduled: {format(new Date(reminder.scheduled_for), 'MMM d, h:mm a')}
+                    </span>
+
+                    {/* Sent At */}
+                    {reminder.sent_at && (
+                      <span className="text-xs text-muted-foreground ml-auto">
+                        Sent: {format(new Date(reminder.sent_at), 'MMM d, h:mm a')}
+                      </span>
+                    )}
+
+                    {/* Error */}
+                    {reminder.status === 'failed' && reminder.error_message && (
+                      <div className="w-full mt-1 text-xs text-destructive">
+                        Error: {reminder.error_message}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No reminders scheduled. Reminders are created when a reservation is confirmed.
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
