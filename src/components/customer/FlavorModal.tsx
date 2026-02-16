@@ -89,8 +89,12 @@ export function FlavorModal({
 
   // Filter to wing flavors - used for both wings and ribs products (shared sauces)
   const availableFlavors = useMemo(() => {
-    return flavors.filter((f) => f.is_active && (f as any).flavor_category === 'wings');
-  }, [flavors]);
+    const lower = product.name.toLowerCase();
+    let category = 'wings';
+    if (lower.includes('fries') || lower.includes('fry')) category = 'fries';
+    if (lower.includes('drink') || lower.includes('beverage')) category = 'drinks';
+    return flavors.filter((f) => f.is_active && (f as any).flavor_category === category);
+  }, [flavors, product.name]);
 
   // Handle single-select (radio button behavior for ribs)
   const handleSingleSelect = (flavorId: string) => {
