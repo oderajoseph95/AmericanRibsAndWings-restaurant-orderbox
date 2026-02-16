@@ -1,36 +1,43 @@
 
 
-# Fix Reservation Sorting and Filtering for "Upcoming" View
+# Fix: FlavorModal Shows Wrong Flavors for Fries Products
 
 ## Problem
 
-The "Upcoming" tab currently shows all reservations from today onward regardless of status. This means completed, no-show, and cancelled reservations from earlier today (e.g., 11:00 AM) still appear at the top, pushing truly upcoming ones down. "Upcoming" should only show reservations that are still actionable.
+The `FlavorModal` component (line 92) hardcodes `flavor_category === 'wings'` when filtering available flavors. This means when a customer orders **Potato Fries 100g** or **Potato Fries 200g**, they see wing/rib sauces (like Hot Buffalo, Garlic Parmesan) instead of the actual fries flavors (Cheddar Explosion, Pizza Indulgence, Savory Truffle, Smoked BBQ).
+
+The database has 4 fries flavors properly categorized as `flavor_category: 'fries'`, but the modal never shows them.
 
 ## Solution
 
-Modify the query in `src/pages/admin/Reservations.tsx` to exclude terminal statuses when the "Upcoming" filter is active.
+Use the same `getFlavorCategory` logic from `BundleWizard` to determine which flavor category to show based on the product name. If the product name contains "fries" or "fry", show fries flavors. Otherwise default to wings.
 
-### Changes to `src/pages/admin/Reservations.tsx`
+### Changes to `src/components/customer/FlavorModal.tsx`
 
-**When `dateFilter === 'upcoming'` and `statusFilter === 'all'`:**
-- Automatically exclude terminal statuses: `completed`, `no_show`, `cancelled`, `cancelled_by_customer`
-- This ensures only `pending`, `confirmed`, and `checked_in` reservations appear in the upcoming view
-- If the admin explicitly selects a specific status filter (e.g., "Completed"), it will still work as expected and override this behavior
-
-### Technical Detail
-
-In the query builder (around line 82), add a condition:
+**Replace the hardcoded filter (line 90-93):**
 
 ```typescript
-if (dateFilter === 'upcoming') {
-  query = query.gte('reservation_date', today);
-  // When showing upcoming with no specific status filter,
-  // exclude terminal statuses
-  if (statusFilter === 'all') {
-    query = query.in('status', ['pending', 'confirmed', 'checked_in']);
-  }
-}
+// Before (broken):
+const availableFlavors = useMemo(() => {
+  return flavors.filter((f) => f.is_active && (f as any).flavor_category === 'wings');
+}, [flavors]);
+
+// After (fixed):
+const availableFlavors = useMemo(() => {
+  const lower = product.name.toLowerCase();
+  let category = 'wings'; // default
+  if (lower.includes('fries') || lower.includes('fry')) category = 'fries';
+  if (lower.includes('drink') || lower.includes('beverage')) category = 'drinks';
+  return flavors.filter((f) => f.is_active && (f as any).flavor_category === category);
+}, [flavors, product.name]);
 ```
 
-This is a single-line addition to the existing query logic. No other files need to change.
+This is a 3-line change to one file. No other files need modification.
+
+### Result
+
+- **Potato Fries 100g/200g**: Will show Cheddar Explosion, Pizza Indulgence, Savory Truffle, Smoked BBQ
+- **Combo Fries**: Will show fries flavors
+- **Wings/Ribs products**: Continue showing wing sauces as before
+- **Drinks products**: Would show drink flavors if any are added
 
